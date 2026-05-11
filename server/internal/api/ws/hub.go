@@ -106,3 +106,13 @@ func (h *Hub) GetRoom(roomID string) *RoomHub {
 	defer h.mu.RUnlock()
 	return h.Rooms[roomID]
 }
+
+func (h *Hub) GetOnlineCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	total := 0
+	for _, room := range h.Rooms {
+		total += room.Count()
+	}
+	return total
+}
