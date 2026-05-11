@@ -10,6 +10,7 @@ const navItems = [
   { href: "/admin/rooms", label: "Rooms", icon: "🃏" },
   { href: "/admin/ai-characters", label: "AI Characters", icon: "🧑" },
   { href: "/admin/llm-config", label: "LLM Config", icon: "🤖" },
+  { href: "/admin/stats", label: "LLM Stats", icon: "📈" },
 ];
 
 export function AdminSidebar() {
