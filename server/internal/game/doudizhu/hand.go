@@ -142,8 +142,11 @@ func ParsePlay(cards []Card) Play {
 			}
 			if !has2orJoker {
 				wings := len(cards) - len(tripleRanks)*3
-				// Wings can be singles or pairs.
-				if wings == len(tripleRanks) || wings == len(tripleRanks)*2 {
+				// Wings must be all singles (one per triple) or all pairs (one pair per triple).
+				if wings == len(tripleRanks) && countByFreq[1] == len(tripleRanks) {
+					return Play{Type: PlayAirplane, MainRank: tripleRanks[0], Length: len(tripleRanks)}
+				}
+				if wings == len(tripleRanks)*2 && countByFreq[2] == len(tripleRanks) {
 					return Play{Type: PlayAirplane, MainRank: tripleRanks[0], Length: len(tripleRanks)}
 				}
 			}

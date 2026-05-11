@@ -157,8 +157,16 @@ func TestParsePlay_Pass(t *testing.T) {
 
 func TestParsePlay_Airplane(t *testing.T) {
 	// 333,444 + 5,6 (2 consecutive triples + 2 singles)
-	p := ParsePlay(ids(0, 13, 26, 1, 14, 27, 2, 28)) // 3,3,3,4,4,4,5,6
+	p := ParsePlay(ids(0, 13, 26, 1, 14, 27, 2, 3)) // 3,3,3,4,4,4,5,6
 	if p.Type != PlayAirplane {
 		t.Errorf("type = %d, want %d", p.Type, PlayAirplane)
+	}
+}
+
+func TestParsePlay_Airplane_InvalidWings(t *testing.T) {
+	// 333,444 + 55 (2 triples but only one pair -- invalid, needs one wing per triple)
+	p := ParsePlay(ids(0, 13, 26, 1, 14, 27, 2, 28)) // 3,3,3,4,4,4,5,5
+	if p.Type != PlayInvalid {
+		t.Errorf("33344455 should be invalid (one pair for 2 triples), got type %d", p.Type)
 	}
 }
