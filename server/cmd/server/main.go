@@ -37,9 +37,15 @@ func main() {
 	hub := ws.NewHub(gameStore)
 	go hub.Run()
 
+	lkConfig := api.LiveKitConfig{
+		APIKey:    os.Getenv("LIVEKIT_API_KEY"),
+		APISecret: os.Getenv("LIVEKIT_API_SECRET"),
+		Host:      os.Getenv("LIVEKIT_HOST"),
+	}
+
 	router := api.NewRouter(userDB, jwtSvc, hub, middleware.CORSConfig{
 		AllowedOrigins: cfg.AllowedOrigins,
-	})
+	}, lkConfig)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
