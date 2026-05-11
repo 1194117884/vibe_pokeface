@@ -40,7 +40,7 @@ func TestShuffle_ChangesOrder(t *testing.T) {
 	}
 }
 
-func TestDeal_17_17_20(t *testing.T) {
+func TestDeal_17_17_17_3(t *testing.T) {
 	deck := NewDeck()
 	Shuffle(deck)
 	h1, h2, h3, remaining := Deal(deck)
@@ -55,6 +55,30 @@ func TestDeal_17_17_20(t *testing.T) {
 	}
 	if len(remaining) != 3 {
 		t.Errorf("remaining = %d cards, want 3", len(remaining))
+	}
+}
+
+func TestSuit(t *testing.T) {
+	tests := []struct {
+		id   int
+		want int
+	}{
+		{0, 0},   // ♠3
+		{12, 0},  // ♠2
+		{13, 1},  // ♥3
+		{25, 1},  // ♥2
+		{26, 2},  // ♣3
+		{38, 2},  // ♣2
+		{39, 3},  // ♦3
+		{51, 3},  // ♦2
+		{52, 4},  // small joker
+		{53, 4},  // big joker
+	}
+	for _, tt := range tests {
+		c := Card{ID: tt.id}
+		if got := c.Suit(); got != tt.want {
+			t.Errorf("Card{%d}.Suit() = %d, want %d", tt.id, got, tt.want)
+		}
 	}
 }
 
@@ -76,15 +100,35 @@ func TestCard_Display(t *testing.T) {
 }
 
 func TestSortCards(t *testing.T) {
-	// 3 cards: 2♠(12), 3♠(0), A♠(11) - should sort by rank desc, then suit
-	cards := []Card{{ID: 12}, {ID: 0}, {ID: 11}}
-	SortCards(cards)
-	if cards[0].ID != 12 {
-		t.Errorf("first card should be 2♠ (highest rank)")
+	tests := []struct {
+		name  string
+		cards []Card
+		want  []int // expected card IDs after sorting
+	}{
+		{
+			name:  "three cards",
+			cards: []Card{{ID: 12}, {ID: 0}, {ID: 11}},
+			want:  []int{12, 11, 0}, // 2♠, A♠, 3♠
+		},
+		{
+			name:  "with jokers",
+			cards: []Card{{ID: 12}, {ID: 0}, {ID: 11}, {ID: 52}, {ID: 53}, {ID: 13}, {ID: 26}},
+			want:  []int{53, 52, 12, 11, 0, 13, 26}, // big joker, small joker, 2♠, A♠, 3♠, 3♥, 3♣
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SortCards(tt.cards)
+			for i, id := range tt.want {
+				if tt.cards[i].ID != id {
+					t.Errorf("position %d: got Card{%d}, want Card{%d}", i, tt.cards[i].ID, id)
+				}
+			}
+		})
 	}
 }
 
-func TestCardRank(t *testing.T) {
+func TestCard_Rank(t *testing.T) {
 	// rank: 3=3, 4=4, ..., K=13, A=14, 2=15, small joker=16, big joker=17
 	tests := []struct {
 		id   int
