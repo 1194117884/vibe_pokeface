@@ -163,6 +163,50 @@ func TestParsePlay_Airplane(t *testing.T) {
 	}
 }
 
+func TestParsePlay_FourPlus2_Singles(t *testing.T) {
+	// 4444 + 5 + 6 (four 4s + 2 singles)
+	p := ParsePlay(ids(1, 14, 27, 40, 2, 3)) // 4,4,4,4,5,6
+	if p.Type != PlayFourPlus2 {
+		t.Errorf("type = %d, want %d (FourPlus2)", p.Type, PlayFourPlus2)
+	}
+	if p.MainRank != 4 {
+		t.Errorf("mainRank = %d, want 4", p.MainRank)
+	}
+}
+
+func TestParsePlay_FourPlus2_Pairs(t *testing.T) {
+	// 4444 + 55 + 66 (four 4s + 2 pairs)
+	p := ParsePlay(ids(1, 14, 27, 40, 2, 15, 3, 16)) // 4,4,4,4,5,5,6,6
+	if p.Type != PlayFourPlus2 {
+		t.Errorf("type = %d, want %d (FourPlus2)", p.Type, PlayFourPlus2)
+	}
+	if p.MainRank != 4 {
+		t.Errorf("mainRank = %d, want 4", p.MainRank)
+	}
+}
+
+func TestComparePlay_BombBeatsBomb(t *testing.T) {
+	bomb3 := ParsePlay(ids(0, 13, 26, 39))  // bomb of 3s (rank 3)
+	bomb4 := ParsePlay(ids(1, 14, 27, 40))  // bomb of 4s (rank 4)
+	if !CanBeat(bomb4, bomb3) {
+		t.Error("bomb 4 should beat bomb 3")
+	}
+	if CanBeat(bomb3, bomb4) {
+		t.Error("bomb 3 should not beat bomb 4")
+	}
+}
+
+func TestParsePlay_Airplane_PairWings(t *testing.T) {
+	// 333,444 + 55,66 (2 consecutive triples + 2 pairs)
+	p := ParsePlay(ids(0, 13, 26, 1, 14, 27, 2, 15, 3, 16)) // 3,3,3,4,4,4,5,5,6,6
+	if p.Type != PlayAirplane {
+		t.Errorf("type = %d, want %d (Airplane)", p.Type, PlayAirplane)
+	}
+	if p.Length != 2 {
+		t.Errorf("length = %d, want 2", p.Length)
+	}
+}
+
 func TestParsePlay_Airplane_InvalidWings(t *testing.T) {
 	// 333,444 + 55 (2 triples but only one pair -- invalid, needs one wing per triple)
 	p := ParsePlay(ids(0, 13, 26, 1, 14, 27, 2, 28)) // 3,3,3,4,4,4,5,5

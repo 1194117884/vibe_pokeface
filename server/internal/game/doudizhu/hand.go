@@ -22,6 +22,13 @@ const (
 	PlayPass          PlayType = 13
 )
 
+// Rank constants for special ranks.
+const (
+	Rank2      = 15
+	RankJokerS = 16
+	RankJokerB = 17
+)
+
 // Play represents a parsed card play with its type, main rank, and length.
 type Play struct {
 	Type     PlayType `json:"type"`
@@ -64,16 +71,16 @@ func ParsePlay(cards []Card) Play {
 	has2 := false
 	hasJoker := false
 	for _, r := range uniqueRanks {
-		if r == 15 {
+		if r == Rank2 {
 			has2 = true
 		}
-		if r >= 16 {
+		if r >= RankJokerS {
 			hasJoker = true
 		}
 	}
 
 	// Rocket: both jokers.
-	if len(cards) == 2 && freq[16] == 1 && freq[17] == 1 {
+	if len(cards) == 2 && freq[RankJokerS] == 1 && freq[RankJokerB] == 1 {
 		return Play{Type: PlayRocket}
 	}
 
@@ -136,7 +143,7 @@ func ParsePlay(cards []Card) Play {
 		if len(tripleRanks) >= 2 && isConsecutive(tripleRanks) {
 			has2orJoker := false
 			for _, r := range tripleRanks {
-				if r == 15 || r >= 16 {
+				if r == Rank2 || r >= RankJokerS {
 					has2orJoker = true
 				}
 			}
