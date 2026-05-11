@@ -49,6 +49,16 @@ type GameSnapshot struct {
 	IsCurrent  bool      `db:"is_current" json:"is_current"`
 }
 
+type ScoreRecord struct {
+	ID        int64     `db:"id" json:"id"`
+	UserID    int64     `db:"user_id" json:"user_id"`
+	GameType  string    `db:"game_type" json:"game_type"`
+	Amount    int       `db:"amount" json:"amount"`
+	Balance   int       `db:"balance" json:"balance"`
+	Reason    string    `db:"reason" json:"reason"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
 type GameStore struct {
 	db *sqlx.DB
 }
@@ -135,4 +145,13 @@ func (s *GameStore) ListActiveRooms(ctx context.Context) ([]Room, error) {
 		return nil, err
 	}
 	return rooms, nil
+}
+
+func (s *GameStore) GetScoreHistory(ctx context.Context, userID int64, limit int) ([]ScoreRecord, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var records []ScoreRecord
+	err := s.db.SelectContext(ctx, &records, "SELECT * FROM scores WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", userID, limit)
+	return records, err
 }
