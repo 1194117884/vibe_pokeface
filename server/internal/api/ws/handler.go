@@ -102,6 +102,8 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			h.handleLeaveRoom(client, msg)
 		case "room_action":
 			h.handleRoomAction(client, msg)
+		case "chat":
+			h.handleChatMessage(client, msg)
 		default:
 			log.Printf("Unknown message type: %s", msg.Type)
 			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "unknown message type: " + msg.Type})
@@ -199,6 +201,40 @@ func (h *Hub) handleRoomAction(client *Client, msg C2SMessage) {
 	}
 
 	room.HandleAction(client.ID, action.Action, action.Cards)
+}
+
+// handleChatMessage processes a chat message from a client and broadcasts it to the room.
+func (h *Hub) handleChatMessage(client *Client, msg C2SMessage) {
+	if client.RoomID == "" {
+		return
+	}
+
+	var chatMsg struct {
+		Content string `json:"content"`
+		Type    string `json:"type"` // "text" or "emoji"
+	}
+	if err := json.Unmarshal(msg.Data, &chatMsg); err != nil {
+		return
+	}
+	if chatMsg.Content == "" {
+		return
+	}
+	const maxMsgLen = 500
+	if len(chatMsg.Content) > maxMsgLen {
+		chatMsg.Content = chatMsg.Content[:maxMsgLen]
+	}
+	if chatMsg.Type == "" {
+		chatMsg.Type = "text"
+	}
+	if chatMsg.Type != "text" && chatMsg.Type != "emoji" {
+		chatMsg.Type = "text"
+	}
+
+	// Broadcast to all players in the room
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		room.BroadcastChat(client.ID, chatMsg.Content, chatMsg.Type)
+	}
 }
 
 // writePump reads messages from the client's Send channel and writes them to the WebSocket connection.

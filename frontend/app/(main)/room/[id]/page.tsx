@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { GameTable } from "@/components/game/GameTable";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WSGameClient } from "@/lib/ws-game";
+
+interface ChatMessage {
+  userId: string;
+  content: string;
+  type: "text" | "emoji";
+  timestamp: number;
+}
 
 export default function RoomPage() {
   const params = useParams();
@@ -18,6 +26,8 @@ export default function RoomPage() {
   const [landlordCards, setLandlordCards] = useState<number[]>([]);
   const [connected, setConnected] = useState(false);
   const [timer, setTimer] = useState<number | undefined>(undefined);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const wsClientRef = useRef<WSGameClient | null>(null);
 
   useEffect(() => {
     const userId = 1; // TODO: decode from JWT properly
@@ -25,6 +35,7 @@ export default function RoomPage() {
     if (!token) return;
 
     const client = new WSGameClient(userId, token);
+    wsClientRef.current = client;
 
     client.on("joined", () => {
       setConnected(true);
@@ -66,12 +77,29 @@ export default function RoomPage() {
       setPhase("ended");
     });
 
+    client.on("chat", (msg) => {
+      const data = msg.data as any;
+      if (data?.content) {
+        setChatMessages((prev) => [...prev, {
+          userId: String(data.user_id || "unknown"),
+          content: data.content,
+          type: data.type === "emoji" ? "emoji" : "text",
+          timestamp: data.timestamp || Date.now(),
+        }]);
+      }
+    });
+
     client.connect();
 
     return () => {
+      wsClientRef.current = null;
       client.disconnect();
     };
   }, [roomId]);
+
+  const handleSendChat = (content: string, type: "text" | "emoji") => {
+    wsClientRef.current?.sendChat(content, type);
+  };
 
   if (!connected) {
     return (
@@ -82,15 +110,24 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cream">
-      <GameTable
-        players={players}
-        mySeat={mySeat}
-        currentSeat={currentSeat}
-        phase={phase}
-        plays={plays}
-        landlordCards={landlordCards}
-      />
+    <div className="min-h-screen bg-cream flex">
+      <div className="flex-1">
+        <GameTable
+          players={players}
+          mySeat={mySeat}
+          currentSeat={currentSeat}
+          phase={phase}
+          plays={plays}
+          landlordCards={landlordCards}
+        />
+      </div>
+      <div className="w-80 p-4">
+        <ChatPanel
+          messages={chatMessages}
+          onSendMessage={handleSendChat}
+          disabled={!connected}
+        />
+      </div>
     </div>
   );
 }

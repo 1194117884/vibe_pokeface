@@ -369,6 +369,17 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 	}
 }
 
+// BroadcastChat sends a chat message to all players in the room.
+func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.broadcastMsg("chat", map[string]interface{}{
+		"user_id": senderID,
+		"content": content,
+		"type":    msgType,
+	})
+}
+
 // broadcastMsg sends a JSON message with the given type and data to all players.
 func (r *GameRoom) broadcastMsg(msgType string, data interface{}) {
 	msg, err := json.Marshal(map[string]interface{}{

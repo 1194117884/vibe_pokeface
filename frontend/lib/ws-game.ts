@@ -6,6 +6,7 @@ export type GameMessageType =
   | "round_end"
   | "player_joined"
   | "player_left"
+  | "chat"
   | "error"
   | "joined"
   | "left"
@@ -101,6 +102,10 @@ export class WSGameClient {
 
   sendAction(action: string, cards?: number[]) {
     this.send("room_action", this.roomId || undefined, { action, cards } as RoomAction);
+  }
+
+  sendChat(content: string, type: "text" | "emoji" = "text") {
+    this.send("chat", this.roomId || undefined, { content, type });
   }
 
   on(type: GameMessageType, handler: (msg: GameMessage) => void) {
