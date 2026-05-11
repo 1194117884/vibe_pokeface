@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -63,6 +64,12 @@ func (s *UserDB) FindAuth(ctx context.Context, provider, providerUID string) (*U
 }
 
 func (s *UserDB) ListUsers(ctx context.Context, offset, limit int) ([]User, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	var users []User
 	err := s.db.SelectContext(ctx, &users, "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?", limit, offset)
 	return users, err
@@ -76,8 +83,18 @@ func (s *UserDB) SearchUsers(ctx context.Context, query string) ([]User, error) 
 }
 
 func (s *UserDB) UpdateUserStatus(ctx context.Context, userID int64, status int8) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE users SET status = ? WHERE id = ?", status, userID)
-	return err
+	result, err := s.db.ExecContext(ctx, "UPDATE users SET status = ? WHERE id = ?", status, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *UserDB) GetUserCount(ctx context.Context) (int, error) {
