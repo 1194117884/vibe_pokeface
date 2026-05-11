@@ -29,6 +29,8 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	r.Get("/ws", hub.HandleWS)
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(jwt))
 
@@ -40,6 +42,11 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 				r.Get("/rooms", placeholderHandler("rooms"))
 				r.Get("/llm-config", placeholderHandler("llm-config"))
 			})
+		})
+
+		r.Get("/api/room/{id}/reconnect", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"message":"reconnect - coming soon","status":"ok"}`))
 		})
 	})
 

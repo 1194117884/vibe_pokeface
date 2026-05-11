@@ -2,6 +2,9 @@ package ws
 
 import (
 	"sync"
+
+	"github.com/yongkl/vibe-pokeface/internal/game"
+	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
 type Client struct {
@@ -51,17 +54,19 @@ func (rh *RoomHub) Count() int {
 }
 
 type Hub struct {
-	Rooms      map[string]*RoomHub
-	mu         sync.RWMutex
-	Register   chan *Client
-	Unregister chan *Client
+	Rooms       map[string]*RoomHub
+	mu          sync.RWMutex
+	Register    chan *Client
+	Unregister  chan *Client
+	RoomManager *game.RoomManager
 }
 
-func NewHub() *Hub {
+func NewHub(store *model.GameStore) *Hub {
 	return &Hub{
-		Rooms:      make(map[string]*RoomHub),
-		Register:   make(chan *Client, 256),
-		Unregister: make(chan *Client, 256),
+		Rooms:       make(map[string]*RoomHub),
+		Register:    make(chan *Client, 256),
+		Unregister:  make(chan *Client, 256),
+		RoomManager: game.NewRoomManager(store),
 	}
 }
 

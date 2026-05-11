@@ -32,7 +32,9 @@ func main() {
 	userDB := model.NewUserDB(db)
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 
-	hub := ws.NewHub()
+	gameStore := model.NewGameStore(db)
+
+	hub := ws.NewHub(gameStore)
 	go hub.Run()
 
 	router := api.NewRouter(userDB, jwtSvc, hub, middleware.CORSConfig{

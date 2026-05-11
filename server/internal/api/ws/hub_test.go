@@ -6,14 +6,14 @@ import (
 )
 
 func TestNewHub(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	if h == nil {
-		t.Fatal("NewHub() returned nil")
+		t.Fatal("NewHub(nil) returned nil")
 	}
 }
 
 func TestHub_RegisterClient(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	go h.Run()
 	client := &Client{ID: "test-1", RoomID: "room-1"}
 	h.Register <- client
@@ -28,7 +28,7 @@ func TestHub_RegisterClient(t *testing.T) {
 }
 
 func TestHub_UnregisterClient(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	go h.Run()
 	client := &Client{ID: "test-1", RoomID: "room-1"}
 	h.Register <- client
@@ -72,7 +72,7 @@ func TestRoomHub_Broadcast(t *testing.T) {
 }
 
 func TestGetRoom(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	go h.Run()
 	client := &Client{ID: "test-1", RoomID: "room-1"}
 	h.Register <- client
