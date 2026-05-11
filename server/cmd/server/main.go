@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yongkl/vibe-pokeface/internal/api"
+	"github.com/yongkl/vibe-pokeface/internal/api/admin"
 	"github.com/yongkl/vibe-pokeface/internal/api/middleware"
 	"github.com/yongkl/vibe-pokeface/internal/api/ws"
 	"github.com/yongkl/vibe-pokeface/internal/auth"
@@ -33,9 +34,12 @@ func main() {
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 
 	gameStore := model.NewGameStore(db)
+	aiStore := model.NewAIStore(db)
 
 	hub := ws.NewHub(gameStore)
 	go hub.Run()
+
+	adminHandler := admin.NewHandler(userDB, gameStore, aiStore, hub)
 
 	lkConfig := api.LiveKitConfig{
 		APIKey:    os.Getenv("LIVEKIT_API_KEY"),
@@ -45,7 +49,7 @@ func main() {
 
 	router := api.NewRouter(userDB, jwtSvc, hub, middleware.CORSConfig{
 		AllowedOrigins: cfg.AllowedOrigins,
-	}, lkConfig)
+	}, lkConfig, adminHandler)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
