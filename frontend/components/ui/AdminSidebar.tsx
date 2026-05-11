@@ -8,6 +8,7 @@ const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "📊" },
   { href: "/admin/users", label: "Users", icon: "👥" },
   { href: "/admin/rooms", label: "Rooms", icon: "🃏" },
+  { href: "/admin/ai-characters", label: "AI Characters", icon: "🧑" },
   { href: "/admin/llm-config", label: "LLM Config", icon: "🤖" },
 ];
 
