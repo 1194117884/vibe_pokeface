@@ -25,7 +25,7 @@ type AICharacter struct {
 type LLMConfig struct {
 	ID          int       `db:"id" json:"id"`
 	Provider    string    `db:"provider" json:"provider"`
-	APIKey      string    `db:"api_key" json:"-"`
+	APIKey      string    `db:"api_key" json:"api_key,omitempty"`
 	APIURL      *string   `db:"api_url" json:"api_url,omitempty"`
 	Model       string    `db:"model" json:"model"`
 	Temperature float64   `db:"temperature" json:"temperature"`
@@ -189,4 +189,27 @@ func (s *AIStore) LogLLMCall(ctx context.Context, log *LLMCallLog) error {
 	id, _ := result.LastInsertId()
 	log.ID = id
 	return nil
+}
+
+type LLMStatsSummary struct {
+	TotalCalls   int64   `db:"total_calls" json:"total_calls"`
+	TotalTokens  int64   `db:"total_tokens" json:"total_tokens"`
+	AvgLatencyMs float64 `db:"avg_latency_ms" json:"avg_latency_ms"`
+	SuccessRate  float64 `db:"success_rate" json:"success_rate"`
+}
+
+func (s *AIStore) GetLLMStats(ctx context.Context) (*LLMStatsSummary, error) {
+	var stats LLMStatsSummary
+	err := s.db.GetContext(ctx, &stats, `
+		SELECT
+			COUNT(*) as total_calls,
+			COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total_tokens,
+			COALESCE(ROUND(AVG(duration_ms)), 0) as avg_latency_ms,
+			COALESCE(ROUND(SUM(success) / COUNT(*) * 100), 0) as success_rate
+		FROM llm_call_logs
+	`)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
 }
