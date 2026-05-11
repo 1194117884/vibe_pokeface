@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { GameTable } from "@/components/game/GameTable";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { VoiceButton } from "@/components/chat/VoiceButton";
+import { LiveKitClient } from "@/lib/livekit-client";
 import { WSGameClient } from "@/lib/ws-game";
 
 interface ChatMessage {
@@ -28,6 +30,8 @@ export default function RoomPage() {
   const [timer, setTimer] = useState<number | undefined>(undefined);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const wsClientRef = useRef<WSGameClient | null>(null);
+  const voiceClientRef = useRef<LiveKitClient | null>(null);
+  const [micEnabled, setMicEnabled] = useState(false);
 
   useEffect(() => {
     const userId = 1; // TODO: decode from JWT properly
@@ -92,10 +96,43 @@ export default function RoomPage() {
     client.connect();
 
     return () => {
+      voiceClientRef.current?.disconnect();
+      voiceClientRef.current = null;
       wsClientRef.current = null;
       client.disconnect();
     };
   }, [roomId]);
+
+  const handleVoiceToggle = async (enabled: boolean) => {
+    if (enabled) {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      if (!token) return;
+      // Disconnect existing client before creating a new one
+      voiceClientRef.current?.disconnect();
+      try {
+        const res = await fetch(`/api/livekit/token?room=${roomId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          const vc = new LiveKitClient();
+          await vc.connect(data.url, data.token, data.room);
+          await vc.toggleMic();
+          voiceClientRef.current = vc;
+          setMicEnabled(true);
+        }
+      } catch (e) {
+        console.error("Failed to connect voice:", e);
+      }
+    } else {
+      try {
+        voiceClientRef.current?.toggleMic();
+      } catch (e) {
+        console.error("Failed to toggle mic:", e);
+      }
+      setMicEnabled(false);
+    }
+  };
 
   const handleSendChat = (content: string, type: "text" | "emoji") => {
     wsClientRef.current?.sendChat(content, type);
@@ -121,7 +158,11 @@ export default function RoomPage() {
           landlordCards={landlordCards}
         />
       </div>
-      <div className="w-80 p-4">
+      <div className="w-80 p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+          <span className="text-sm text-gray-500">{micEnabled ? "Mic on" : "Mic off"}</span>
+        </div>
         <ChatPanel
           messages={chatMessages}
           onSendMessage={handleSendChat}
