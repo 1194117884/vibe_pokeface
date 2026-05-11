@@ -29,4 +29,9 @@ type UserStore interface {
 	FindByID(ctx context.Context, id int64) (*User, error)
 	CreateAuth(ctx context.Context, auth *UserAuth) error
 	FindAuth(ctx context.Context, provider, providerUID string) (*UserAuth, error)
+	// Admin methods
+	ListUsers(ctx context.Context, offset, limit int) ([]User, error)
+	SearchUsers(ctx context.Context, query string) ([]User, error)
+	UpdateUserStatus(ctx context.Context, userID int64, status int8) error
+	GetUserCount(ctx context.Context) (int, error)
 }

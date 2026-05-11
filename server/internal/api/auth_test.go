@@ -18,6 +18,10 @@ type mockUserStore struct {
 	createAuthFn     func(ctx context.Context, ua *model.UserAuth) error
 	findAuthFn       func(ctx context.Context, provider, providerUID string) (*model.UserAuth, error)
 	findByIDFn       func(ctx context.Context, id int64) (*model.User, error)
+	listUsersFn      func(ctx context.Context, offset, limit int) ([]model.User, error)
+	searchUsersFn    func(ctx context.Context, query string) ([]model.User, error)
+	updateUserStatusFn func(ctx context.Context, userID int64, status int8) error
+	getUserCountFn   func(ctx context.Context) (int, error)
 }
 
 func (m *mockUserStore) Create(ctx context.Context, user *model.User) error {
@@ -37,6 +41,30 @@ func (m *mockUserStore) CreateAuth(ctx context.Context, ua *model.UserAuth) erro
 }
 func (m *mockUserStore) FindAuth(ctx context.Context, provider, providerUID string) (*model.UserAuth, error) {
 	return m.findAuthFn(ctx, provider, providerUID)
+}
+func (m *mockUserStore) ListUsers(ctx context.Context, offset, limit int) ([]model.User, error) {
+	if m.listUsersFn != nil {
+		return m.listUsersFn(ctx, offset, limit)
+	}
+	return nil, nil
+}
+func (m *mockUserStore) SearchUsers(ctx context.Context, query string) ([]model.User, error) {
+	if m.searchUsersFn != nil {
+		return m.searchUsersFn(ctx, query)
+	}
+	return nil, nil
+}
+func (m *mockUserStore) UpdateUserStatus(ctx context.Context, userID int64, status int8) error {
+	if m.updateUserStatusFn != nil {
+		return m.updateUserStatusFn(ctx, userID, status)
+	}
+	return nil
+}
+func (m *mockUserStore) GetUserCount(ctx context.Context) (int, error) {
+	if m.getUserCountFn != nil {
+		return m.getUserCountFn(ctx)
+	}
+	return 0, nil
 }
 
 func TestRegister_Success(t *testing.T) {

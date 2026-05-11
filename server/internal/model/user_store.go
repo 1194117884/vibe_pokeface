@@ -61,3 +61,27 @@ func (s *UserDB) FindAuth(ctx context.Context, provider, providerUID string) (*U
 	}
 	return &ua, nil
 }
+
+func (s *UserDB) ListUsers(ctx context.Context, offset, limit int) ([]User, error) {
+	var users []User
+	err := s.db.SelectContext(ctx, &users, "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?", limit, offset)
+	return users, err
+}
+
+func (s *UserDB) SearchUsers(ctx context.Context, query string) ([]User, error) {
+	var users []User
+	like := "%" + query + "%"
+	err := s.db.SelectContext(ctx, &users, "SELECT * FROM users WHERE nickname LIKE ? ORDER BY created_at DESC LIMIT 50", like)
+	return users, err
+}
+
+func (s *UserDB) UpdateUserStatus(ctx context.Context, userID int64, status int8) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET status = ? WHERE id = ?", status, userID)
+	return err
+}
+
+func (s *UserDB) GetUserCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM users")
+	return count, err
+}
