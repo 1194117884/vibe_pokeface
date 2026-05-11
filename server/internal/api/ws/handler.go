@@ -77,6 +77,8 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		if client.RoomID != "" {
 			if room := h.RoomManager.GetRoom(client.RoomID); room != nil {
 				room.RemovePlayer(userID)
+				// Auto-fill empty seats with bots
+				h.RoomManager.FillEmptySeats(client.RoomID)
 			}
 		}
 	}()
@@ -163,6 +165,8 @@ func (h *Hub) handleLeaveRoom(client *Client, msg C2SMessage) {
 	if room := h.RoomManager.GetRoom(client.RoomID); room != nil {
 		room.RemovePlayer(client.ID)
 	}
+
+	h.RoomManager.FillEmptySeats(client.RoomID)
 
 	h.Unregister <- client
 	client.RoomID = ""

@@ -86,6 +86,45 @@ func (rm *RoomManager) RemoveRoom(roomID string) {
 	delete(rm.rooms, roomID)
 }
 
+// FillEmptySeats fills all empty seats in a room with bots.
+// Returns the number of bots added.
+func (rm *RoomManager) FillEmptySeats(roomID string) int {
+	room := rm.GetRoom(roomID)
+	if room == nil {
+		return 0
+	}
+	if room.Status != "waiting" {
+		return 0
+	}
+
+	nextN := room.nextBotNumber()
+	added := 0
+	for room.PlayerCount() < 3 {
+		botID := fmt.Sprintf("ai:bot:%d", nextN)
+		if err := room.FillWithBot(botID, make(chan []byte, 256)); err != nil {
+			break
+		}
+		added++
+		nextN++
+	}
+	return added
+}
+
+// nextBotNumber returns the next available bot sequence number for the room.
+// Acquires r.mu to safely read Players.
+func (r *GameRoom) nextBotNumber() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 1
+	for _, p := range r.Players {
+		var m int
+		if _, err := fmt.Sscanf(p.UserID, "ai:bot:%d", &m); err == nil && m >= n {
+			n = m + 1
+		}
+	}
+	return n
+}
+
 // AddPlayer adds a player to the room and broadcasts the join event.
 // Returns an error if the room is full or the player is already in the room.
 func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
@@ -148,6 +187,62 @@ func (r *GameRoom) RemovePlayer(userID string) {
 		r.Status = "waiting"
 		r.State = nil
 	}
+}
+
+// FillWithBot adds an AI bot player to fill an empty seat.
+func (r *GameRoom) FillWithBot(botID string, conn chan []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.Players) >= 3 {
+		return fmt.Errorf("room is full")
+	}
+
+	for _, p := range r.Players {
+		if p.UserID == botID {
+			return fmt.Errorf("bot already in room")
+		}
+	}
+
+	seat := len(r.Players)
+	bot := &PlayerSession{
+		UserID: botID,
+		Seat:   seat,
+		Conn:   conn,
+		IsBot:  true,
+		Ready:  true, // bots are always ready
+	}
+	r.Players = append(r.Players, bot)
+
+	r.broadcastMsg("player_joined", map[string]interface{}{
+		"user_id": botID,
+		"seat":    seat,
+		"is_bot":  true,
+		"players": r.playerList(),
+	})
+
+	// Auto-start if room is now full and all ready
+	if len(r.Players) == 3 {
+		allReady := true
+		for _, p := range r.Players {
+			if !p.Ready {
+				allReady = false
+				break
+			}
+		}
+		if allReady {
+			r.startGame()
+		}
+	}
+
+	return nil
+}
+
+// PlayerCount returns the current number of players in the room.
+func (r *GameRoom) PlayerCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.Players)
 }
 
 // SetReady marks a player as ready. If all 3 players are ready, the game starts.
