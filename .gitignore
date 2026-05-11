@@ -1,0 +1,12 @@
+.env
+.DS_Store
+
+# Go binaries
+server/server
+server/*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
