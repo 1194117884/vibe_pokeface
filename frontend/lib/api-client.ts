@@ -5,6 +5,11 @@ interface ApiResponse<T = unknown> {
   error?: string;
 }
 
+interface LoginResult {
+  token: string;
+  user: { id: number; nickname: string; role: string };
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -21,12 +26,36 @@ class ApiClient {
         localStorage.setItem("token", token);
       } else {
         localStorage.removeItem("token");
+        localStorage.removeItem("role");
       }
     }
   }
 
   getToken(): string | null {
     return this.token;
+  }
+
+  getRole(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("role");
+  }
+
+  isAdmin(): boolean {
+    return this.getRole() === "admin";
+  }
+
+  setUser(user: { role: string }) {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("role", user.role);
+    }
+  }
+
+  clearSession() {
+    this.token = null;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("role");
+    }
   }
 
   private async request<T>(
@@ -58,24 +87,26 @@ class ApiClient {
     }
   }
 
-  register(nickname: string, password: string) {
-    return this.request<{ token: string; user: unknown }>("POST", "/api/auth/register", {
+  async register(nickname: string, password: string) {
+    const result = await this.request<LoginResult>("POST", "/api/auth/register", {
       nickname,
       password,
     });
+    if (result.data) {
+      this.setUser(result.data.user);
+    }
+    return result;
   }
 
-  login(password: string, providerUid?: string) {
-    return this.request<{ token: string; user: unknown }>("POST", "/api/auth/login", {
+  async login(password: string, nickname: string) {
+    const result = await this.request<LoginResult>("POST", "/api/auth/login", {
       password,
-      provider_uid: providerUid,
+      provider_uid: "password:" + nickname,
     });
-  }
-
-  guestLogin(deviceId: string) {
-    return this.request<{ token: string; user: unknown }>("POST", "/api/auth/guest", {
-      device_id: deviceId,
-    });
+    if (result.data) {
+      this.setUser(result.data.user);
+    }
+    return result;
   }
 }
 

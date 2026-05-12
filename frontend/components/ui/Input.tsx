@@ -17,7 +17,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <div className="relative">
         <div
           className={clsx(
-            "border rounded-[4px] px-3 pt-5 pb-2 transition-all duration-200",
+            "border rounded-[4px] px-3 pt-5 pb-3 lg:pb-2 transition-all duration-200",
             error
               ? "border-red-error bg-red-50/5"
               : focused

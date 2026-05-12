@@ -13,13 +13,13 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   return (
-    <div className="absolute bottom-16 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-10">
+    <div className="absolute bottom-16 left-4 bg-white border border-ceramic rounded-[12px] shadow-card p-2 z-10">
       <div className="grid grid-cols-6 gap-1">
         {EMOJIS.map((emoji) => (
           <button
             key={emoji}
             onClick={() => onSelect(emoji)}
-            className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded text-lg"
+            className="w-8 h-8 flex items-center justify-center hover:bg-cream rounded-[4px] transition-colors text-lg"
           >
             {emoji}
           </button>
@@ -27,7 +27,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       </div>
       <button
         onClick={onClose}
-        className="w-full mt-1 text-xs text-gray-500 hover:text-gray-700"
+        className="w-full mt-1 text-xs text-text-black-soft hover:text-text-black transition-colors"
       >
         Close
       </button>

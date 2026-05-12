@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import clsx from "clsx";
 
 interface VoiceButtonProps {
   onToggle?: (enabled: boolean) => void;
@@ -21,11 +22,13 @@ export function VoiceButton({ onToggle, disabled }: VoiceButtonProps) {
     <button
       onClick={handleToggle}
       disabled={disabled}
-      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all text-lg border-2 ${
+      className={clsx(
+        "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 text-lg border-2 active:scale-[0.95]",
         enabled
-          ? "bg-green-600 text-white border-green-600"
-          : "bg-white text-gray-500 border-gray-300"
-      } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+          ? "bg-green-accent text-white border-green-accent shadow-md"
+          : "bg-white text-text-black-soft border-ceramic hover:border-green-accent/50",
+        disabled && "opacity-40 cursor-not-allowed"
+      )}
       title={enabled ? "Mute" : "Unmute"}
     >
       {enabled ? "\u{1F3A4}" : "\u{1F507}"}

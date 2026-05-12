@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { apiClient } from "@/lib/api-client";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/lobby";
+  const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,7 +22,13 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await apiClient.login(password);
+    if (!nickname.trim()) {
+      setError("Nickname is required");
+      setLoading(false);
+      return;
+    }
+
+    const result = await apiClient.login(password, nickname.trim());
     if (result.error) {
       setError(result.error);
       setLoading(false);
@@ -28,15 +37,27 @@ export default function LoginPage() {
 
     if (result.data) {
       apiClient.setToken(result.data.token);
-      router.push("/lobby");
+      router.push(redirectTo);
     }
     setLoading(false);
   };
 
   return (
     <Card padding="lg">
-      <h1 className="text-2xl font-semibold text-starbucks mb-6">Sign In</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="text-center mb-8">
+        <div className="text-4xl mb-3">🃏</div>
+        <h1 className="text-2xl font-bold text-starbucks">Sign In</h1>
+        <p className="text-sm text-text-black-soft mt-1">
+          Sign in with your nickname and password
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <Input
+          label="Nickname"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)}
+        />
         <Input
           label="Password"
           type="password"
@@ -48,12 +69,26 @@ export default function LoginPage() {
           {loading ? "Signing in..." : "Sign In"}
         </Button>
       </form>
-      <p className="mt-4 text-center text-sm text-text-black-soft">
-        Don&apos;t have an account?{" "}
-        <Link href="/auth/register" className="text-green-accent underline">
-          Register
-        </Link>
-      </p>
+
+      <div className="mt-8 pt-6 border-t border-cream text-center">
+        <p className="text-sm text-text-black-soft">
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/auth/register"
+            className="text-green-accent font-semibold hover:underline"
+          >
+            Register
+          </Link>
+        </p>
+      </div>
     </Card>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -47,15 +47,15 @@ export function HandCards({ cards, onPlayCards, disabled }: HandCardsProps) {
             onClick={handlePlay}
             disabled={disabled || selected.size === 0}
             className="px-4 py-1.5 bg-green-accent text-white rounded-pill text-sm font-semibold
-                       disabled:opacity-40 transition-all active:scale-95"
+                       disabled:opacity-40 transition-all duration-200 active:scale-[0.95]"
           >
             出牌
           </button>
           <button
             onClick={() => { onPlayCards([]); setSelected(new Set()); }}
             disabled={disabled}
-            className="px-4 py-1.5 bg-white text-gray-700 border border-gray-300 rounded-pill text-sm font-semibold
-                       disabled:opacity-40 transition-all active:scale-95"
+            className="px-4 py-1.5 bg-white text-text-black border border-ceramic rounded-pill text-sm font-semibold
+                       disabled:opacity-40 transition-all duration-200 active:scale-[0.95] hover:border-green-accent/50"
           >
             不出
           </button>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface DashboardData {
   online_players: number;
@@ -14,11 +15,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-    fetch("/api/admin/dashboard", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    adminFetch("/api/admin/dashboard")
       .then((r) => r.json())
       .then((d: DashboardData) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
@@ -26,19 +23,31 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-starbucks mb-6">Dashboard</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-starbucks tracking-tight">Dashboard</h1>
+        <p className="text-sm text-text-black-soft mt-0.5">Platform overview at a glance</p>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <p className="text-sm text-text-black-soft">Online Players</p>
-          <p className="text-3xl font-semibold mt-1">{loading ? "--" : data?.online_players ?? 0}</p>
+        <Card padding="lg">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">👥</div>
+            <p className="text-sm font-semibold text-text-black-soft tracking-tight">Online Players</p>
+          </div>
+          <p className="text-4xl font-bold text-starbucks tracking-tight">{loading ? "--" : data?.online_players ?? 0}</p>
         </Card>
-        <Card>
-          <p className="text-sm text-text-black-soft">Active Rooms</p>
-          <p className="text-3xl font-semibold mt-1">{loading ? "--" : data?.active_rooms ?? 0}</p>
+        <Card padding="lg">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">🃏</div>
+            <p className="text-sm font-semibold text-text-black-soft tracking-tight">Active Rooms</p>
+          </div>
+          <p className="text-4xl font-bold text-starbucks tracking-tight">{loading ? "--" : data?.active_rooms ?? 0}</p>
         </Card>
-        <Card>
-          <p className="text-sm text-text-black-soft">Total Users</p>
-          <p className="text-3xl font-semibold mt-1">{loading ? "--" : data?.total_users ?? 0}</p>
+        <Card padding="lg">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">📋</div>
+            <p className="text-sm font-semibold text-text-black-soft tracking-tight">Total Users</p>
+          </div>
+          <p className="text-4xl font-bold text-starbucks tracking-tight">{loading ? "--" : data?.total_users ?? 0}</p>
         </Card>
       </div>
     </div>

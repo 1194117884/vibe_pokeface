@@ -14,10 +14,10 @@ const SUITS = ["♠", "♥", "♣", "♦"];
 const RANKS = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
 
 const SUIT_COLORS: Record<string, string> = {
-  "♠": "text-gray-900",
-  "♥": "text-red-600",
-  "♣": "text-gray-900",
-  "♦": "text-red-600",
+  "♠": "text-text-black",
+  "♥": "text-red-error",
+  "♣": "text-text-black",
+  "♦": "text-red-error",
 };
 
 export function Card({ cardId, selected, onClick, faceDown, small }: CardProps) {

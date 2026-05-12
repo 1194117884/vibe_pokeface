@@ -21,7 +21,6 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
   const [showEmoji, setShowEmoji] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -37,25 +36,24 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
     setShowEmoji(false);
   };
 
-  // Convert user_id to display-friendly short name
   const formatUserId = (userId: string): string => {
     if (userId.startsWith("ai:")) return "Bot";
     return userId.length > 6 ? userId.slice(0, 6) + "..." : userId;
   };
 
   return (
-    <div className="relative flex flex-col h-64 bg-white rounded-lg shadow-md border border-gray-200">
+    <div className="relative flex flex-col h-64 bg-white rounded-[12px] shadow-card border border-ceramic">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {messages.length === 0 && (
-          <p className="text-center text-gray-500 text-sm">No messages yet</p>
+          <p className="text-center text-text-black-soft text-sm">No messages yet</p>
         )}
         {messages.map((msg, i) => (
           <div key={i} className="text-sm">
-            <span className="font-semibold text-green-700">
+            <span className="font-semibold text-green-accent">
               {formatUserId(msg.userId)}:{" "}
             </span>
-            <span className="text-gray-800">
+            <span className="text-text-black">
               {msg.type === "emoji" ? (
                 <span className="text-2xl">{msg.content}</span>
               ) : (
@@ -68,10 +66,10 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
       </div>
 
       {/* Input */}
-      <div className="border-t border-gray-200 p-2 flex gap-2">
+      <div className="border-t border-ceramic p-2 flex gap-2">
         <button
           onClick={() => setShowEmoji(!showEmoji)}
-          className="px-2 py-1 text-lg hover:bg-gray-100 rounded"
+          className="px-2 py-1 text-lg hover:bg-cream rounded-[4px] transition-colors"
           title="Open emoji picker"
         >
           😊
@@ -83,12 +81,12 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Type a message..."
           disabled={disabled}
-          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full outline-none focus:border-green-500 disabled:opacity-50"
+          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-pill outline-none transition-all duration-200 focus:border-green-accent disabled:opacity-50"
         />
         <button
           onClick={handleSend}
           disabled={disabled || !input.trim()}
-          className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-full disabled:opacity-40 hover:bg-green-700 transition-colors"
+          className="px-4 py-1.5 bg-green-accent text-white text-sm rounded-pill font-semibold disabled:opacity-40 hover:bg-green-uplift transition-all duration-200 active:scale-[0.95]"
         >
           Send
         </button>

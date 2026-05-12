@@ -36,8 +36,15 @@ export default function RegisterPage() {
 
   return (
     <Card padding="lg">
-      <h1 className="text-2xl font-semibold text-starbucks mb-6">Register</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="text-center mb-8">
+        <div className="text-4xl mb-3">✨</div>
+        <h1 className="text-2xl font-bold text-starbucks">Create Account</h1>
+        <p className="text-sm text-text-black-soft mt-1">
+          Pick a nickname and set a password
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
         <Input
           label="Nickname"
           value={nickname}
@@ -54,12 +61,18 @@ export default function RegisterPage() {
           {loading ? "Creating account..." : "Create Account"}
         </Button>
       </form>
-      <p className="mt-4 text-center text-sm text-text-black-soft">
-        Already have an account?{" "}
-        <Link href="/auth/login" className="text-green-accent underline">
-          Sign In
-        </Link>
-      </p>
+
+      <div className="mt-8 pt-6 border-t border-cream text-center">
+        <p className="text-sm text-text-black-soft">
+          Already have an account?{" "}
+          <Link
+            href="/auth/login"
+            className="text-green-accent font-semibold hover:underline"
+          >
+            Sign In
+          </Link>
+        </p>
+      </div>
     </Card>
   );
 }

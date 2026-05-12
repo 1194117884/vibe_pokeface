@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface LLMStats {
   total_calls: number;
@@ -15,11 +16,7 @@ export default function LLMStatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-    fetch("/api/admin/llm-stats", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    adminFetch("/api/admin/llm-stats")
       .then((r) => r.json())
       .then((d: LLMStats) => { setStats(d); setLoading(false); })
       .catch(() => setLoading(false));
@@ -27,28 +24,47 @@ export default function LLMStatsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-starbucks mb-6">LLM Call Statistics</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-starbucks tracking-tight">LLM Call Statistics</h1>
+        <p className="text-sm text-text-black-soft mt-0.5">AI performance metrics</p>
+      </div>
       {loading ? (
-        <p className="text-gray-500 py-4 text-center">Loading...</p>
+        <Card padding="lg">
+          <p className="text-text-black-soft text-center py-4">Loading...</p>
+        </Card>
       ) : !stats ? (
-        <p className="text-gray-500 py-4 text-center">Unable to load stats.</p>
+        <Card padding="lg">
+          <p className="text-text-black-soft text-center py-4">Unable to load stats.</p>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <p className="text-sm text-text-black-soft">Total Calls</p>
-            <p className="text-3xl font-semibold mt-1">{stats.total_calls}</p>
+          <Card padding="lg">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">📞</div>
+              <p className="text-sm font-semibold text-text-black-soft tracking-tight">Total Calls</p>
+            </div>
+            <p className="text-4xl font-bold text-starbucks tracking-tight">{stats.total_calls}</p>
           </Card>
-          <Card>
-            <p className="text-sm text-text-black-soft">Total Tokens</p>
-            <p className="text-3xl font-semibold mt-1">{stats.total_tokens.toLocaleString()}</p>
+          <Card padding="lg">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">🔤</div>
+              <p className="text-sm font-semibold text-text-black-soft tracking-tight">Total Tokens</p>
+            </div>
+            <p className="text-4xl font-bold text-starbucks tracking-tight">{stats.total_tokens.toLocaleString()}</p>
           </Card>
-          <Card>
-            <p className="text-sm text-text-black-soft">Avg Latency</p>
-            <p className="text-3xl font-semibold mt-1">{stats.avg_latency_ms}ms</p>
+          <Card padding="lg">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">⚡</div>
+              <p className="text-sm font-semibold text-text-black-soft tracking-tight">Avg Latency</p>
+            </div>
+            <p className="text-4xl font-bold text-starbucks tracking-tight">{stats.avg_latency_ms}ms</p>
           </Card>
-          <Card>
-            <p className="text-sm text-text-black-soft">Success Rate</p>
-            <p className="text-3xl font-semibold mt-1">{stats.success_rate}%</p>
+          <Card padding="lg">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-green-light flex items-center justify-center text-sm">✅</div>
+              <p className="text-sm font-semibold text-text-black-soft tracking-tight">Success Rate</p>
+            </div>
+            <p className="text-4xl font-bold text-starbucks tracking-tight">{stats.success_rate}%</p>
           </Card>
         </div>
       )}
