@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS game_snapshots (
     id           BIGINT PRIMARY KEY AUTO_INCREMENT,
     room_id      VARCHAR(32) NOT NULL,
     game_id      BIGINT NOT NULL,
-    snapshot_at  DATETIME(3) DEFAULT NOW(),
+    snapshot_at  DATETIME(3) DEFAULT NOW(3),
     full_state   JSON,
     is_current   BOOLEAN DEFAULT TRUE,
     INDEX idx_game (room_id, game_id)
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS game_actions (
     action_type  VARCHAR(16) NOT NULL,
     cards        JSON,
     full_state   JSON,
-    created_at   DATETIME(3) DEFAULT NOW(),
+    created_at   DATETIME(3) DEFAULT NOW(3),
     INDEX idx_game (game_id, round_num, action_seq)
 );
 

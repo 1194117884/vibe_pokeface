@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_auths (
     id           BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id      BIGINT NOT NULL,
-    provider     ENUM('google','wechat','phone','guest'),
+    provider     ENUM('google','wechat','phone','guest','password'),
     provider_uid VARCHAR(128) NOT NULL,
     credential   VARCHAR(256),
     UNIQUE KEY uk_provider (provider, provider_uid)

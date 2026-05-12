@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     user_id         VARCHAR(64) NOT NULL,  -- could be "ai:char_id" for bots
     content         TEXT NOT NULL,
     msg_type        VARCHAR(16) DEFAULT 'text',  -- text/emoji/system
-    created_at      DATETIME(3) DEFAULT NOW(),
+    created_at      DATETIME(3) DEFAULT NOW(3),
     INDEX idx_room (room_id, created_at)
 );
 

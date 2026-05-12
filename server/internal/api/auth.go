@@ -92,10 +92,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerUID := req.ProviderUID
-	if providerUID == "" {
-		providerUID = "password:default"
+	if req.ProviderUID == "" {
+		http.Error(w, `{"error":"nickname required"}`, http.StatusBadRequest)
+		return
 	}
+	providerUID := req.ProviderUID
 
 	userAuth, err := h.store.FindAuth(r.Context(), "password", providerUID)
 	if err != nil || userAuth == nil {

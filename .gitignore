@@ -10,3 +10,7 @@ server/*.exe
 .vscode/
 *.swp
 *.swo
+pokeface-server.tar.gz
+pokeface-server
+run.sh
+.playwright-mcp/
