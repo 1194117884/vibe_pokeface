@@ -12,6 +12,16 @@ import (
     "github.com/yongkl/vibe-pokeface/internal/model"
 )
 
+const (
+	ProviderOpenAI    = "openai"
+	ProviderAnthropic = "anthropic"
+	ProviderDeepSeek  = "deepseek"
+	ProviderMinimax   = "minimax"
+	ProviderGLM       = "glm"
+	ProviderQwen      = "qwen"
+	ProviderCustom    = "custom"
+)
+
 type LLMResult struct {
     Content          string
     PromptTokens     int
@@ -32,8 +42,25 @@ type OpenAIProvider struct {
     client      *http.Client
 }
 
+// defaultAPIURL returns the official API endpoint for a given provider.
+// The user-set api_url in LLMConfig overrides this default.
+func defaultAPIURL(provider string) string {
+    switch provider {
+    case ProviderDeepSeek:
+        return "https://api.deepseek.com/v1/chat/completions"
+    case ProviderMinimax:
+        return "https://api.minimax.chat/v1/chat/completions"
+    case ProviderGLM:
+        return "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    case ProviderQwen:
+        return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    default:
+        return "https://api.openai.com/v1/chat/completions"
+    }
+}
+
 func NewOpenAIProvider(cfg *model.LLMConfig) *OpenAIProvider {
-    url := "https://api.openai.com/v1/chat/completions"
+    url := defaultAPIURL(cfg.Provider)
     if cfg.APIURL != nil && *cfg.APIURL != "" {
         url = *cfg.APIURL
     }
@@ -199,9 +226,9 @@ func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userProm
 
 func NewProvider(cfg *model.LLMConfig) (LLMProvider, error) {
     switch cfg.Provider {
-    case "openai":
+    case ProviderOpenAI, ProviderDeepSeek, ProviderMinimax, ProviderGLM, ProviderQwen, ProviderCustom:
         return NewOpenAIProvider(cfg), nil
-    case "anthropic":
+    case ProviderAnthropic:
         return NewAnthropicProvider(cfg), nil
     default:
         return nil, fmt.Errorf("unsupported LLM provider: %s", cfg.Provider)
