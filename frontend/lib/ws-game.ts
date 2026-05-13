@@ -20,7 +20,8 @@ export type GameMessageType =
   | "game_start"
   | "add_bot"
   | "room_info"
-  | "theme_changed";
+  | "theme_changed"
+  | "cards_left";
 
 export interface GameMessage {
   type: GameMessageType;

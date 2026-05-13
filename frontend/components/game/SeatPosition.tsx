@@ -20,6 +20,7 @@ interface SeatPositionProps {
   isMySeat?: boolean;
   onChangeSeat?: () => void;
   onAddBot?: () => void;
+  cardsLeft?: "baodan" | "baoshuang" | null;
 }
 
 export function SeatPosition({
@@ -27,6 +28,7 @@ export function SeatPosition({
   isMySeat,
   onChangeSeat,
   onAddBot,
+  cardsLeft,
 }: SeatPositionProps) {
   if (!player) {
     return (
@@ -118,6 +120,17 @@ export function SeatPosition({
         >
           换座
         </button>
+      )}
+
+      {cardsLeft === "baodan" && (
+        <span className="absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+          报单
+        </span>
+      )}
+      {cardsLeft === "baoshuang" && (
+        <span className="absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+          报双
+        </span>
       )}
     </div>
   );

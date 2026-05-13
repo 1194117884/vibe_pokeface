@@ -682,6 +682,14 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 
 	r.State = newState
 
+	// Check for 报单/报双 (cards left announcement)
+	cardsLeftMsg := checkCardsLeft(newState)
+	if cardsLeftMsg != "" {
+		r.broadcastMsg("cards_left", map[string]interface{}{
+			"message": cardsLeftMsg,
+		})
+	}
+
 	if r.Engine.IsRoundEnd(newState) {
 		scores, err := r.Engine.CalculateScore(newState)
 		if err != nil {
@@ -887,4 +895,33 @@ func (r *GameRoom) findSeat(userID string) int {
 		}
 	}
 	return -1
+}
+
+// checkCardsLeft checks if any player has 1 or 2 cards remaining
+// and returns an announcement message, or empty string.
+func checkCardsLeft(state GameState) string {
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return ""
+	}
+	var data struct {
+		Players []struct {
+			Seat int  `json:"seat"`
+			Hand []struct {
+				ID int `json:"id"`
+			} `json:"hand"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(stateJSON, &data); err != nil {
+		return ""
+	}
+	for _, p := range data.Players {
+		if len(p.Hand) == 1 {
+			return fmt.Sprintf("seat_%d_baodan", p.Seat)
+		}
+		if len(p.Hand) == 2 {
+			return fmt.Sprintf("seat_%d_baoshuang", p.Seat)
+		}
+	}
+	return ""
 }

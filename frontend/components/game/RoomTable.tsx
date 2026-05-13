@@ -24,6 +24,7 @@ interface RoomTableProps {
   onAddBot: () => void;
   landlordCards?: number[];
   lastPlay?: { seat: number; cards: number[] } | null;
+  cardsLeftMessage?: string | null;
 }
 
 export function RoomTable({
@@ -34,6 +35,7 @@ export function RoomTable({
   onAddBot,
   landlordCards = [],
   lastPlay = null,
+  cardsLeftMessage = null,
 }: RoomTableProps) {
   const theme = useRoomTheme();
 
@@ -45,6 +47,14 @@ export function RoomTable({
 
   // Center text based on phase
   const centerText = phase === "playing" ? "游戏中" : phase === "ended" ? "已结束" : "等待中";
+
+  // Parse cards left message for seat badge
+  const cardsLeftInfo = (() => {
+    if (!cardsLeftMessage) return null;
+    const match = cardsLeftMessage.match(/^seat_(\d+)_(baodan|baoshuang)$/);
+    if (!match) return null;
+    return { seat: parseInt(match[1]), type: match[2] as "baodan" | "baoshuang" };
+  })();
 
   return (
     <div className="relative w-full max-w-3xl mx-auto aspect-[4/3]">
@@ -146,6 +156,7 @@ export function RoomTable({
         } : null}
         position={posLabel}
         isMySeat={isMine}
+        cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
         onChangeSeat={() => {
           if (!player && seatNum !== mySeat) {
             onSitDown(seatNum);

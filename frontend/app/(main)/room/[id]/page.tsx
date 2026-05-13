@@ -115,6 +115,7 @@ export default function RoomPage() {
   const [landlordCards, setLandlordCards] = useState<number[]>([]);
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
+  const [cardsLeftMessage, setCardsLeftMessage] = useState<string | null>(null);
 
   const wsClientRef = useRef<WSGameClient | null>(null);
   const voiceClientRef = useRef<LiveKitClient | null>(null);
@@ -186,6 +187,7 @@ export default function RoomPage() {
       } else {
         setLastPlay(null);
       }
+      setCardsLeftMessage(null);
       setConnected(true);
     });
 
@@ -217,6 +219,7 @@ export default function RoomPage() {
       }
       setPhase("bidding");
       setRoundResult(null);
+      setCardsLeftMessage(null);
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
         setLandlordCards(data.landlord_cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id));
@@ -228,6 +231,7 @@ export default function RoomPage() {
       setHand([]);
       setLandlordCards([]);
       setLastPlay(null);
+      setCardsLeftMessage(null);
       const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
       if (data?.scores) {
         setRoundResult({ scores: data.scores });
@@ -264,6 +268,13 @@ export default function RoomPage() {
     client.on("theme_changed", (msg) => {
       const data = msg.data as { theme?: string };
       if (data?.theme) setRoomTheme(data.theme);
+    });
+
+    client.on("cards_left", (msg) => {
+      const data = msg.data as { message?: string };
+      if (data?.message) {
+        setCardsLeftMessage(data.message);
+      }
     });
 
     client.connect();
@@ -421,6 +432,7 @@ export default function RoomPage() {
                   onAddBot={handleAddBot}
                   landlordCards={landlordCards}
                   lastPlay={lastPlay}
+                  cardsLeftMessage={cardsLeftMessage}
                 />
 
                 {/* Waiting phase: Ready/Start controls */}
