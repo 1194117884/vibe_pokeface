@@ -15,10 +15,20 @@ interface LLMConfig {
   is_active: boolean;
 }
 
+const MODEL_PLACEHOLDERS: Record<string, string> = {
+  openai: "gpt-4o",
+  deepseek: "deepseek-chat",
+  minimax: "minimax-text-01",
+  glm: "glm-4-plus",
+  qwen: "qwen-max",
+  custom: "your-model-name",
+};
+
 export default function LLMConfigPage() {
   const [configs, setConfigs] = useState<LLMConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({ provider: "openai", model: "", api_key: "", temperature: 0.7, max_tokens: 2048, is_active: true });
 
   const fetchConfigs = async () => {
@@ -26,7 +36,7 @@ export default function LLMConfigPage() {
       const res = await adminFetch("/api/admin/llm-configs");
       const data = await res.json();
       setConfigs(Array.isArray(data) ? data : []);
-    } catch { /* ignore */ }
+    } catch { setError("Failed to load configs"); }
     setLoading(false);
   };
 
@@ -42,8 +52,9 @@ export default function LLMConfigPage() {
       });
       setShowForm(false);
       setForm({ provider: "openai", model: "", api_key: "", temperature: 0.7, max_tokens: 2048, is_active: true });
+      setError("");
       fetchConfigs();
-    } catch { /* ignore */ }
+    } catch (e) { setError("Failed to create config"); }
   };
 
   const deleteConfig = async (id: number) => {
@@ -51,7 +62,7 @@ export default function LLMConfigPage() {
     try {
       await adminFetch(`/api/admin/llm-configs/${id}`, { method: "DELETE" });
       fetchConfigs();
-    } catch { /* ignore */ }
+    } catch { setError("Failed to delete config"); }
   };
 
   return (
@@ -69,6 +80,12 @@ export default function LLMConfigPage() {
         </Button>
       </div>
 
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-error/10 border border-red-error/30 rounded-[4px] text-sm text-red-error">
+          {error}
+        </div>
+      )}
+
       {showForm && (
         <Card padding="md" className="mb-6">
           <div className="flex items-end gap-4 flex-wrap">
@@ -77,10 +94,17 @@ export default function LLMConfigPage() {
               <select
                 className="w-full px-3 py-2 border border-gray-300 rounded-[4px] text-sm text-text-black outline-none transition-all duration-200 focus:border-green-accent bg-white"
                 value={form.provider}
-                onChange={(e) => setForm({ ...form, provider: e.target.value })}
+                onChange={(e) => {
+                  const p = e.target.value;
+                  setForm({ ...form, provider: p, model: "" });
+                }}
               >
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="minimax">MiniMax</option>
+                <option value="glm">GLM (智谱)</option>
+                <option value="qwen">Qwen (通义千问)</option>
                 <option value="custom">Custom</option>
               </select>
             </div>
@@ -90,7 +114,7 @@ export default function LLMConfigPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-[4px] text-sm text-text-black outline-none transition-all duration-200 focus:border-green-accent"
                 value={form.model}
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
-                placeholder="gpt-4o"
+                placeholder={MODEL_PLACEHOLDERS[form.provider] || "model-name"}
               />
             </div>
             <div className="min-w-[180px] flex-1">
@@ -118,7 +142,7 @@ export default function LLMConfigPage() {
         <Card padding="lg">
           <div className="text-center py-4">
             <p className="text-text-black-soft">No LLM configurations yet.</p>
-            <p className="text-sm text-text-black-soft mt-1">Add an OpenAI or Anthropic API configuration for AI bot integration.</p>
+            <p className="text-sm text-text-black-soft mt-1">Add an API configuration for AI bot integration.</p>
           </div>
         </Card>
       ) : (
