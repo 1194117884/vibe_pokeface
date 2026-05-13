@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import clsx from "clsx";
-import { GameTable } from "@/components/game/GameTable";
+import { WSGameClient } from "@/lib/ws-game";
+import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
+import { ReadyBar } from "@/components/game/ReadyBar";
+import { HandCards } from "@/components/game/HandCards";
+import { ActionBar } from "@/components/game/ActionBar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
-import { WSGameClient } from "@/lib/ws-game";
 
 interface ChatMessage {
   userId: string;
@@ -16,83 +19,189 @@ interface ChatMessage {
   timestamp: number;
 }
 
+interface ServerPlayer {
+  user_id?: number | string;
+  userId?: number | string;
+  seat?: number;
+  is_bot?: boolean;
+  isBot?: boolean;
+  is_owner?: boolean;
+  isOwner?: boolean;
+  ready?: boolean;
+  isReady?: boolean;
+  hand?: Array<{ id: number } | number>;
+  card_count?: number;
+  cardCount?: number;
+}
+
+interface ServerData {
+  players?: ServerPlayer[];
+  seat?: number;
+  user_id?: number | string;
+  new_seat?: number;
+  current_seat?: number;
+  phase?: number;
+  landlord_cards?: number[];
+  timer?: number;
+  content?: string;
+  type?: string;
+  timestamp?: number;
+  error?: string;
+}
+
+function toTablePlayer(p: ServerPlayer): TablePlayer {
+  return {
+    userId: String(p.user_id ?? p.userId ?? ""),
+    name: String(p.user_id ?? p.userId ?? "").replace(/^ai:bot:/, "AI "),
+    seat: p.seat ?? 0,
+    isBot: p.is_bot ?? p.isBot ?? false,
+    isOwner: p.is_owner ?? p.isOwner ?? false,
+    isReady: p.ready ?? p.isReady ?? false,
+    cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
+  };
+}
+
+function extractHand(p: ServerPlayer): number[] {
+  if (!p?.hand) return [];
+  return p.hand.map((c) => (typeof c === "number" ? c : c.id));
+}
+
+function getUserIdFromToken(): string {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return String(payload.user_id ?? payload.sub ?? "");
+  } catch {
+    return "";
+  }
+}
+
 export default function RoomPage() {
   const params = useParams();
+  const router = useRouter();
   const roomId = params.id as string;
-  const [players, setPlayers] = useState<Array<{
-    userId: number; name: string; seat: number; cardCount: number; isLandlord?: boolean; hand?: number[];
-  }>>([]);
-  const [mySeat, setMySeat] = useState<number>(0);
-  const [currentSeat, setCurrentSeat] = useState<number>(0);
-  const [phase, setPhase] = useState<"bidding" | "playing" | "ended">("bidding");
-  const [plays, setPlays] = useState<Array<{ seat: number; cards: number[] }>>([]);
-  const [landlordCards, setLandlordCards] = useState<number[]>([]);
+
+  const [players, setPlayers] = useState<TablePlayer[]>([]);
+  const [mySeat, setMySeat] = useState<number | null>(null);
+  const [phase, setPhase] = useState<"waiting" | "bidding" | "playing" | "ended">("waiting");
   const [connected, setConnected] = useState(false);
-  const [timer, setTimer] = useState<number | undefined>(undefined);
+  const [currentSeat, setCurrentSeat] = useState<number | undefined>(undefined);
+  const [hand, setHand] = useState<number[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [micEnabled, setMicEnabled] = useState(false);
+
   const wsClientRef = useRef<WSGameClient | null>(null);
   const voiceClientRef = useRef<LiveKitClient | null>(null);
-  const [micEnabled, setMicEnabled] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
-    const userId = 1; // TODO: decode from JWT properly
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) return;
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
 
-    const client = new WSGameClient(userId, token);
+    let userIdStr = "";
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      userIdStr = String(payload.user_id ?? payload.sub ?? "");
+    } catch {
+      router.push("/auth/login");
+      return;
+    }
+
+    const client = new WSGameClient(Number(userIdStr), token, roomId);
     wsClientRef.current = client;
+    const uid = userIdStr;
 
-    client.on("joined", () => {
+    client.on("player_joined", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.players) {
+        setPlayers(data.players.map(toTablePlayer));
+      }
+      if (data?.seat !== undefined) setMySeat(data.seat);
       setConnected(true);
-      client.joinRoom(roomId);
+    });
+
+    client.on("player_left", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.players) {
+        setPlayers(data.players.map(toTablePlayer));
+      }
     });
 
     client.on("state_update", (msg) => {
-      const data = msg.data as any;
+      const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p: any) => ({
-          userId: p.user_id,
-          name: p.name || `Player ${p.seat + 1}`,
-          seat: p.seat,
-          cardCount: p.hand?.length || p.card_count || 0,
-          isLandlord: p.is_landlord,
-          hand: p.hand,
-        })));
+        setPlayers(data.players.map(toTablePlayer));
+        const me = data.players.find(
+          (p) => String(p.user_id ?? p.userId) === uid,
+        );
+        if (me) setHand(extractHand(me));
       }
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.phase !== undefined) {
-        setPhase(data.phase === 2 ? "ended" : data.phase === 1 ? "playing" : "bidding");
+        const p = data.phase;
+        setPhase(p === 2 ? "ended" : p === 1 ? "playing" : "bidding");
       }
-      if (data?.landlord_cards) setLandlordCards(data.landlord_cards);
+      setConnected(true);
     });
 
-    client.on("player_joined", (msg) => {
-      const data = msg.data as any;
+    client.on("player_ready", (msg) => {
+      const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p: any) => ({
-          userId: p.user_id,
-          name: `Player ${p.seat + 1}`,
-          seat: p.seat,
-          cardCount: 0,
-        })));
+        setPlayers(data.players.map(toTablePlayer));
       }
     });
 
-    client.on("round_end", (msg) => {
+    client.on("seat_changed", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.players) {
+        setPlayers(data.players.map(toTablePlayer));
+      }
+      if (data?.new_seat !== undefined && String(data.user_id) === uid) {
+        setMySeat(data.new_seat);
+      }
+    });
+
+    client.on("game_start", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.players) {
+        setPlayers(data.players.map(toTablePlayer));
+        const me = data.players.find(
+          (p) => String(p.user_id ?? p.userId) === uid,
+        );
+        if (me) setHand(extractHand(me));
+      }
+      setPhase("bidding");
+      if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
+    });
+
+    client.on("round_end", () => {
       setPhase("ended");
+      setHand([]);
     });
 
     client.on("chat", (msg) => {
-      const data = msg.data as any;
+      const data = msg.data as ServerData;
       if (data?.content) {
-        setChatMessages((prev) => [...prev, {
-          userId: String(data.user_id || "unknown"),
-          content: data.content,
-          type: data.type === "emoji" ? "emoji" : "text",
-          timestamp: data.timestamp || Date.now(),
-        }]);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            userId: String(data.user_id ?? "unknown"),
+            content: data.content ?? "",
+            type: data.type === "emoji" ? "emoji" : "text",
+            timestamp: data.timestamp ?? Date.now(),
+          },
+        ]);
       }
+    });
+
+    client.on("error", (msg) => {
+      console.error("Game error:", msg.error ?? msg.data);
+      setConnected(true);
     });
 
     client.connect();
@@ -103,22 +212,70 @@ export default function RoomPage() {
       wsClientRef.current = null;
       client.disconnect();
     };
-  }, [roomId]);
+  }, [roomId, router]);
+
+  const myUserId = getUserIdFromToken();
+  const myPlayer = players.find((p) => p.userId === myUserId);
+  const amIOwner = players.some((p) => p.userId === myUserId && p.isOwner);
+  const amIReady = myPlayer?.isReady ?? false;
+  const allReady = players.length >= 2 && players.every((p) => p.isReady);
+  const canStart = players.length >= 3 && allReady;
+  const isMyTurn = currentSeat !== undefined && myPlayer?.seat === currentSeat;
+  const displayPlayers = players.map((p) => ({
+    ...p,
+    isCurrentTurn: p.seat === currentSeat,
+  }));
+
+  const handleSitDown = (seat: number) => {
+    wsClientRef.current?.changeSeat(seat);
+  };
+
+  const handleChangeSeat = (seat: number) => {
+    wsClientRef.current?.changeSeat(seat);
+  };
+
+  const handleAddBot = () => {
+    wsClientRef.current?.addBot();
+  };
+
+  const handleReady = () => {
+    wsClientRef.current?.sendReady();
+  };
+
+  const handleStartGame = () => {
+    wsClientRef.current?.startGame();
+  };
+
+  const handlePlayCards = (cards: number[]) => {
+    const action = cards.length === 0 ? "pass" : "play";
+    wsClientRef.current?.sendAction(action, cards);
+  };
+
+  const handleBidCall = () => {
+    wsClientRef.current?.sendAction("call");
+  };
+
+  const handleBidPass = () => {
+    wsClientRef.current?.sendAction("pass");
+  };
+
+  const handleSendChat = (content: string, type: "text" | "emoji") => {
+    wsClientRef.current?.sendChat(content, type);
+  };
 
   const handleVoiceToggle = async (enabled: boolean) => {
     if (enabled) {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!token) return;
-      // Disconnect existing client before creating a new one
       voiceClientRef.current?.disconnect();
       try {
         const res = await fetch(`/api/livekit/token?room=${roomId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const data = await res.json();
-        if (data.success && data.token) {
+        const json = await res.json();
+        if (json.success && json.token) {
           const vc = new LiveKitClient();
-          await vc.connect(data.url, data.token, data.room);
+          await vc.connect(json.url, json.token, json.room);
           await vc.toggleMic();
           voiceClientRef.current = vc;
           setMicEnabled(true);
@@ -136,86 +293,150 @@ export default function RoomPage() {
     }
   };
 
-  const handleSendChat = (content: string, type: "text" | "emoji") => {
-    wsClientRef.current?.sendChat(content, type);
-  };
-
   if (!connected) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-cream">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🎴</div>
-          <p className="text-text-black-soft">Connecting to room...</p>
+          <p className="text-text-black-soft">连接房间中...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-cream flex">
-      <div className="flex-1 relative">
-        <GameTable
-          players={players}
-          mySeat={mySeat}
-          currentSeat={currentSeat}
-          phase={phase}
-          plays={plays}
-          landlordCards={landlordCards}
-        />
-
-        {/* Chat FAB — visible on mobile only */}
-        <button
-          onClick={() => setChatOpen(true)}
-          className="fixed bottom-6 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-green-accent text-white text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
-          aria-label="Open chat"
-        >
-          💬
-        </button>
-      </div>
-
-      {/* Desktop chat sidebar */}
-      <div className="hidden lg:flex w-80 p-4 space-y-4 border-l border-ceramic flex-col">
+    <div className="min-h-screen bg-cream flex flex-col">
+      {/* Room Header */}
+      <header className="bg-white border-b border-ceramic px-6 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push("/lobby")}
+            className="text-sm text-text-black-soft hover:text-green-accent"
+          >
+            ← 退出
+          </button>
+          <h1 className="font-bold text-text-black-strong">
+            房间 {roomId.slice(0, 6)}
+          </h1>
+          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+            斗地主
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-          <span className="text-sm text-text-black-soft">{micEnabled ? "Mic on" : "Mic off"}</span>
+          <span className="text-xs text-text-black-soft">
+            {micEnabled ? "Mic on" : "Mic off"}
+          </span>
         </div>
-        <div className="flex-1 min-h-0">
-          <ChatPanel
-            messages={chatMessages}
-            onSendMessage={handleSendChat}
-            disabled={!connected}
-          />
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex min-h-0">
+        {/* Game Area */}
+        <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
+          {players.length === 0 ? (
+            <div className="text-center text-text-black-soft">房间是空的</div>
+          ) : (
+            <>
+              <RoomTable
+                players={displayPlayers}
+                myUserId={myUserId}
+                mySeat={mySeat ?? 0}
+                phase={phase}
+                onSitDown={handleSitDown}
+                onChangeSeat={handleChangeSeat}
+                onAddBot={handleAddBot}
+              />
+
+              {/* Waiting phase: Ready/Start controls */}
+              {phase === "waiting" && (
+                <ReadyBar
+                  amIOwner={amIOwner}
+                  isReady={amIReady}
+                  allReady={allReady}
+                  playerCount={players.length}
+                  maxPlayers={3}
+                  canStart={canStart}
+                  onReady={handleReady}
+                  onStartGame={handleStartGame}
+                  onAddBot={handleAddBot}
+                />
+              )}
+
+              {/* Playing/Bidding phase: hand cards and action buttons */}
+              {(phase === "bidding" || phase === "playing") && (
+                <div className="w-full max-w-3xl mt-4 space-y-2">
+                  <HandCards
+                    cards={hand}
+                    onPlayCards={
+                      phase === "playing" ? handlePlayCards : undefined
+                    }
+                    disabled={!isMyTurn}
+                  />
+                  {phase === "bidding" && (
+                    <ActionBar
+                      phase={phase}
+                      isMyTurn={isMyTurn}
+                      onBidCall={handleBidCall}
+                      onBidPass={handleBidPass}
+                    />
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Desktop Chat Sidebar */}
+        <div className="hidden lg:flex w-80 p-4 border-l border-ceramic flex-col shrink-0">
+          <div className="flex-1 min-h-0">
+            <ChatPanel
+              messages={chatMessages}
+              onSendMessage={handleSendChat}
+              disabled={!connected}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Mobile chat bottom sheet */}
+      {/* Mobile Chat FAB */}
+      <button
+        onClick={() => setChatOpen(true)}
+        className="fixed bottom-6 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-green-accent text-white text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
+        aria-label="打开聊天"
+      >
+        💬
+      </button>
+
+      {/* Mobile Chat Sheet */}
       {chatOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/40" onClick={() => setChatOpen(false)} />
-          {/* Sheet */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setChatOpen(false)}
+          />
           <div
             className={clsx(
               "absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-frap",
               "flex flex-col max-h-[70vh] transition-transform duration-300",
-              "pb-[var(--safe-area-bottom,0px)]"
+              "pb-[var(--safe-area-bottom,0px)]",
             )}
           >
-            {/* Handle */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-ceramic">
               <div className="flex items-center gap-2">
                 <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-                <span className="text-sm text-text-black-soft">{micEnabled ? "Mic on" : "Mic off"}</span>
+                <span className="text-sm text-text-black-soft">
+                  {micEnabled ? "Mic on" : "Mic off"}
+                </span>
               </div>
               <button
                 onClick={() => setChatOpen(false)}
                 className="w-8 h-8 rounded-full bg-cream flex items-center justify-center text-text-black-soft hover:bg-ceramic transition-colors"
-                aria-label="Close chat"
+                aria-label="关闭聊天"
               >
                 ✕
               </button>
             </div>
-            {/* Chat panel */}
             <div className="flex-1 min-h-0 p-4">
               <ChatPanel
                 messages={chatMessages}

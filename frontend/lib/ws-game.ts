@@ -6,6 +6,7 @@ export type GameMessageType =
   | "round_end"
   | "player_joined"
   | "player_left"
+  | "round_end"
   | "chat"
   | "error"
   | "joined"
@@ -16,6 +17,7 @@ export type GameMessageType =
   | "ready"
   | "player_ready"
   | "start_game"
+  | "game_start"
   | "add_bot"
   | "room_info";
 
