@@ -47,9 +47,11 @@ func main() {
 		Host:      os.Getenv("LIVEKIT_HOST"),
 	}
 
+	roomHandler := api.NewRoomHandler(gameStore)
+
 	router := api.NewRouter(userDB, jwtSvc, hub, middleware.CORSConfig{
 		AllowedOrigins: cfg.AllowedOrigins,
-	}, lkConfig, adminHandler)
+	}, lkConfig, adminHandler, roomHandler)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

@@ -12,7 +12,7 @@ import (
 	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
-func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg middleware.CORSConfig, lkConfig LiveKitConfig, adminHandler *admin.Handler) *chi.Mux {
+func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg middleware.CORSConfig, lkConfig LiveKitConfig, adminHandler *admin.Handler, roomHandler *RoomHandler) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logging)
@@ -65,6 +65,9 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"message":"reconnect - coming soon","status":"ok"}`))
 		})
+
+		r.Get("/api/rooms", roomHandler.ListRooms)
+		r.Post("/api/rooms", roomHandler.CreateRoom)
 	})
 
 	return r

@@ -10,10 +10,13 @@ import (
 
 type Room struct {
 	ID         string     `db:"id" json:"id"`
+	Name       string     `db:"name" json:"name"`
 	GameType   string     `db:"game_type" json:"game_type"`
 	OwnerID    int64      `db:"owner_id" json:"owner_id"`
 	Status     string     `db:"status" json:"status"`
 	MaxPlayers int8       `db:"max_players" json:"max_players"`
+	IsOpen     bool       `db:"is_open" json:"is_open"`
+	Password   *string    `db:"password" json:"password,omitempty"`
 	BotEnabled bool       `db:"bot_enabled" json:"bot_enabled"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 	EndedAt    *time.Time `db:"ended_at" json:"ended_at,omitempty"`
@@ -69,8 +72,8 @@ func NewGameStore(db *sqlx.DB) *GameStore {
 
 func (s *GameStore) CreateRoom(ctx context.Context, room *Room) error {
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO rooms (id, game_type, owner_id, max_players, bot_enabled) VALUES (?, ?, ?, ?, ?)",
-		room.ID, room.GameType, room.OwnerID, room.MaxPlayers, room.BotEnabled)
+		"INSERT INTO rooms (id, name, game_type, owner_id, status, max_players, is_open, password, bot_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		room.ID, room.Name, room.GameType, room.OwnerID, room.Status, room.MaxPlayers, room.IsOpen, room.Password, room.BotEnabled)
 	return err
 }
 
