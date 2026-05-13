@@ -266,7 +266,10 @@ func (a *AIAgent) executeToolCall(raw string) {
 
 	case "say":
 		if a.Executor != nil {
-			a.Executor.SendChat(a.UserID, string(call.Args), "text")
+			var args SayArgs
+			if json.Unmarshal(call.Args, &args) == nil && args.Message != "" {
+				a.Executor.SendChat(a.UserID, args.Message, "text")
+			}
 		}
 	}
 }
