@@ -9,7 +9,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  function Input({ label, error, className, value, onChange, ...props }, ref) {
+  function Input({ label, error, className = "", value, onChange, ...props }, ref) {
     const [focused, setFocused] = useState(false);
     const hasValue = value !== undefined && value !== "";
 
@@ -17,6 +17,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <div className="relative">
         <div
           className={clsx(
+            className,
             "border rounded-[4px] px-3 pt-5 pb-3 lg:pb-2 transition-all duration-200",
             error
               ? "border-red-error bg-red-50/5"

@@ -23,9 +23,7 @@ interface SeatPositionProps {
 }
 
 export function SeatPosition({
-  seatNumber,
   player,
-  position,
   isMySeat,
   onChangeSeat,
   onAddBot,

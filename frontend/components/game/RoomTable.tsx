@@ -18,21 +18,17 @@ export interface TablePlayer {
 
 interface RoomTableProps {
   players: TablePlayer[];
-  myUserId: string;
   mySeat: number;
   phase: string;
   onSitDown: (seat: number) => void;
-  onChangeSeat: (seat: number) => void;
   onAddBot: () => void;
 }
 
 export function RoomTable({
   players,
-  myUserId,
   mySeat,
   phase,
   onSitDown,
-  onChangeSeat,
   onAddBot,
 }: RoomTableProps) {
   const theme = useRoomTheme();

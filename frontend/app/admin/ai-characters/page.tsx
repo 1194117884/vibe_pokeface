@@ -27,7 +27,10 @@ export default function AICharactersPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchChars(); }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchChars();
+  }, []);
 
   const createChar = async () => {
     if (!form.name) return;

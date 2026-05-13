@@ -18,6 +18,7 @@ export function NPCWalker() {
 
   useEffect(() => {
     if (!theme.ambient.enabled || !theme.ambient.npcSprites?.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNpcs([]);
       return;
     }

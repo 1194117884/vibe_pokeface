@@ -14,7 +14,6 @@ interface PlayerInfoProps {
 export function PlayerInfo({
   name,
   cardCount,
-  seat,
   isLandlord,
   isCurrentTurn,
   isSelf,

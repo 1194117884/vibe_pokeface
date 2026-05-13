@@ -245,10 +245,6 @@ export default function RoomPage() {
     wsClientRef.current?.changeSeat(seat);
   };
 
-  const handleChangeSeat = (seat: number) => {
-    wsClientRef.current?.changeSeat(seat);
-  };
-
   const handleAddBot = () => {
     wsClientRef.current?.addBot();
   };
@@ -372,11 +368,9 @@ export default function RoomPage() {
               <>
                 <RoomTable
                   players={displayPlayers}
-                  myUserId={myUserId}
                   mySeat={mySeat ?? 0}
                   phase={phase}
                   onSitDown={handleSitDown}
-                  onChangeSeat={handleChangeSeat}
                   onAddBot={handleAddBot}
                 />
 

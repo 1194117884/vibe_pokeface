@@ -1,4 +1,3 @@
-import { CardStyle } from "../types";
 import { registerCardStyle } from "../registry";
 
 registerCardStyle({

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"math/rand"
 	"net/http"
 
@@ -84,6 +85,7 @@ func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateRoom(r.Context(), room); err != nil {
+		log.Printf("ERROR creating room: %v", err)
 		http.Error(w, `{"error":"failed to create room"}`, http.StatusInternalServerError)
 		return
 	}

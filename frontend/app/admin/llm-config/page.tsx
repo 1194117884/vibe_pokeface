@@ -40,7 +40,10 @@ export default function LLMConfigPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchConfigs(); }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchConfigs();
+  }, []);
 
   const createConfig = async () => {
     if (!form.model || !form.api_key) return;
@@ -54,7 +57,7 @@ export default function LLMConfigPage() {
       setForm({ provider: "openai", model: "", api_key: "", temperature: 0.7, max_tokens: 2048, is_active: true });
       setError("");
       fetchConfigs();
-    } catch (e) { setError("Failed to create config"); }
+    } catch { setError("Failed to create config"); }
   };
 
   const deleteConfig = async (id: number) => {
