@@ -2,13 +2,18 @@
 
 import { createContext, useContext, ReactNode } from "react";
 import { CharacterStyle } from "./types";
-import { getCharacterStyle } from "./registry";
+import { getCharacterStyle, DEFAULT_CHARACTER_ID } from "./registry";
 
 const CharacterContext = createContext<CharacterStyle | null>(null);
 
 export function useCharacterStyle(): CharacterStyle {
   const ctx = useContext(CharacterContext);
-  if (!ctx) return getCharacterStyle("panda");
+  if (!ctx) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("useCharacterStyle used outside CharacterProvider, falling back to default");
+    }
+    return getCharacterStyle(DEFAULT_CHARACTER_ID);
+  }
   return ctx;
 }
 
