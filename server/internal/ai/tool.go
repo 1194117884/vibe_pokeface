@@ -1,6 +1,9 @@
 package ai
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ToolCall represents an LLM decision to call a tool
 type ToolCall struct {
@@ -50,6 +53,20 @@ type BidArgs struct {
 
 type SayArgs struct {
 	Message string `json:"message"`
+}
+
+// ExtractToolCall parses an LLM JSON response to extract a tool call.
+// Handles markdown code fences and whitespace.
+func ExtractToolCall(jsonStr string) (*ToolCall, error) {
+	cleaned := stripCodeFences(jsonStr)
+	var call ToolCall
+	if err := json.Unmarshal([]byte(cleaned), &call); err != nil {
+		return nil, fmt.Errorf("parse tool call: %w", err)
+	}
+	if call.Name == "" {
+		return nil, fmt.Errorf("empty tool name")
+	}
+	return &call, nil
 }
 
 // GetToolSchemas returns all available tool definitions for LLM prompt injection
