@@ -57,3 +57,37 @@ body {
     transform: scale(var(--button-active-scale));
   }
 }
+
+@keyframes npc-walk-left {
+  0% {
+    transform: translateX(110vw) scaleX(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.2;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(-10vw) scaleX(1);
+    opacity: 0;
+  }
+}
+
+@keyframes npc-walk-right {
+  0% {
+    transform: translateX(-10vw) scaleX(-1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.2;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(110vw) scaleX(-1);
+    opacity: 0;
+  }
+}
