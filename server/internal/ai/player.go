@@ -4,6 +4,8 @@ import (
 	"math/rand"
 )
 
+// Deprecated: Use AIAgent with ActionExecutor for LLM-driven decisions.
+// AIPlayer uses rule-based logic (bidding) and always passes on play.
 type AIPlayer struct {
 	CharacterID   int
 	HandCards     []int
