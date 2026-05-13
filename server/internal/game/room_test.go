@@ -104,7 +104,7 @@ func TestRoomAddPlayer(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 	conn := make(chan []byte, 10)
 
-	err := room.AddPlayer("user-1", conn)
+	err := room.AddPlayer("user-1", "", "", conn)
 	if err != nil {
 		t.Fatalf("AddPlayer failed: %v", err)
 	}
@@ -123,8 +123,8 @@ func TestRoomAddPlayerDuplicate(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 	conn := make(chan []byte, 10)
 
-	room.AddPlayer("user-1", conn)
-	err := room.AddPlayer("user-1", make(chan []byte, 10))
+	room.AddPlayer("user-1", "", "", conn)
+	err := room.AddPlayer("user-1", "", "", make(chan []byte, 10))
 	if err == nil {
 		t.Error("AddPlayer should return error for duplicate player")
 	}
@@ -136,6 +136,8 @@ func TestRoomAddPlayerFull(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		err := room.AddPlayer(
 			string(rune('a'+i)),
+			"",
+			"",
 			make(chan []byte, 10),
 		)
 		if err != nil {
@@ -143,7 +145,7 @@ func TestRoomAddPlayerFull(t *testing.T) {
 		}
 	}
 
-	err := room.AddPlayer("extra", make(chan []byte, 10))
+	err := room.AddPlayer("extra", "", "", make(chan []byte, 10))
 	if err == nil {
 		t.Error("AddPlayer should return error for full room")
 	}
@@ -154,8 +156,8 @@ func TestRoomRemovePlayer(t *testing.T) {
 	conn1 := make(chan []byte, 10)
 	conn2 := make(chan []byte, 10)
 
-	room.AddPlayer("user-1", conn1)
-	room.AddPlayer("user-2", conn2)
+	room.AddPlayer("user-1", "", "", conn1)
+	room.AddPlayer("user-2", "", "", conn2)
 	room.RemovePlayer("user-1")
 
 	if len(room.Players) != 1 {
@@ -171,7 +173,7 @@ func TestRoomRemovePlayer(t *testing.T) {
 
 func TestRoomRemovePlayerNonexistent(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
-	room.AddPlayer("user-1", make(chan []byte, 10))
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
 
 	// This should not panic
 	room.RemovePlayer("nonexistent")
@@ -182,7 +184,7 @@ func TestRoomRemovePlayerNonexistent(t *testing.T) {
 
 func TestRoomRemoveLastPlayer(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
-	room.AddPlayer("user-1", make(chan []byte, 10))
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
 	room.RemovePlayer("user-1")
 
 	if len(room.Players) != 0 {
@@ -197,7 +199,7 @@ func TestRoomSetReady(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 	conn := make(chan []byte, 10)
 
-	room.AddPlayer("user-1", conn)
+	room.AddPlayer("user-1", "", "", conn)
 
 	// Consume the player_joined message
 	<-conn
@@ -229,9 +231,9 @@ func TestRoomAllReadyStartsGame(t *testing.T) {
 	conn2 := make(chan []byte, 20)
 	conn3 := make(chan []byte, 20)
 
-	room.AddPlayer("user-1", conn1)
-	room.AddPlayer("user-2", conn2)
-	room.AddPlayer("user-3", conn3)
+	room.AddPlayer("user-1", "", "", conn1)
+	room.AddPlayer("user-2", "", "", conn2)
+	room.AddPlayer("user-3", "", "", conn3)
 
 	// Drain AddPlayer broadcasts from all connections.
 	// AddPlayer broadcasts to every player in the room.

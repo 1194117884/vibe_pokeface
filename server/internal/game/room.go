@@ -204,7 +204,7 @@ func (r *GameRoom) SetTheme(userID string, themeID string) error {
 
 // AddPlayer adds a player to the room and broadcasts the join event.
 // Returns an error if the room is full or the player is already in the room.
-func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
+func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string, conn chan []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -237,9 +237,11 @@ func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
 	seat := available[rand.Intn(len(available))]
 
 	player := &PlayerSession{
-		UserID: userID,
-		Seat:   seat,
-		Conn:   conn,
+		UserID:      userID,
+		Seat:        seat,
+		Conn:        conn,
+		Nickname:    nickname,
+		CharacterID: characterID,
 	}
 	r.Players = append(r.Players, player)
 

@@ -166,7 +166,16 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	client.RoomID = roomID
 	h.Register <- client
 
-	if err := room.AddPlayer(client.ID, client.Send); err != nil {
+	// Look up user info BEFORE adding player so the broadcast includes the nickname
+	nickname := client.ID // fallback to user ID as display name
+	var characterID string
+	if uid, err := strconv.ParseInt(client.ID, 10, 64); err == nil {
+		if user, err := h.UserStore.FindByID(context.Background(), uid); err == nil {
+			nickname = user.Nickname
+		}
+	}
+
+	if err := room.AddPlayer(client.ID, nickname, characterID, client.Send); err != nil {
 		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
 		select {
 		case client.Send <- errMsg:
@@ -174,15 +183,6 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		}
 		return
 	}
-
-	// Look up user info for nickname and character_id
-	nickname := client.ID // fallback to user ID as display name
-	if uid, err := strconv.ParseInt(client.ID, 10, 64); err == nil {
-		if user, err := h.UserStore.FindByID(context.Background(), uid); err == nil {
-			nickname = user.Nickname
-		}
-	}
-	room.SetPlayerInfo(client.ID, nickname, "")
 }
 
 // handleLeaveRoom processes a leave_room message from a client.
