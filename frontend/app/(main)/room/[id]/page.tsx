@@ -124,6 +124,7 @@ export default function RoomPage() {
     const client = new WSGameClient(Number(userIdStr), token, roomId);
     wsClientRef.current = client;
     const uid = userIdStr;
+    let joined = false;
 
     client.on("player_joined", (msg) => {
       const data = msg.data as ServerData;
@@ -133,6 +134,7 @@ export default function RoomPage() {
       if (data?.seat !== undefined) setMySeat(data.seat);
       if (data?.theme) setRoomTheme(data.theme);
       setConnected(true);
+      joined = true;
     });
 
     client.on("player_left", (msg) => {
@@ -212,10 +214,12 @@ export default function RoomPage() {
     client.on("error", (msg) => {
       const errMsg = typeof msg.data === "string" ? msg.data : msg.error ?? "";
       console.error("Game error:", errMsg);
-      if (
+      // Only redirect on join errors — in-game errors (e.g. adding bot)
+      // should not kick the user out of the room.
+      if (!joined && (
         errMsg.includes("room is full") ||
         errMsg.includes("room is closed")
-      ) {
+      )) {
         router.push("/lobby");
         return;
       }
