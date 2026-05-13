@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -118,6 +119,8 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			h.handleStartGame(client, msg)
 		case "add_bot":
 			h.handleAddBot(client, msg)
+		case "set_theme":
+			h.handleSetTheme(client, msg)
 		default:
 			log.Printf("Unknown message type: %s", msg.Type)
 			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "unknown message type: " + msg.Type})
@@ -169,7 +172,17 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		case client.Send <- errMsg:
 		default:
 		}
+		return
 	}
+
+	// Look up user info for nickname and character_id
+	nickname := client.ID // fallback to user ID as display name
+	if uid, err := strconv.ParseInt(client.ID, 10, 64); err == nil {
+		if user, err := h.UserStore.FindByID(context.Background(), uid); err == nil {
+			nickname = user.Nickname
+		}
+	}
+	room.SetPlayerInfo(client.ID, nickname, "")
 }
 
 // handleLeaveRoom processes a leave_room message from a client.
@@ -260,6 +273,25 @@ func (h *Hub) handleAddBot(client *Client, msg C2SMessage) {
 	room := h.RoomManager.GetRoom(client.RoomID)
 	if room != nil {
 		if err := room.AddBot(client.ID); err != nil {
+			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
+			select {
+			case client.Send <- errMsg:
+			default:
+			}
+		}
+	}
+}
+
+func (h *Hub) handleSetTheme(client *Client, msg C2SMessage) {
+	var themeData struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.Unmarshal(msg.Data, &themeData); err != nil {
+		return
+	}
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		if err := room.SetTheme(client.ID, themeData.Theme); err != nil {
 			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
 			select {
 			case client.Send <- errMsg:

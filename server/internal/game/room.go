@@ -12,12 +12,14 @@ import (
 
 // PlayerSession represents a connected player in a game room.
 type PlayerSession struct {
-	UserID   string
-	PlayerID int64
-	Seat     int
-	Conn     chan []byte
-	Ready    bool
-	IsBot    bool
+	UserID      string
+	PlayerID    int64
+	Seat        int
+	Conn        chan []byte
+	Ready       bool
+	IsBot       bool
+	Nickname    string // display name for seat display
+	CharacterID string // avatar character ID (e.g. "panda", "fox")
 }
 
 // GameRoom represents a game room with players and game state.
@@ -28,6 +30,7 @@ type GameRoom struct {
 	Engine   GameEngine
 	State    GameState
 	Status   string
+	Theme    string
 	store    *model.GameStore
 	mu       sync.Mutex
 	notify   chan []byte
@@ -50,6 +53,7 @@ func NewGameRoom(id string, gameType string, engine GameEngine, store *model.Gam
 		Engine:   engine,
 		Players:  make([]*PlayerSession, 0),
 		Status:   "waiting",
+		Theme:    "classic-poker",
 		store:    store,
 		notify:   make(chan []byte, 256),
 		agents:   make(map[string]*ai.AIAgent),
@@ -184,6 +188,20 @@ func (r *GameRoom) OwnerID() string {
 	return ""
 }
 
+// SetTheme changes the room theme (owner only).
+func (r *GameRoom) SetTheme(userID string, themeID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.OwnerID() != userID {
+		return fmt.Errorf("only the room owner can change the theme")
+	}
+	r.Theme = themeID
+	r.broadcastMsg("theme_changed", map[string]interface{}{
+		"theme": themeID,
+	})
+	return nil
+}
+
 // AddPlayer adds a player to the room and broadcasts the join event.
 // Returns an error if the room is full or the player is already in the room.
 func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
@@ -229,6 +247,7 @@ func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
 		"user_id": userID,
 		"seat":    seat,
 		"players": r.playerList(),
+		"theme":   r.Theme,
 	})
 	return nil
 }
@@ -294,6 +313,13 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 		IsBot:  true,
 		Ready:  true, // bots are always ready
 	}
+	// Set nickname from bot sequence number
+	var botN int
+	if _, err := fmt.Sscanf(botID, "ai:bot:%d", &botN); err == nil {
+		bot.Nickname = fmt.Sprintf("AI Player %d", botN)
+	} else {
+		bot.Nickname = "AI Player"
+	}
 	r.Players = append(r.Players, bot)
 
 	// Apply bot options and create AI agent if a provider is configured
@@ -338,11 +364,12 @@ func (r *GameRoom) AddBot(ownerID string) error {
 
 	seat := len(r.Players)
 	bot := &PlayerSession{
-		UserID: botID,
-		Seat:   seat,
-		Conn:   conn,
-		IsBot:  true,
-		Ready:  true,
+		UserID:   botID,
+		Seat:     seat,
+		Conn:     conn,
+		IsBot:    true,
+		Ready:    true,
+		Nickname: fmt.Sprintf("AI Player %d", nextN),
 	}
 	r.Players = append(r.Players, bot)
 
@@ -646,13 +673,41 @@ func (r *GameRoom) playerList() []map[string]interface{} {
 	ownerID := r.OwnerID()
 	list := make([]map[string]interface{}, len(r.Players))
 	for i, p := range r.Players {
-		list[i] = map[string]interface{}{
+		entry := map[string]interface{}{
 			"user_id":  p.UserID,
 			"seat":     p.Seat,
 			"ready":    p.Ready,
 			"is_bot":   p.IsBot,
 			"is_owner": p.UserID == ownerID,
+			"nickname": p.Nickname,
 		}
+		if p.CharacterID != "" {
+			entry["character_id"] = p.CharacterID
+		}
+		list[i] = entry
 	}
 	return list
+}
+
+// SetPlayerInfo updates a player display info after they have joined.
+func (r *GameRoom) SetPlayerInfo(userID string, nickname string, characterID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			p.Nickname = nickname
+			p.CharacterID = characterID
+			return
+		}
+	}
+}
+
+// findSeat returns the seat number for a given user ID, or -1 if not found.
+func (r *GameRoom) findSeat(userID string) int {
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			return p.Seat
+		}
+	}
+	return -1
 }
