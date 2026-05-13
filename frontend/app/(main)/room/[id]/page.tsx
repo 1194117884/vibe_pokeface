@@ -11,6 +11,8 @@ import { ActionBar } from "@/components/game/ActionBar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
+import { RoomThemeProvider } from "@/themes";
+import { NPCWalker } from "@/components/game/NPCWalker";
 
 interface ChatMessage {
   userId: string;
@@ -50,6 +52,7 @@ interface ServerData {
   type?: string;
   timestamp?: number;
   error?: string;
+  theme?: string;
 }
 
 function toTablePlayer(p: ServerPlayer): TablePlayer {
@@ -91,6 +94,7 @@ export default function RoomPage() {
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [mySeat, setMySeat] = useState<number | null>(null);
   const [phase, setPhase] = useState<"waiting" | "bidding" | "playing" | "ended">("waiting");
+  const [roomTheme, setRoomTheme] = useState("classic-poker");
   const [connected, setConnected] = useState(false);
   const [currentSeat, setCurrentSeat] = useState<number | undefined>(undefined);
   const [hand, setHand] = useState<number[]>([]);
@@ -127,6 +131,7 @@ export default function RoomPage() {
         setPlayers(data.players.map(toTablePlayer));
       }
       if (data?.seat !== undefined) setMySeat(data.seat);
+      if (data?.theme) setRoomTheme(data.theme);
       setConnected(true);
     });
 
@@ -207,6 +212,11 @@ export default function RoomPage() {
     client.on("error", (msg) => {
       console.error("Game error:", msg.error ?? msg.data);
       setConnected(true);
+    });
+
+    client.on("theme_changed", (msg) => {
+      const data = msg.data as { theme?: string };
+      if (data?.theme) setRoomTheme(data.theme);
     });
 
     client.connect();
@@ -310,139 +320,108 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cream flex flex-col">
-      {/* Room Header */}
-      <header className="bg-white border-b border-ceramic px-6 py-3 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push("/lobby")}
-            className="text-sm text-text-black-soft hover:text-green-accent"
-          >
-            ← 退出
-          </button>
-          <h1 className="font-bold text-text-black-strong">
-            房间 {roomId.slice(0, 6)}
-          </h1>
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-            斗地主
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-          <span className="text-xs text-text-black-soft">
-            {micEnabled ? "Mic on" : "Mic off"}
-          </span>
-        </div>
-      </header>
+    <RoomThemeProvider themeId={roomTheme}>
+      <NPCWalker />
+      <div
+        className="min-h-screen flex flex-col"
+        style={{
+          backgroundImage: "var(--bg-image)",
+          backgroundColor: "var(--bg-color, #f2f0eb)",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundAttachment: "fixed",
+        }}
+      >
+        {/* Dark overlay for readability */}
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{ background: "var(--bg-overlay, none)", zIndex: 1 }}
+        />
 
-      {/* Main Content */}
-      <div className="flex-1 flex min-h-0">
-        {/* Game Area */}
-        <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
-          {players.length === 0 ? (
-            <div className="text-center text-text-black-soft">房间是空的</div>
-          ) : (
-            <>
-              <RoomTable
-                players={displayPlayers}
-                myUserId={myUserId}
-                mySeat={mySeat ?? 0}
-                phase={phase}
-                onSitDown={handleSitDown}
-                onChangeSeat={handleChangeSeat}
-                onAddBot={handleAddBot}
-              />
+        {/* Room Header */}
+        <header className="bg-white/90 backdrop-blur-sm border-b border-ceramic px-6 py-3 flex items-center justify-between shrink-0 relative z-20">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/lobby")}
+              className="text-sm text-text-black-soft hover:text-green-accent"
+            >
+              ← 退出
+            </button>
+            <h1 className="font-bold text-text-black-strong">
+              房间 {roomId.slice(0, 6)}
+            </h1>
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              斗地主
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+            <span className="text-xs text-text-black-soft">
+              {micEnabled ? "Mic on" : "Mic off"}
+            </span>
+          </div>
+        </header>
 
-              {/* Waiting phase: Ready/Start controls */}
-              {phase === "waiting" && (
-                <ReadyBar
-                  amIOwner={amIOwner}
-                  isReady={amIReady}
-                  allReady={allReady}
-                  playerCount={players.length}
-                  maxPlayers={3}
-                  canStart={canStart}
-                  onReady={handleReady}
-                  onStartGame={handleStartGame}
+        {/* Main Content */}
+        <div className="flex-1 flex min-h-0 relative z-10">
+          {/* Game Area */}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
+            {players.length === 0 ? (
+              <div className="text-center text-text-black-soft">房间是空的</div>
+            ) : (
+              <>
+                <RoomTable
+                  players={displayPlayers}
+                  myUserId={myUserId}
+                  mySeat={mySeat ?? 0}
+                  phase={phase}
+                  onSitDown={handleSitDown}
+                  onChangeSeat={handleChangeSeat}
                   onAddBot={handleAddBot}
                 />
-              )}
 
-              {/* Playing/Bidding phase: hand cards and action buttons */}
-              {(phase === "bidding" || phase === "playing") && (
-                <div className="w-full max-w-3xl mt-4 space-y-2">
-                  <HandCards
-                    cards={hand}
-                    onPlayCards={
-                      phase === "playing" ? handlePlayCards : undefined
-                    }
-                    disabled={!isMyTurn}
+                {/* Waiting phase: Ready/Start controls */}
+                {phase === "waiting" && (
+                  <ReadyBar
+                    amIOwner={amIOwner}
+                    isReady={amIReady}
+                    allReady={allReady}
+                    playerCount={players.length}
+                    maxPlayers={3}
+                    canStart={canStart}
+                    onReady={handleReady}
+                    onStartGame={handleStartGame}
+                    onAddBot={handleAddBot}
                   />
-                  {phase === "bidding" && (
-                    <ActionBar
-                      phase={phase}
-                      isMyTurn={isMyTurn}
-                      onBidCall={handleBidCall}
-                      onBidPass={handleBidPass}
+                )}
+
+                {/* Playing/Bidding phase: hand cards and action buttons */}
+                {(phase === "bidding" || phase === "playing") && (
+                  <div className="w-full max-w-3xl mt-4 space-y-2">
+                    <HandCards
+                      cards={hand}
+                      onPlayCards={
+                        phase === "playing" ? handlePlayCards : undefined
+                      }
+                      disabled={!isMyTurn}
                     />
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Desktop Chat Sidebar */}
-        <div className="hidden lg:flex w-80 p-4 border-l border-ceramic flex-col shrink-0">
-          <div className="flex-1 min-h-0">
-            <ChatPanel
-              messages={chatMessages}
-              onSendMessage={handleSendChat}
-              disabled={!connected}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Chat FAB */}
-      <button
-        onClick={() => setChatOpen(true)}
-        className="fixed bottom-6 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-green-accent text-white text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
-        aria-label="打开聊天"
-      >
-        💬
-      </button>
-
-      {/* Mobile Chat Sheet */}
-      {chatOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setChatOpen(false)}
-          />
-          <div
-            className={clsx(
-              "absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-frap",
-              "flex flex-col max-h-[70vh] transition-transform duration-300",
-              "pb-[var(--safe-area-bottom,0px)]",
+                    {phase === "bidding" && (
+                      <ActionBar
+                        phase={phase}
+                        isMyTurn={isMyTurn}
+                        onBidCall={handleBidCall}
+                        onBidPass={handleBidPass}
+                      />
+                    )}
+                  </div>
+                )}
+              </>
             )}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-ceramic">
-              <div className="flex items-center gap-2">
-                <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-                <span className="text-sm text-text-black-soft">
-                  {micEnabled ? "Mic on" : "Mic off"}
-                </span>
-              </div>
-              <button
-                onClick={() => setChatOpen(false)}
-                className="w-8 h-8 rounded-full bg-cream flex items-center justify-center text-text-black-soft hover:bg-ceramic transition-colors"
-                aria-label="关闭聊天"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 min-h-0 p-4">
+          </div>
+
+          {/* Desktop Chat Sidebar */}
+          <div className="hidden lg:flex w-80 p-4 border-l border-white/20 flex-col shrink-0 relative z-10">
+            <div className="flex-1 min-h-0">
               <ChatPanel
                 messages={chatMessages}
                 onSendMessage={handleSendChat}
@@ -451,7 +430,56 @@ export default function RoomPage() {
             </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Mobile Chat FAB */}
+        <button
+          onClick={() => setChatOpen(true)}
+          className="fixed bottom-6 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-green-accent text-white text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
+          aria-label="打开聊天"
+        >
+          💬
+        </button>
+
+        {/* Mobile Chat Sheet */}
+        {chatOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setChatOpen(false)}
+            />
+            <div
+              className={clsx(
+                "absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-frap",
+                "flex flex-col max-h-[70vh] transition-transform duration-300",
+                "pb-[var(--safe-area-bottom,0px)]",
+              )}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-ceramic">
+                <div className="flex items-center gap-2">
+                  <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+                  <span className="text-sm text-text-black-soft">
+                    {micEnabled ? "Mic on" : "Mic off"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setChatOpen(false)}
+                  className="w-8 h-8 rounded-full bg-cream flex items-center justify-center text-text-black-soft hover:bg-ceramic transition-colors"
+                  aria-label="关闭聊天"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 p-4">
+                <ChatPanel
+                  messages={chatMessages}
+                  onSendMessage={handleSendChat}
+                  disabled={!connected}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </RoomThemeProvider>
   );
 }

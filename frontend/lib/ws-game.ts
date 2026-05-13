@@ -19,7 +19,8 @@ export type GameMessageType =
   | "start_game"
   | "game_start"
   | "add_bot"
-  | "room_info";
+  | "room_info"
+  | "theme_changed";
 
 export interface GameMessage {
   type: GameMessageType;
