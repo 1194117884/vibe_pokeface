@@ -36,7 +36,7 @@ func main() {
 	gameStore := model.NewGameStore(db)
 	aiStore := model.NewAIStore(db)
 
-	hub := ws.NewHub(gameStore)
+	hub := ws.NewHub(gameStore, aiStore)
 	go hub.Run()
 
 	adminHandler := admin.NewHandler(userDB, gameStore, aiStore, hub)

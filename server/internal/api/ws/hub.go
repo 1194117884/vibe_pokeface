@@ -59,14 +59,16 @@ type Hub struct {
 	Register    chan *Client
 	Unregister  chan *Client
 	RoomManager *game.RoomManager
+	AIStore     *model.AIStore
 }
 
-func NewHub(store *model.GameStore) *Hub {
+func NewHub(store *model.GameStore, aiStore *model.AIStore) *Hub {
 	return &Hub{
 		Rooms:       make(map[string]*RoomHub),
 		Register:    make(chan *Client, 256),
 		Unregister:  make(chan *Client, 256),
 		RoomManager: game.NewRoomManager(store),
+		AIStore:     aiStore,
 	}
 }
 

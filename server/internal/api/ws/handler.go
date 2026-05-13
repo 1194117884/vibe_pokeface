@@ -1,13 +1,19 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/yongkl/vibe-pokeface/internal/ai"
+	"github.com/yongkl/vibe-pokeface/internal/game"
 	"github.com/yongkl/vibe-pokeface/internal/game/doudizhu"
+	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
 // C2SMessage is a client-to-server WebSocket message.
@@ -156,6 +162,8 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		default:
 		}
 	}
+
+	h.fillRoomBots(roomID)
 }
 
 // handleLeaveRoom processes a leave_room message from a client.
@@ -201,6 +209,53 @@ func (h *Hub) handleRoomAction(client *Client, msg C2SMessage) {
 	}
 
 	room.HandleAction(client.ID, action.Action, action.Cards)
+}
+
+// getAIProviderForBot creates an LLM provider and picks a character for an AI bot.
+func (h *Hub) getAIProviderForBot() (*model.AICharacter, ai.LLMProvider, error) {
+	if h.AIStore == nil {
+		return nil, nil, nil
+	}
+	cfg, err := h.AIStore.GetActiveConfig(context.Background())
+	if err != nil || cfg == nil {
+		return nil, nil, nil
+	}
+	provider, err := ai.NewProvider(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	characters, err := h.AIStore.ListCharacters(context.Background())
+	if err != nil || len(characters) == 0 {
+		return nil, provider, nil
+	}
+	char := characters[rand.Intn(len(characters))]
+	return &char, provider, nil
+}
+
+// fillRoomBots fills empty seats with AI bots that have LLM providers.
+func (h *Hub) fillRoomBots(roomID string) {
+	room := h.RoomManager.GetRoom(roomID)
+	if room == nil {
+		return
+	}
+	char, provider, err := h.getAIProviderForBot()
+	if err != nil || provider == nil {
+		h.RoomManager.FillEmptySeats(roomID)
+		return
+	}
+	n := 1
+	for room.PlayerCount() < 3 {
+		botID := fmt.Sprintf("ai:bot:%d", n)
+		opts := []game.BotOption{game.WithLLMProvider(provider)}
+		if char != nil {
+			opts = append(opts, game.WithAICharacter(char))
+		}
+		if err := room.FillWithBot(botID, make(chan []byte, 256), opts...); err != nil {
+			n++
+			continue
+		}
+		n++
+	}
 }
 
 // handleChatMessage processes a chat message from a client and broadcasts it to the room.
