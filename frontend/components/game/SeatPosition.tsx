@@ -7,6 +7,8 @@ interface SeatPositionProps {
   player?: {
     userId: string;
     name: string;
+    nickname: string;
+    characterId: string;
     isBot: boolean;
     isOwner: boolean;
     isReady: boolean;

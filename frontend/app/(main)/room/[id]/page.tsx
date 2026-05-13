@@ -32,6 +32,9 @@ interface ServerPlayer {
   hand?: Array<{ id: number } | number>;
   card_count?: number;
   cardCount?: number;
+  nickname?: string;
+  character_id?: string;
+  characterId?: string;
 }
 
 interface ServerData {
@@ -53,6 +56,8 @@ function toTablePlayer(p: ServerPlayer): TablePlayer {
   return {
     userId: String(p.user_id ?? p.userId ?? ""),
     name: String(p.user_id ?? p.userId ?? "").replace(/^ai:bot:/, "AI "),
+    nickname: p.nickname ?? String(p.user_id ?? p.userId ?? "").replace(/^ai:bot:/, "AI "),
+    characterId: p.character_id ?? p.characterId ?? "",
     seat: p.seat ?? 0,
     isBot: p.is_bot ?? p.isBot ?? false,
     isOwner: p.is_owner ?? p.isOwner ?? false,
