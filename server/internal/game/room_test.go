@@ -114,8 +114,8 @@ func TestRoomAddPlayer(t *testing.T) {
 	if room.Players[0].UserID != "user-1" {
 		t.Errorf("UserID = %s, want user-1", room.Players[0].UserID)
 	}
-	if room.Players[0].Seat != 0 {
-		t.Errorf("Seat = %d, want 0", room.Players[0].Seat)
+	if room.Players[0].Seat < 0 || room.Players[0].Seat >= 3 {
+		t.Errorf("Seat = %d, want 0-2", room.Players[0].Seat)
 	}
 }
 
@@ -262,12 +262,17 @@ func TestRoomAllReadyStartsGame(t *testing.T) {
 		t.Errorf("Status = %s, want waiting before all ready", room.Status)
 	}
 
-	// SetReady("user-3") triggers player_ready + game_start
+	// SetReady("user-3") toggles user-3 ready
 	room.SetReady("user-3")
-	// Drain player_ready first, then game_start
+	// Drain player_ready
 	drainN(t, conn1, 1, "player_ready")
 	drainN(t, conn2, 1, "player_ready")
 	drainN(t, conn3, 1, "player_ready")
+
+	// StartGame triggers game_start
+	if err := room.StartGame("user-1"); err != nil {
+		t.Fatalf("StartGame failed: %v", err)
+	}
 
 	// Now each conn should have 1 game_start message
 	drainN(t, conn1, 1, "game_start")

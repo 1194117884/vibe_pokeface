@@ -110,6 +110,14 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			h.handleRoomAction(client, msg)
 		case "chat":
 			h.handleChatMessage(client, msg)
+		case "change_seat":
+			h.handleChangeSeat(client, msg)
+		case "ready":
+			h.handleReady(client, msg)
+		case "start_game":
+			h.handleStartGame(client, msg)
+		case "add_bot":
+			h.handleAddBot(client, msg)
 		default:
 			log.Printf("Unknown message type: %s", msg.Type)
 			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "unknown message type: " + msg.Type})
@@ -162,8 +170,6 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		default:
 		}
 	}
-
-	h.fillRoomBots(roomID)
 }
 
 // handleLeaveRoom processes a leave_room message from a client.
@@ -209,6 +215,58 @@ func (h *Hub) handleRoomAction(client *Client, msg C2SMessage) {
 	}
 
 	room.HandleAction(client.ID, action.Action, action.Cards)
+}
+
+func (h *Hub) handleChangeSeat(client *Client, msg C2SMessage) {
+	var seatData struct {
+		Seat int `json:"seat"`
+	}
+	if err := json.Unmarshal(msg.Data, &seatData); err != nil {
+		return
+	}
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		if err := room.ChangeSeat(client.ID, seatData.Seat); err != nil {
+			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
+			select {
+			case client.Send <- errMsg:
+			default:
+			}
+		}
+	}
+}
+
+func (h *Hub) handleReady(client *Client, msg C2SMessage) {
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		room.SetReady(client.ID)
+	}
+}
+
+func (h *Hub) handleStartGame(client *Client, msg C2SMessage) {
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		if err := room.StartGame(client.ID); err != nil {
+			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
+			select {
+			case client.Send <- errMsg:
+			default:
+			}
+		}
+	}
+}
+
+func (h *Hub) handleAddBot(client *Client, msg C2SMessage) {
+	room := h.RoomManager.GetRoom(client.RoomID)
+	if room != nil {
+		if err := room.AddBot(client.ID); err != nil {
+			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
+			select {
+			case client.Send <- errMsg:
+			default:
+			}
+		}
+	}
 }
 
 // getAIProviderForBot creates an LLM provider and picks a character for an AI bot.

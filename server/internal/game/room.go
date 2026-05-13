@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sync"
 
 	"github.com/yongkl/vibe-pokeface/internal/ai"
@@ -118,6 +119,11 @@ func (rm *RoomManager) FillEmptySeats(roomID string) int {
 func (r *GameRoom) nextBotNumber() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.nextBotNumberLocked()
+}
+
+// nextBotNumberLocked returns the next bot number assuming r.mu is already held.
+func (r *GameRoom) nextBotNumberLocked() int {
 	n := 1
 	for _, p := range r.Players {
 		var m int
@@ -126,6 +132,56 @@ func (r *GameRoom) nextBotNumber() int {
 		}
 	}
 	return n
+}
+
+// ChangeSeat moves a player to a different seat.
+func (r *GameRoom) ChangeSeat(userID string, newSeat int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Status != "waiting" {
+		return fmt.Errorf("cannot change seat after game started")
+	}
+	if newSeat < 0 || newSeat >= 3 {
+		return fmt.Errorf("invalid seat number")
+	}
+
+	var player *PlayerSession
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			player = p
+		}
+		if p.Seat == newSeat {
+			return fmt.Errorf("seat %d is already occupied", newSeat)
+		}
+	}
+	if player == nil {
+		return fmt.Errorf("player not in room")
+	}
+
+	oldSeat := player.Seat
+	player.Seat = newSeat
+
+	r.broadcastMsg("seat_changed", map[string]interface{}{
+		"user_id":  userID,
+		"old_seat": oldSeat,
+		"new_seat": newSeat,
+		"players":  r.playerList(),
+	})
+	return nil
+}
+
+// OwnerID returns the user ID of the room owner (first non-bot player).
+func (r *GameRoom) OwnerID() string {
+	for _, p := range r.Players {
+		if !p.IsBot {
+			return p.UserID
+		}
+	}
+	if len(r.Players) > 0 {
+		return r.Players[0].UserID
+	}
+	return ""
 }
 
 // AddPlayer adds a player to the room and broadcasts the join event.
@@ -144,7 +200,24 @@ func (r *GameRoom) AddPlayer(userID string, conn chan []byte) error {
 		}
 	}
 
-	seat := len(r.Players)
+	// Find all occupied seats
+	occupied := map[int]bool{}
+	for _, p := range r.Players {
+		occupied[p.Seat] = true
+	}
+
+	// Pick a random empty seat from 0..2
+	available := make([]int, 0)
+	for seat := 0; seat < 3; seat++ {
+		if !occupied[seat] {
+			available = append(available, seat)
+		}
+	}
+	if len(available) == 0 {
+		return fmt.Errorf("no available seats")
+	}
+	seat := available[rand.Intn(len(available))]
+
 	player := &PlayerSession{
 		UserID: userID,
 		Seat:   seat,
@@ -241,20 +314,44 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 		"players": r.playerList(),
 	})
 
-	// Auto-start if room is now full and all ready
-	if len(r.Players) == 3 {
-		allReady := true
-		for _, p := range r.Players {
-			if !p.Ready {
-				allReady = false
-				break
-			}
+	return nil
+}
+
+// AddBot adds an AI bot to the room by owner action.
+func (r *GameRoom) AddBot(ownerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Status != "waiting" {
+		if ownerID != r.OwnerID() {
+			return fmt.Errorf("only the room owner can start the game")
 		}
-		if allReady {
-			r.startGame()
-		}
+		return fmt.Errorf("game already started")
+	}
+	if len(r.Players) >= 3 {
+		return fmt.Errorf("room is full")
 	}
 
+	nextN := r.nextBotNumberLocked()
+	botID := fmt.Sprintf("ai:bot:%d", nextN)
+	conn := make(chan []byte, 256)
+
+	seat := len(r.Players)
+	bot := &PlayerSession{
+		UserID: botID,
+		Seat:   seat,
+		Conn:   conn,
+		IsBot:  true,
+		Ready:  true,
+	}
+	r.Players = append(r.Players, bot)
+
+	r.broadcastMsg("player_joined", map[string]interface{}{
+		"user_id": botID,
+		"seat":    seat,
+		"is_bot":  true,
+		"players": r.playerList(),
+	})
 	return nil
 }
 
@@ -265,7 +362,7 @@ func (r *GameRoom) PlayerCount() int {
 	return len(r.Players)
 }
 
-// SetReady marks a player as ready. If all 3 players are ready, the game starts.
+// SetReady toggles the ready status for a player.
 func (r *GameRoom) SetReady(userID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -276,25 +373,34 @@ func (r *GameRoom) SetReady(userID string) {
 func (r *GameRoom) setReady(userID string) {
 	for _, p := range r.Players {
 		if p.UserID == userID {
-			p.Ready = true
+			p.Ready = !p.Ready // toggle ready
 			break
 		}
 	}
-
 	r.broadcastMsg("player_ready", r.playerList())
+}
 
-	if r.Status == "waiting" && len(r.Players) == 3 {
-		allReady := true
-		for _, p := range r.Players {
-			if !p.Ready {
-				allReady = false
-				break
-			}
-		}
-		if allReady {
-			r.startGame()
+// StartGame validates conditions and starts the game.
+func (r *GameRoom) StartGame(ownerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Status != "waiting" {
+		return fmt.Errorf("game already started")
+	}
+	if ownerID != r.OwnerID() {
+		return fmt.Errorf("only the room owner can start the game")
+	}
+	if len(r.Players) < 3 {
+		return fmt.Errorf("need 3 players to start")
+	}
+	for _, p := range r.Players {
+		if !p.Ready {
+			return fmt.Errorf("player %s is not ready", p.UserID)
 		}
 	}
+	r.startGame()
+	return nil
 }
 
 // startGame initializes the game engine and broadcasts the initial game state.
@@ -537,13 +643,15 @@ func (r *GameRoom) broadcast(msg []byte) {
 // playerList returns a summary of all players for broadcast.
 // Caller must hold r.mu (read or write).
 func (r *GameRoom) playerList() []map[string]interface{} {
+	ownerID := r.OwnerID()
 	list := make([]map[string]interface{}, len(r.Players))
 	for i, p := range r.Players {
 		list[i] = map[string]interface{}{
-			"user_id": p.UserID,
-			"seat":    p.Seat,
-			"ready":   p.Ready,
-			"is_bot":  p.IsBot,
+			"user_id":  p.UserID,
+			"seat":     p.Seat,
+			"ready":    p.Ready,
+			"is_bot":   p.IsBot,
+			"is_owner": p.UserID == ownerID,
 		}
 	}
 	return list
