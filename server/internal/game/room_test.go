@@ -119,14 +119,23 @@ func TestRoomAddPlayer(t *testing.T) {
 	}
 }
 
-func TestRoomAddPlayerDuplicate(t *testing.T) {
+func TestRoomAddPlayerReconnect(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
-	conn := make(chan []byte, 10)
+	conn1 := make(chan []byte, 10)
+	conn2 := make(chan []byte, 10)
 
-	room.AddPlayer("user-1", "", "", conn)
-	err := room.AddPlayer("user-1", "", "", make(chan []byte, 10))
-	if err == nil {
-		t.Error("AddPlayer should return error for duplicate player")
+	room.AddPlayer("user-1", "", "", conn1)
+
+	// Same user adds again — should reconnect (update Conn), not error
+	err := room.AddPlayer("user-1", "", "", conn2)
+	if err != nil {
+		t.Errorf("AddPlayer reconnection should succeed, got: %v", err)
+	}
+	if len(room.Players) != 1 {
+		t.Errorf("Players = %d, want 1 for reconnected player", len(room.Players))
+	}
+	if !room.Players[0].Connected {
+		t.Error("Player should be connected after reconnection")
 	}
 }
 

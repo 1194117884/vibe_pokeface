@@ -83,9 +83,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		h.Unregister <- client
 		if client.RoomID != "" {
 			if room := h.RoomManager.GetRoom(client.RoomID); room != nil {
-				room.RemovePlayer(userID)
-				// Auto-fill empty seats with bots
-				h.fillRoomBots(client.RoomID)
+				room.MarkDisconnected(userID)
 			}
 		}
 	}()
@@ -161,7 +159,21 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		}
 	}
 
-	room := h.RoomManager.GetOrCreateRoom(roomID, gameType, &doudizhu.Engine{})
+	// Check if room exists and is accessible
+	room := h.RoomManager.GetRoom(roomID)
+	if room == nil {
+		// Room doesn't exist yet — check if we should create it
+		// or if it was closed and deleted
+		room = h.RoomManager.GetOrCreateRoom(roomID, gameType, &doudizhu.Engine{})
+	}
+	if room == nil || room.Closed {
+		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "room is closed"})
+		select {
+		case client.Send <- errMsg:
+		default:
+		}
+		return
+	}
 
 	client.RoomID = roomID
 	h.Register <- client

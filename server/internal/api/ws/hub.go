@@ -1,7 +1,9 @@
 package ws
 
 import (
+	"context"
 	"sync"
+	"time"
 
 	"github.com/yongkl/vibe-pokeface/internal/game"
 	"github.com/yongkl/vibe-pokeface/internal/model"
@@ -75,6 +77,11 @@ func NewHub(store *model.GameStore, aiStore *model.AIStore, userStore model.User
 }
 
 func (h *Hub) Run() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Run room cleanup every 30s: remove players disconnected >30s, close rooms idle >5min
+	h.RoomManager.RunCleanup(ctx, 30*time.Second, 30*time.Second, 5*time.Minute)
+
 	for {
 		select {
 		case client := <-h.Register:

@@ -1,25 +1,29 @@
 package game
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/yongkl/vibe-pokeface/internal/ai"
 	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
-// PlayerSession represents a connected player in a game room.
+// PlayerSession represents a player in a game room.
 type PlayerSession struct {
-	UserID      string
-	PlayerID    int64
-	Seat        int
-	Conn        chan []byte
-	Ready       bool
-	IsBot       bool
-	Nickname    string // display name for seat display
-	CharacterID string // avatar character ID (e.g. "panda", "fox")
+	UserID         string
+	PlayerID       int64
+	Seat           int
+	Conn           chan []byte
+	Ready          bool
+	IsBot          bool
+	Connected      bool
+	DisconnectedAt *time.Time
+	Nickname       string // display name for seat display
+	CharacterID    string // avatar character ID (e.g. "panda", "fox")
 }
 
 // GameRoom represents a game room with players and game state.
@@ -31,10 +35,13 @@ type GameRoom struct {
 	State    GameState
 	Status   string
 	Theme    string
+	Closed   bool
 	store    *model.GameStore
 	mu       sync.Mutex
 	notify   chan []byte
 	agents   map[string]*ai.AIAgent
+	createdAt    time.Time
+	lastActiveAt time.Time
 }
 
 // RoomManager manages all active game rooms.
@@ -47,16 +54,19 @@ type RoomManager struct {
 // NewGameRoom creates a new game room with the given engine and store.
 // The engine must be provided by the caller based on the game type.
 func NewGameRoom(id string, gameType string, engine GameEngine, store *model.GameStore) *GameRoom {
+	now := time.Now()
 	return &GameRoom{
-		ID:       id,
-		GameType: gameType,
-		Engine:   engine,
-		Players:  make([]*PlayerSession, 0),
-		Status:   "waiting",
-		Theme:    "classic-poker",
-		store:    store,
-		notify:   make(chan []byte, 256),
-		agents:   make(map[string]*ai.AIAgent),
+		ID:           id,
+		GameType:     gameType,
+		Engine:       engine,
+		Players:      make([]*PlayerSession, 0),
+		Status:       "waiting",
+		Theme:        "classic-poker",
+		store:        store,
+		notify:       make(chan []byte, 256),
+		agents:       make(map[string]*ai.AIAgent),
+		createdAt:    now,
+		lastActiveAt: now,
 	}
 }
 
@@ -69,10 +79,14 @@ func NewRoomManager(store *model.GameStore) *RoomManager {
 }
 
 // GetOrCreateRoom returns an existing room or creates a new one with the given engine.
+// Returns nil if the room exists but is closed.
 func (rm *RoomManager) GetOrCreateRoom(roomID string, gameType string, engine GameEngine) *GameRoom {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	if room, ok := rm.rooms[roomID]; ok {
+		if room.Closed {
+			return nil
+		}
 		return room
 	}
 	room := NewGameRoom(roomID, gameType, engine, rm.store)
@@ -80,11 +94,60 @@ func (rm *RoomManager) GetOrCreateRoom(roomID string, gameType string, engine Ga
 	return room
 }
 
-// GetRoom returns a room by ID, or nil if it does not exist.
+// GetRoom returns a room by ID, or nil if it does not exist or is closed.
 func (rm *RoomManager) GetRoom(roomID string) *GameRoom {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
-	return rm.rooms[roomID]
+	room := rm.rooms[roomID]
+	if room != nil && room.Closed {
+		return nil
+	}
+	return room
+}
+
+// RunCleanup starts a background goroutine that periodically removes
+// disconnected players past their timeout and closes idle empty rooms.
+func (rm *RoomManager) RunCleanup(ctx context.Context, interval time.Duration, disconnectTimeout time.Duration, roomIdleTimeout time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rm.cleanup(disconnectTimeout, roomIdleTimeout)
+			}
+		}
+	}()
+}
+
+// cleanup removes stale disconnected players and closes idle rooms.
+func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout time.Duration) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	now := time.Now()
+	for id, room := range rm.rooms {
+		if room.Closed {
+			delete(rm.rooms, id)
+			continue
+		}
+		// Remove disconnected players past the timeout
+		room.RemoveDisconnectedPlayers(disconnectTimeout)
+		// Close empty room past idle timeout
+		if len(room.Players) == 0 && now.Sub(room.lastActiveAt) > roomIdleTimeout {
+			closeRoom(room)
+			delete(rm.rooms, id)
+		}
+	}
+}
+
+// closeRoom marks a room as closed (no more joins allowed).
+func closeRoom(r *GameRoom) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Closed = true
+	r.broadcastMsg("room_closed", map[string]interface{}{})
 }
 
 // RemoveRoom removes a room from the manager.
@@ -203,10 +266,28 @@ func (r *GameRoom) SetTheme(userID string, themeID string) error {
 }
 
 // AddPlayer adds a player to the room and broadcasts the join event.
-// Returns an error if the room is full or the player is already in the room.
+// If the player is reconnecting (already present), their connection is updated.
+// Returns an error if the room is closed or full.
 func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string, conn chan []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.Closed {
+		return fmt.Errorf("room is closed")
+	}
+
+	// Reconnection: player already in the room
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			p.Conn = conn
+			p.Connected = true
+			p.DisconnectedAt = nil
+			r.lastActiveAt = time.Now()
+			// Send current state to reconnected player (fires async)
+			r.sendStateTo(p)
+			return nil
+		}
+	}
 
 	if len(r.Players) >= 3 {
 		return fmt.Errorf("room is full")
@@ -240,6 +321,7 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 		UserID:      userID,
 		Seat:        seat,
 		Conn:        conn,
+		Connected:   true,
 		Nickname:    nickname,
 		CharacterID: characterID,
 	}
@@ -258,7 +340,11 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 func (r *GameRoom) RemovePlayer(userID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.removePlayer(userID)
+}
 
+// removePlayer removes a player from the room. The caller must hold r.mu.
+func (r *GameRoom) removePlayer(userID string) {
 	idx := -1
 	for i, p := range r.Players {
 		if p.UserID == userID {
@@ -290,6 +376,93 @@ func (r *GameRoom) RemovePlayer(userID string) {
 		r.Status = "waiting"
 		r.State = nil
 	}
+	r.lastActiveAt = time.Now()
+}
+
+// MarkDisconnected marks a player as disconnected without removing them,
+// allowing reconnection within the grace period.
+func (r *GameRoom) MarkDisconnected(userID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			p.Connected = false
+			now := time.Now()
+			p.DisconnectedAt = &now
+			return
+		}
+	}
+}
+
+// RemoveDisconnectedPlayers removes players disconnected longer than timeout.
+// Returns the number of players remaining.
+func (r *GameRoom) RemoveDisconnectedPlayers(timeout time.Duration) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	changed := false
+	for i := len(r.Players) - 1; i >= 0; i-- {
+		p := r.Players[i]
+		if !p.Connected && p.DisconnectedAt != nil && now.Sub(*p.DisconnectedAt) > timeout {
+			if agent, ok := r.agents[p.UserID]; ok {
+				agent.Stop()
+				delete(r.agents, p.UserID)
+			}
+			r.Players = append(r.Players[:i], r.Players[i+1:]...)
+			changed = true
+		}
+	}
+	if changed {
+		// Reassign seats after removals
+		for i, p := range r.Players {
+			p.Seat = i
+		}
+		r.broadcastMsg("player_left", map[string]interface{}{
+			"players": r.playerList(),
+		})
+		if len(r.Players) == 0 {
+			r.Status = "waiting"
+			r.State = nil
+		}
+	}
+	r.lastActiveAt = now
+	return len(r.Players)
+}
+
+// sendStateTo sends the current game state to a single player (for reconnection).
+func (r *GameRoom) sendStateTo(p *PlayerSession) {
+	// Send player_joined with current room state
+	msg, err := json.Marshal(map[string]interface{}{
+		"type": "player_joined",
+		"data": map[string]interface{}{
+			"user_id": p.UserID,
+			"seat":    p.Seat,
+			"players": r.playerList(),
+			"theme":   r.Theme,
+		},
+	})
+	if err != nil {
+		return
+	}
+	select {
+	case p.Conn <- msg:
+	default:
+	}
+
+	// If a game is in progress, send the current state too
+	if r.State != nil {
+		stateMsg, err := json.Marshal(map[string]interface{}{
+			"type": "state_update",
+			"data": r.State,
+		})
+		if err != nil {
+			return
+		}
+		select {
+		case p.Conn <- stateMsg:
+		default:
+		}
+	}
 }
 
 // FillWithBot adds an AI bot player to fill an empty seat.
@@ -309,11 +482,12 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 
 	seat := len(r.Players)
 	bot := &PlayerSession{
-		UserID: botID,
-		Seat:   seat,
-		Conn:   conn,
-		IsBot:  true,
-		Ready:  true, // bots are always ready
+		UserID:   botID,
+		Seat:     seat,
+		Conn:     conn,
+		IsBot:    true,
+		Connected: true,
+		Ready:    true, // bots are always ready
 	}
 	// Set nickname from bot sequence number
 	var botN int
@@ -370,6 +544,7 @@ func (r *GameRoom) AddBot(ownerID string) error {
 		Seat:     seat,
 		Conn:     conn,
 		IsBot:    true,
+		Connected: true,
 		Ready:    true,
 		Nickname: fmt.Sprintf("AI Player %d", nextN),
 	}

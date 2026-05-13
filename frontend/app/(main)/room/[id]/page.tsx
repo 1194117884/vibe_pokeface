@@ -210,7 +210,15 @@ export default function RoomPage() {
     });
 
     client.on("error", (msg) => {
-      console.error("Game error:", msg.error ?? msg.data);
+      const errMsg = typeof msg.data === "string" ? msg.data : msg.error ?? "";
+      console.error("Game error:", errMsg);
+      if (
+        errMsg.includes("room is full") ||
+        errMsg.includes("room is closed")
+      ) {
+        router.push("/lobby");
+        return;
+      }
       setConnected(true);
     });
 
