@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { getCharacterStyle } from "@/themes";
 
 interface SeatPositionProps {
   seatNumber: number;
@@ -60,6 +61,10 @@ export function SeatPosition({
     );
   }
 
+  const charStyle = !player.isBot
+    ? getCharacterStyle(player.characterId || "panda")
+    : undefined;
+
   return (
     <div
       className={clsx(
@@ -76,15 +81,26 @@ export function SeatPosition({
         </span>
       )}
 
-      <div className={clsx(
-        "w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg",
-        player.isBot ? "bg-purple-400" : "bg-blue-400",
-      )}>
-        {player.isBot ? "AI" : player.name.charAt(0).toUpperCase()}
-      </div>
+      {player.isBot ? (
+        <div className="w-12 h-12 rounded-full bg-purple-400 flex items-center justify-center text-white font-bold text-lg">
+          AI
+        </div>
+      ) : (
+        <div
+          className="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
+          style={{
+            backgroundColor: charStyle?.backgroundColor ?? "#374151",
+            borderColor: charStyle?.borderColor ?? "#4B5563",
+            borderWidth: "2px",
+            borderStyle: "solid",
+          }}
+        >
+          {charStyle?.emoji ?? "🐼"}
+        </div>
+      )}
 
       <p className="text-sm font-medium text-text-black-strong truncate max-w-[100px]">
-        {player.name}
+        {player.nickname || player.name}
       </p>
 
       <p className="text-xs text-text-black-soft">
