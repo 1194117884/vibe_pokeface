@@ -272,11 +272,11 @@ export default function RoomPage() {
   };
 
   const handleBidCall = () => {
-    wsClientRef.current?.sendAction("call");
+    wsClientRef.current?.sendAction("bid_call");
   };
 
   const handleBidPass = () => {
-    wsClientRef.current?.sendAction("pass");
+    wsClientRef.current?.sendAction("bid_pass");
   };
 
   const handleSendChat = (content: string, type: "text" | "emoji") => {
