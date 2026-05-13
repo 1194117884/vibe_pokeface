@@ -1,4 +1,4 @@
-import { Server as WSServer, WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 
 interface MockPlayer {
   userId: string;
@@ -11,13 +11,13 @@ export interface GameScenario {
 }
 
 export class MockGameServer {
-  private wss: WSServer;
+  private wss: WebSocketServer;
   private connections: MockPlayer[] = [];
   private scenario: GameScenario;
 
   constructor(scenario: GameScenario) {
     this.scenario = scenario;
-    this.wss = new WSServer({ port: 0 }); // random port
+    this.wss = new WebSocketServer({ port: 0 }); // random port
   }
 
   start(port?: number): Promise<number> {
@@ -25,7 +25,7 @@ export class MockGameServer {
       if (port !== undefined) {
         // Close and reopen on specific port
         this.wss.close();
-        this.wss = new WSServer({ port });
+        this.wss = new WebSocketServer({ port });
       }
 
       this.wss.removeAllListeners();
