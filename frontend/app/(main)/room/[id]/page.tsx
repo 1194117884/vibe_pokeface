@@ -212,17 +212,14 @@ export default function RoomPage() {
     });
 
     client.on("error", (msg) => {
-      const errMsg = typeof msg.data === "string" ? msg.data : msg.error ?? "";
-      console.error("Game error:", errMsg);
-      // Only redirect on join errors — in-game errors (e.g. adding bot)
-      // should not kick the user out of the room.
-      if (!joined && (
-        errMsg.includes("room is full") ||
-        errMsg.includes("room is closed")
-      )) {
-        window.location.href = "/lobby";
+      const errMsg = msg.data as string | undefined ?? msg.error ?? "";
+      console.error("GAME ERROR RAW:", JSON.stringify(msg));
+      if (errMsg.indexOf("room is full") !== -1 || errMsg.indexOf("room is closed") !== -1) {
+        console.error("REDIRECTING TO LOBBY");
+        window.location.replace("/lobby");
         return;
       }
+      console.error("SETTING CONNECTED, errMsg:", errMsg);
       setConnected(true);
     });
 
