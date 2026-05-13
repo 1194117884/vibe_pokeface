@@ -1,9 +1,4 @@
-import { RoomTheme, CharacterStyle, CardStyle } from "./types";
-import "./room/classic-poker";
-import "./room/teahouse";
-import "./room/modern-lounge";
-import "./character/avatars";
-import "./card/classic";
+import type { RoomTheme, CharacterStyle, CardStyle } from "./types";
 
 export const DEFAULT_ROOM_THEME_ID = "classic-poker";
 export const DEFAULT_CHARACTER_ID = "panda";
