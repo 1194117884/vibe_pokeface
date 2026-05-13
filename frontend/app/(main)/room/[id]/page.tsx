@@ -39,6 +39,10 @@ interface ServerPlayer {
   characterId?: string;
 }
 
+interface RoundResult {
+  scores: Array<{ player_id: number; score: number }>;
+}
+
 interface ServerData {
   players?: ServerPlayer[];
   seat?: number;
@@ -46,7 +50,14 @@ interface ServerData {
   new_seat?: number;
   current_seat?: number;
   phase?: number;
-  landlord_cards?: number[];
+  landlord_cards?: Array<{ id: number } | number>;
+  landlord_seat?: number;
+  bid_history?: Array<{ seat: number; called: boolean }>;
+  last_play?: {
+    seat: number;
+    play?: { type: number; main_rank: number; length: number };
+    cards: Array<{ id: number } | number>;
+  };
   timer?: number;
   content?: string;
   type?: string;
@@ -101,6 +112,9 @@ export default function RoomPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
+  const [landlordCards, setLandlordCards] = useState<number[]>([]);
+  const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
+  const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
 
   const wsClientRef = useRef<WSGameClient | null>(null);
   const voiceClientRef = useRef<LiveKitClient | null>(null);
@@ -158,6 +172,20 @@ export default function RoomPage() {
         const p = data.phase;
         setPhase(p === 2 ? "ended" : p === 1 ? "playing" : "bidding");
       }
+      // Extract landlord cards (revealed after bidding ends)
+      if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
+        setLandlordCards(data.landlord_cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id));
+      }
+      // Extract last play
+      if (data?.last_play && data?.last_play?.cards) {
+        const lp = data.last_play as { seat: number; cards: Array<{ id: number } | number> };
+        setLastPlay({
+          seat: lp.seat,
+          cards: lp.cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id),
+        });
+      } else {
+        setLastPlay(null);
+      }
       setConnected(true);
     });
 
@@ -188,12 +216,22 @@ export default function RoomPage() {
         if (me) setHand(extractHand(me));
       }
       setPhase("bidding");
+      setRoundResult(null);
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
+      if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
+        setLandlordCards(data.landlord_cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id));
+      }
     });
 
-    client.on("round_end", () => {
+    client.on("round_end", (msg) => {
       setPhase("ended");
       setHand([]);
+      setLandlordCards([]);
+      setLastPlay(null);
+      const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
+      if (data?.scores) {
+        setRoundResult({ scores: data.scores });
+      }
     });
 
     client.on("chat", (msg) => {
@@ -381,6 +419,8 @@ export default function RoomPage() {
                   phase={phase}
                   onSitDown={handleSitDown}
                   onAddBot={handleAddBot}
+                  landlordCards={landlordCards}
+                  lastPlay={lastPlay}
                 />
 
                 {/* Waiting phase: Ready/Start controls */}

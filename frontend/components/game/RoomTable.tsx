@@ -22,6 +22,8 @@ interface RoomTableProps {
   phase: string;
   onSitDown: (seat: number) => void;
   onAddBot: () => void;
+  landlordCards?: number[];
+  lastPlay?: { seat: number; cards: number[] } | null;
 }
 
 export function RoomTable({
@@ -30,6 +32,8 @@ export function RoomTable({
   phase,
   onSitDown,
   onAddBot,
+  landlordCards = [],
+  lastPlay = null,
 }: RoomTableProps) {
   const theme = useRoomTheme();
 
@@ -61,12 +65,46 @@ export function RoomTable({
         />
       </div>
 
-      {/* Center decoration */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-        <span className="text-4xl select-none drop-shadow-lg">
-          {theme.table.decoration}
-        </span>
-        <p className="text-white/60 text-sm font-medium mt-1">{centerText}</p>
+      {/* Center decoration — show landlord cards, last play, or default */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center z-10">
+        {lastPlay && phase === "playing" ? (
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-xs text-white/70 font-medium">
+              {players.find(p => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+            </span>
+            <div className="flex gap-0.5">
+              {lastPlay.cards.map((cardId, i) => (
+                <div key={i} className="w-7 h-10 bg-white rounded shadow-md flex items-center justify-center text-xs font-bold"
+                  style={{
+                    color: cardId >= 52 ? "#d32f2f" : [1, 2, 3].includes(Math.floor(cardId / 13)) ? "#d32f2f" : "#333",
+                  }}>
+                  {cardDisplay(cardId)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : landlordCards && landlordCards.length > 0 && (phase === "playing" || phase === "bidding") ? (
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-xs text-white/70 font-medium">底牌</span>
+            <div className="flex gap-0.5">
+              {landlordCards.map((cardId, i) => (
+                <div key={i} className="w-7 h-10 bg-white rounded shadow-md flex items-center justify-center text-xs font-bold"
+                  style={{
+                    color: cardId >= 52 ? "#d32f2f" : [1, 2, 3].includes(Math.floor(cardId / 13)) ? "#d32f2f" : "#333",
+                  }}>
+                  {cardDisplay(cardId)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <span className="text-4xl select-none drop-shadow-lg">
+              {theme.table.decoration}
+            </span>
+            <p className="text-white/60 text-sm font-medium mt-1">{centerText}</p>
+          </>
+        )}
       </div>
 
       {/* Seats positioned around the table */}
@@ -117,4 +155,12 @@ export function RoomTable({
       />
     );
   }
+}
+
+function cardDisplay(cardId: number): string {
+  const suits = ["♠", "♥", "♣", "♦"];
+  const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
+  if (cardId === 52) return "🃏";
+  if (cardId === 53) return "👑";
+  return suits[Math.floor(cardId / 13)] + ranks[cardId % 13];
 }
