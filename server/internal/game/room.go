@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/yongkl/vibe-pokeface/internal/ai"
 	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
@@ -29,6 +30,7 @@ type GameRoom struct {
 	store    *model.GameStore
 	mu       sync.Mutex
 	notify   chan []byte
+	agents   map[string]*ai.AIAgent
 }
 
 // RoomManager manages all active game rooms.
@@ -49,6 +51,7 @@ func NewGameRoom(id string, gameType string, engine GameEngine, store *model.Gam
 		Status:   "waiting",
 		store:    store,
 		notify:   make(chan []byte, 256),
+		agents:   make(map[string]*ai.AIAgent),
 	}
 }
 
@@ -173,6 +176,12 @@ func (r *GameRoom) RemovePlayer(userID string) {
 		return
 	}
 
+	// Stop AI agent if present
+	if agent, ok := r.agents[userID]; ok {
+		agent.Stop()
+		delete(r.agents, userID)
+	}
+
 	r.Players = append(r.Players[:idx], r.Players[idx+1:]...)
 	for i, p := range r.Players {
 		p.Seat = i
@@ -190,7 +199,7 @@ func (r *GameRoom) RemovePlayer(userID string) {
 }
 
 // FillWithBot adds an AI bot player to fill an empty seat.
-func (r *GameRoom) FillWithBot(botID string, conn chan []byte) error {
+func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -213,6 +222,17 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte) error {
 		Ready:  true, // bots are always ready
 	}
 	r.Players = append(r.Players, bot)
+
+	// Apply bot options and create AI agent if a provider is configured
+	botCfg := &botConfig{}
+	for _, opt := range opts {
+		opt(botCfg)
+	}
+	if botCfg.Provider != nil {
+		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+		agent.Start()
+		r.agents[botID] = agent
+	}
 
 	r.broadcastMsg("player_joined", map[string]interface{}{
 		"user_id": botID,
@@ -301,6 +321,9 @@ func (r *GameRoom) startGame() {
 	}
 
 	r.broadcastMsg("game_start", state)
+
+	// Trigger AI agent if the first player to act is a bot
+	r.triggerAIAgent()
 }
 
 // HandleAction processes a player action (game action or "ready").
@@ -364,8 +387,116 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		for _, p := range r.Players {
 			p.Ready = false
 		}
+
+		// Clean up all AI agents on round end
+		for id, agent := range r.agents {
+			agent.Stop()
+			delete(r.agents, id)
+		}
 	} else {
 		r.broadcastMsg("state_update", newState)
+
+		// Trigger AI agent if next player is a bot
+		r.triggerAIAgent()
+	}
+}
+
+// BotOption configures optional AI agent behavior for a bot player.
+type BotOption func(*botConfig)
+
+type botConfig struct {
+	Character *model.AICharacter
+	Provider  ai.LLMProvider
+}
+
+// WithAICharacter sets the AI character for the bot's personality.
+func WithAICharacter(char *model.AICharacter) BotOption {
+	return func(c *botConfig) {
+		c.Character = char
+	}
+}
+
+// WithLLMProvider sets the LLM provider for the bot's AI decision-making.
+func WithLLMProvider(provider ai.LLMProvider) BotOption {
+	return func(c *botConfig) {
+		c.Provider = provider
+	}
+}
+
+// createAIAgent creates and starts an AI agent for a bot player.
+// The caller must hold r.mu.
+func (r *GameRoom) createAIAgent(userID string, seat int, character *model.AICharacter, provider ai.LLMProvider) *ai.AIAgent {
+	agent := ai.NewAIAgent(userID, seat, character, provider, r)
+	agent.Start()
+	r.agents[userID] = agent
+	return agent
+}
+
+// stopAIAgent stops and removes an AI agent for the given user ID.
+// The caller must hold r.mu.
+func (r *GameRoom) stopAIAgent(userID string) {
+	if agent, ok := r.agents[userID]; ok {
+		agent.Stop()
+		delete(r.agents, userID)
+	}
+}
+
+// ExecuteAction implements ai.ActionExecutor by delegating to HandleAction.
+func (r *GameRoom) ExecuteAction(userID string, action string, cards []int) {
+	r.HandleAction(userID, action, cards)
+}
+
+// SendChat implements ai.ActionExecutor by delegating to BroadcastChat.
+func (r *GameRoom) SendChat(senderID string, content string, msgType string) {
+	r.BroadcastChat(senderID, content, msgType)
+}
+
+// triggerAIAgent checks if the current player is a bot and triggers its AI agent.
+// Uses JSON marshaling to avoid circular import of the concrete game state type.
+// The caller must hold r.mu.
+func (r *GameRoom) triggerAIAgent() {
+	if r.State == nil {
+		return
+	}
+
+	stateJSON, err := json.Marshal(r.State)
+	if err != nil {
+		return
+	}
+
+	var stateData struct {
+		CurrentSeat int `json:"current_seat"`
+		Players     []struct {
+			Seat int `json:"seat"`
+			Hand []struct {
+				ID int `json:"id"`
+			} `json:"hand"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(stateJSON, &stateData); err != nil {
+		return
+	}
+
+	currentSeat := stateData.CurrentSeat
+	for _, p := range r.Players {
+		if p.Seat == currentSeat && p.IsBot {
+			if agent, ok := r.agents[p.UserID]; ok {
+				// Update the agent's hand cards
+				for _, ph := range stateData.Players {
+					if ph.Seat == currentSeat {
+						cards := make([]int, len(ph.Hand))
+						for i, c := range ph.Hand {
+							cards[i] = c.ID
+						}
+						agent.UpdateHand(cards)
+						break
+					}
+				}
+				agent.UpdateState(string(stateJSON))
+				agent.Trigger()
+			}
+			return
+		}
 	}
 }
 
