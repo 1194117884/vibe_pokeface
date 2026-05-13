@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yongkl/vibe-pokeface/internal/api/admin"
@@ -18,8 +19,10 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 	r.Use(middleware.CORS(corsCfg))
 
 	authHandler := NewAuthHandler(store, jwt)
+	authRateLimiter := middleware.NewRateLimiter(10, time.Second)
 
 	r.Route("/api/auth", func(r chi.Router) {
+		r.Use(authRateLimiter.Middleware)
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
 		r.Post("/guest", authHandler.GuestLogin)

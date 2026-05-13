@@ -3,7 +3,9 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -23,6 +25,41 @@ func (s *UserDB) Create(ctx context.Context, user *User) error {
 	id, _ := result.LastInsertId()
 	user.ID = id
 	return nil
+}
+
+func isDuplicateEntry(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
+}
+
+func (s *UserDB) CreateUserWithAuth(ctx context.Context, user *User, auth *UserAuth) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, "INSERT INTO users (nickname, role) VALUES (?, ?)", user.Nickname, user.Role)
+	if err != nil {
+		if isDuplicateEntry(err) {
+			return ErrDuplicateNickname
+		}
+		return err
+	}
+	user.ID, _ = result.LastInsertId()
+	auth.UserID = user.ID
+
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO user_auths (user_id, provider, provider_uid, credential) VALUES (?, ?, ?, ?)",
+		auth.UserID, auth.Provider, auth.ProviderUID, auth.Credential)
+	if err != nil {
+		if isDuplicateEntry(err) {
+			return ErrDuplicateAuth
+		}
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *UserDB) FindByProvider(ctx context.Context, provider, providerUID string) (*User, error) {

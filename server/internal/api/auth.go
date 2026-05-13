@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/yongkl/vibe-pokeface/internal/auth"
@@ -47,33 +48,25 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerUID := "password:" + req.Nickname
-	existing, _ := h.store.FindByProvider(r.Context(), "password", providerUID)
-	if existing != nil {
-		http.Error(w, `{"error":"user already exists"}`, http.StatusConflict)
-		return
-	}
-
-	user := &model.User{Nickname: req.Nickname, Role: "user"}
-	if err := h.store.Create(r.Context(), user); err != nil {
-		http.Error(w, `{"error":"failed to create user"}`, http.StatusInternalServerError)
-		return
-	}
-
 	hashedPw, err := auth.HashPassword(req.Password)
 	if err != nil {
 		http.Error(w, `{"error":"failed to process password"}`, http.StatusInternalServerError)
 		return
 	}
 
+	user := &model.User{Nickname: req.Nickname, Role: "user"}
 	userAuth := &model.UserAuth{
-		UserID:      user.ID,
 		Provider:    "password",
-		ProviderUID: providerUID,
+		ProviderUID: "password:" + req.Nickname,
 		Credential:  hashedPw,
 	}
-	if err := h.store.CreateAuth(r.Context(), userAuth); err != nil {
-		http.Error(w, `{"error":"failed to save auth"}`, http.StatusInternalServerError)
+
+	if err := h.store.CreateUserWithAuth(r.Context(), user, userAuth); err != nil {
+		if errors.Is(err, model.ErrDuplicateNickname) || errors.Is(err, model.ErrDuplicateAuth) {
+			http.Error(w, `{"error":"user already exists"}`, http.StatusConflict)
+			return
+		}
+		http.Error(w, `{"error":"failed to create user"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -131,6 +124,7 @@ func (h *AuthHandler) GuestLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerUID := "guest:" + req.DeviceID
+
 	existing, _ := h.store.FindByProvider(r.Context(), "guest", providerUID)
 	if existing != nil {
 		token, _ := h.jwt.GenerateToken(existing.ID, existing.Role)
@@ -139,18 +133,33 @@ func (h *AuthHandler) GuestLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &model.User{Nickname: "Guest-" + req.DeviceID[:6], Role: "user"}
-	if err := h.store.Create(r.Context(), user); err != nil {
-		http.Error(w, `{"error":"failed to create guest"}`, http.StatusInternalServerError)
-		return
-	}
 	userAuth := &model.UserAuth{
-		UserID:      user.ID,
 		Provider:    "guest",
 		ProviderUID: providerUID,
 	}
-	if err := h.store.CreateAuth(r.Context(), userAuth); err != nil {
-		http.Error(w, `{"error":"failed to save guest auth"}`, http.StatusInternalServerError)
-		return
+
+	err := h.store.CreateUserWithAuth(r.Context(), user, userAuth)
+	if err != nil {
+		if errors.Is(err, model.ErrDuplicateAuth) {
+			existing, _ = h.store.FindByProvider(r.Context(), "guest", providerUID)
+			if existing != nil {
+				token, _ := h.jwt.GenerateToken(existing.ID, existing.Role)
+				json.NewEncoder(w).Encode(authResponse{Token: token, User: existing})
+				return
+			}
+			http.Error(w, `{"error":"failed to create guest"}`, http.StatusInternalServerError)
+			return
+		}
+		if errors.Is(err, model.ErrDuplicateNickname) {
+			user.Nickname = "Guest-" + req.DeviceID[:6] + "_" + req.DeviceID[len(req.DeviceID)-2:]
+			if err := h.store.CreateUserWithAuth(r.Context(), user, userAuth); err != nil {
+				http.Error(w, `{"error":"failed to create guest"}`, http.StatusInternalServerError)
+				return
+			}
+		} else {
+			http.Error(w, `{"error":"failed to create guest"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	token, _ := h.jwt.GenerateToken(user.ID, user.Role)

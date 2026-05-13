@@ -2,7 +2,13 @@ package model
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrDuplicateNickname = errors.New("nickname already exists")
+	ErrDuplicateAuth     = errors.New("auth already exists")
 )
 
 type User struct {
@@ -25,6 +31,7 @@ type UserAuth struct {
 
 type UserStore interface {
 	Create(ctx context.Context, user *User) error
+	CreateUserWithAuth(ctx context.Context, user *User, auth *UserAuth) error
 	FindByProvider(ctx context.Context, provider, providerUID string) (*User, error)
 	FindByID(ctx context.Context, id int64) (*User, error)
 	CreateAuth(ctx context.Context, auth *UserAuth) error

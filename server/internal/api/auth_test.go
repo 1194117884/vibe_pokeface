@@ -13,19 +13,26 @@ import (
 )
 
 type mockUserStore struct {
-	createFn         func(ctx context.Context, user *model.User) error
-	findByProviderFn func(ctx context.Context, provider, providerUID string) (*model.User, error)
-	createAuthFn     func(ctx context.Context, ua *model.UserAuth) error
-	findAuthFn       func(ctx context.Context, provider, providerUID string) (*model.UserAuth, error)
-	findByIDFn       func(ctx context.Context, id int64) (*model.User, error)
-	listUsersFn      func(ctx context.Context, offset, limit int) ([]model.User, error)
-	searchUsersFn    func(ctx context.Context, query string) ([]model.User, error)
-	updateUserStatusFn func(ctx context.Context, userID int64, status int8) error
-	getUserCountFn   func(ctx context.Context) (int, error)
+	createFn              func(ctx context.Context, user *model.User) error
+	createUserWithAuthFn  func(ctx context.Context, user *model.User, auth *model.UserAuth) error
+	findByProviderFn      func(ctx context.Context, provider, providerUID string) (*model.User, error)
+	createAuthFn          func(ctx context.Context, ua *model.UserAuth) error
+	findAuthFn            func(ctx context.Context, provider, providerUID string) (*model.UserAuth, error)
+	findByIDFn            func(ctx context.Context, id int64) (*model.User, error)
+	listUsersFn           func(ctx context.Context, offset, limit int) ([]model.User, error)
+	searchUsersFn         func(ctx context.Context, query string) ([]model.User, error)
+	updateUserStatusFn    func(ctx context.Context, userID int64, status int8) error
+	getUserCountFn        func(ctx context.Context) (int, error)
 }
 
 func (m *mockUserStore) Create(ctx context.Context, user *model.User) error {
 	return m.createFn(ctx, user)
+}
+func (m *mockUserStore) CreateUserWithAuth(ctx context.Context, user *model.User, auth *model.UserAuth) error {
+	if m.createUserWithAuthFn != nil {
+		return m.createUserWithAuthFn(ctx, user, auth)
+	}
+	return nil
 }
 func (m *mockUserStore) FindByProvider(ctx context.Context, provider, providerUID string) (*model.User, error) {
 	return m.findByProviderFn(ctx, provider, providerUID)
@@ -69,14 +76,9 @@ func (m *mockUserStore) GetUserCount(ctx context.Context) (int, error) {
 
 func TestRegister_Success(t *testing.T) {
 	store := &mockUserStore{
-		createFn: func(ctx context.Context, user *model.User) error {
+		createUserWithAuthFn: func(ctx context.Context, user *model.User, auth *model.UserAuth) error {
 			user.ID = 1
-			return nil
-		},
-		findByProviderFn: func(ctx context.Context, provider, providerUID string) (*model.User, error) {
-			return nil, nil
-		},
-		createAuthFn: func(ctx context.Context, ua *model.UserAuth) error {
+			auth.UserID = 1
 			return nil
 		},
 		findAuthFn: func(ctx context.Context, provider, providerUID string) (*model.UserAuth, error) {
@@ -134,7 +136,7 @@ func TestLogin_Success(t *testing.T) {
 	jwtSvc := auth.NewJWTService("test-secret")
 	handler := NewAuthHandler(store, jwtSvc)
 
-	body := map[string]string{"password": "correct-pw"}
+	body := map[string]string{"password": "correct-pw", "provider_uid": "password:testuser"}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/api/auth/login", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -155,7 +157,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 	jwtSvc := auth.NewJWTService("test-secret")
 	handler := NewAuthHandler(store, jwtSvc)
 
-	body := map[string]string{"password": "wrong-pw"}
+	body := map[string]string{"password": "wrong-pw", "provider_uid": "password:testuser"}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/api/auth/login", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -166,16 +168,83 @@ func TestLogin_WrongPassword(t *testing.T) {
 	}
 }
 
+func TestRegister_DuplicateNickname(t *testing.T) {
+	store := &mockUserStore{
+		createUserWithAuthFn: func(ctx context.Context, user *model.User, auth *model.UserAuth) error {
+			return model.ErrDuplicateNickname
+		},
+	}
+	jwtSvc := auth.NewJWTService("test-secret")
+	handler := NewAuthHandler(store, jwtSvc)
+
+	body := map[string]string{"nickname": "existing", "password": "secure123"}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.Register(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d (409). Body: %s", w.Code, http.StatusConflict, w.Body.String())
+	}
+}
+
+func TestRegister_DuplicateAuth(t *testing.T) {
+	store := &mockUserStore{
+		createUserWithAuthFn: func(ctx context.Context, user *model.User, auth *model.UserAuth) error {
+			return model.ErrDuplicateAuth
+		},
+	}
+	jwtSvc := auth.NewJWTService("test-secret")
+	handler := NewAuthHandler(store, jwtSvc)
+
+	body := map[string]string{"nickname": "existing", "password": "secure123"}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.Register(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d (409). Body: %s", w.Code, http.StatusConflict, w.Body.String())
+	}
+}
+
+func TestGuestLogin_RaceCondition(t *testing.T) {
+	store := &mockUserStore{
+		findByProviderFn: func(ctx context.Context, provider, providerUID string) (*model.User, error) {
+			return nil, nil
+		},
+		createUserWithAuthFn: func(ctx context.Context, user *model.User, auth *model.UserAuth) error {
+			return model.ErrDuplicateAuth
+		},
+	}
+	jwtSvc := auth.NewJWTService("test-secret")
+	handler := NewAuthHandler(store, jwtSvc)
+
+	body := map[string]string{"device_id": "race-device"}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/auth/guest", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.GuestLogin(w, req)
+
+	// Without a FindByProvider recovery, this would be a server error.
+	// Since FindByProvider returns nil too, the handler should return a
+	// proper error rather than crashing.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d (500). Body: %s", w.Code, http.StatusInternalServerError, w.Body.String())
+	}
+}
+
 func TestGuestLogin_Success(t *testing.T) {
 	store := &mockUserStore{
 		findByProviderFn: func(ctx context.Context, provider, providerUID string) (*model.User, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, user *model.User) error {
+		createUserWithAuthFn: func(ctx context.Context, user *model.User, auth *model.UserAuth) error {
 			user.ID = 2
-			return nil
-		},
-		createAuthFn: func(ctx context.Context, ua *model.UserAuth) error {
+			auth.UserID = 2
 			return nil
 		},
 		findAuthFn: func(ctx context.Context, provider, providerUID string) (*model.UserAuth, error) {
