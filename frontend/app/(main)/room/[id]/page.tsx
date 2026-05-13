@@ -220,7 +220,7 @@ export default function RoomPage() {
         errMsg.includes("room is full") ||
         errMsg.includes("room is closed")
       )) {
-        router.push("/lobby");
+        window.location.href = "/lobby";
         return;
       }
       setConnected(true);
