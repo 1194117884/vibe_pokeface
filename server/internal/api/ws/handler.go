@@ -172,6 +172,7 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	if uid, err := strconv.ParseInt(client.ID, 10, 64); err == nil {
 		if user, err := h.UserStore.FindByID(context.Background(), uid); err == nil {
 			nickname = user.Nickname
+			characterID = user.CharacterID
 		}
 	}
 

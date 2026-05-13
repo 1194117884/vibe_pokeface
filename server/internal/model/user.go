@@ -12,9 +12,10 @@ var (
 )
 
 type User struct {
-	ID        int64     `db:"id" json:"id"`
-	Nickname  string    `db:"nickname" json:"nickname"`
-	AvatarURL *string   `db:"avatar_url" json:"avatar_url,omitempty"`
+	ID          int64     `db:"id" json:"id"`
+	Nickname    string    `db:"nickname" json:"nickname"`
+	CharacterID string    `db:"character_id" json:"character_id"`
+	AvatarURL   *string   `db:"avatar_url" json:"avatar_url,omitempty"`
 	Role      string    `db:"role" json:"role"`
 	Status    int8      `db:"status" json:"status"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
