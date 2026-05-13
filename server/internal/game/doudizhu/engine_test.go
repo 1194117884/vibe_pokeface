@@ -65,9 +65,10 @@ func TestEngine_FullGameFlow(t *testing.T) {
 	}
 	state, _ := e.Init(players)
 
-	// Alice passes bid, Bob calls -> bidding ends immediately
+	// Alice passes, Bob calls (sets landlord to 1), Charlie passes
 	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
 	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
 
 	gs := state.(*GameState)
 
@@ -77,6 +78,9 @@ func TestEngine_FullGameFlow(t *testing.T) {
 	if gs.LandlordSeat != 1 {
 		t.Errorf("landlord seat = %d, want 1", gs.LandlordSeat)
 	}
+	if !gs.Players[1].IsLandlord {
+		t.Error("expected player 1 to be landlord")
+	}
 	if len(gs.Players[1].Hand) != 20 {
 		t.Errorf("landlord hand = %d cards, want 20", len(gs.Players[1].Hand))
 	}
@@ -84,7 +88,6 @@ func TestEngine_FullGameFlow(t *testing.T) {
 	// Playing phase — make a play with some cards from landlord's hand
 	landlordHand := gs.Players[1].Hand
 	if len(landlordHand) > 0 {
-		// Play a single card (smallest)
 		firstCard := []int{landlordHand[0].ID}
 		var err error
 		state, err = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "play", Cards: firstCard})
@@ -297,5 +300,47 @@ func TestEngine_GameEnded(t *testing.T) {
 	_, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
 	if err == nil {
 		t.Error("expected error: game already ended")
+	}
+}
+
+
+func TestEngine_Bidding_SnatchLandlord(t *testing.T) {
+	e := &Engine{}
+	players := []game.PlayerInfo{
+		{ID: 1, Name: "Alice", Seat: 0},
+		{ID: 2, Name: "Bob", Seat: 1},
+		{ID: 3, Name: "Charlie", Seat: 2},
+	}
+	state, _ := e.Init(players)
+
+	// Alice calls → sets landlord seat to 0
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_call"})
+	gs := state.(*GameState)
+	if gs.LandlordSeat != 0 {
+		t.Errorf("after Alice call, landlord seat = %d, want 0", gs.LandlordSeat)
+	}
+
+	// Bob snatches (抢地主) → takes over landlord at seat 1
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
+	gs = state.(*GameState)
+	if gs.LandlordSeat != 1 {
+		t.Errorf("after Bob snatch, landlord seat = %d, want 1", gs.LandlordSeat)
+	}
+
+	// Charlie passes
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
+
+	gs = state.(*GameState)
+	if gs.Phase != PhasePlaying {
+		t.Errorf("after bidding, phase = %d, want %d", gs.Phase, PhasePlaying)
+	}
+	if gs.LandlordSeat != 1 {
+		t.Errorf("final landlord seat = %d, want 1", gs.LandlordSeat)
+	}
+	if !gs.Players[1].IsLandlord {
+		t.Error("expected Bob to be landlord")
+	}
+	if len(gs.Players[1].Hand) != 20 {
+		t.Errorf("Bob hand = %d cards, want 20", len(gs.Players[1].Hand))
 	}
 }

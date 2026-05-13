@@ -48,6 +48,7 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 		Players:       playerHands,
 		CurrentSeat:   0,
 		LandlordCards: remaining,
+		LandlordSeat:  -1, // -1 means no landlord yet
 		RoundNum:      1,
 	}
 	return state, nil
@@ -187,7 +188,10 @@ func (e *Engine) SerializeForAI(state game.GameState) string {
 	return sb.String()
 }
 
-// handleBid processes a bidding action (bid_call or bid_pass).
+// handleBid processes a bidding action. All 3 players bid in order.
+// The last player to bid_call becomes landlord (this is 抢地主 — any
+// subsequent player can "snatch" the landlord role).
+// If all pass, the round ends with no winner.
 func (e *Engine) handleBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "bid_call" && action.Action != "bid_pass" {
 		return nil, fmt.Errorf("invalid bid action: %s", action.Action)
@@ -200,26 +204,25 @@ func (e *Engine) handleBid(state *GameState, seat int, action game.PlayerAction)
 
 	if action.Action == "bid_call" {
 		state.LandlordSeat = seat
-		state.Players[seat].IsLandlord = true
-		state.Players[seat].Hand = append(state.Players[seat].Hand, state.LandlordCards...)
-		SortCards(state.Players[seat].Hand)
-		state.Phase = PhasePlaying
-		state.CurrentSeat = seat
-		return state, nil
 	}
 
-	// Check if all 3 passed
-	passed := 0
-	for _, b := range state.BidHistory {
-		if !b.Called {
-			passed++
+	// After all 3 players have bid
+	if len(state.BidHistory) >= 3 {
+		if state.LandlordSeat >= 0 {
+			// Someone called landlord (or grabbed it) — assign landlord cards
+			state.Players[state.LandlordSeat].IsLandlord = true
+			state.Players[state.LandlordSeat].Hand = append(state.Players[state.LandlordSeat].Hand, state.LandlordCards...)
+			SortCards(state.Players[state.LandlordSeat].Hand)
+			state.Phase = PhasePlaying
+			state.CurrentSeat = state.LandlordSeat
+		} else {
+			// All passed — end the round
+			state.Phase = PhaseEnded
 		}
-	}
-	if passed >= 3 {
-		state.Phase = PhaseEnded
 		return state, nil
 	}
 
+	// Next player's turn
 	state.CurrentSeat = (seat + 1) % 3
 	return state, nil
 }
