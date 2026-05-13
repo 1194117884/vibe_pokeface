@@ -1,46 +1,98 @@
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import clsx from "clsx";
+import { listRooms, RoomInfo } from "@/lib/api-rooms";
+import { Button } from "@/components/ui/Button";
+
+interface RoomCardProps {
+  room: RoomInfo;
+}
+
+function RoomCard({ room }: RoomCardProps) {
+  return (
+    <Link href={`/room/${room.id}`}>
+      <div className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow border border-ceramic/30 cursor-pointer">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="font-bold text-text-black-strong text-lg">
+              {room.name || `Room ${room.id.slice(0, 4)}`}
+            </h3>
+            <p className="text-sm text-text-black-soft">
+              {room.gameType === "doudizhu" ? "斗地主" : room.gameType}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {room.hasPassword && (
+              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
+                &#x1f512;
+              </span>
+            )}
+            <span
+              className={clsx(
+                "text-xs px-2 py-0.5 rounded-full font-medium",
+                room.status === "waiting"
+                  ? "bg-green-100 text-green-700"
+                  : "bg-gray-100 text-gray-500"
+              )}
+            >
+              {room.status === "waiting" ? "等待中" : "游戏中"}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-text-black-soft">
+          <span>&#x1f464; {room.playerCount}/{room.maxPlayers}</span>
+          <span>·</span>
+          <span>&#x1f194; {room.id}</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 export default function LobbyPage() {
+  const [rooms, setRooms] = useState<RoomInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    listRooms()
+      .then(setRooms)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="min-h-screen bg-cream">
-      {/* Top bar */}
-      <header className="bg-white border-b border-ceramic">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🎴</span>
-            <span className="text-lg font-bold text-starbucks tracking-tight">PokeFace</span>
+      <header className="bg-white border-b border-ceramic px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-text-black-strong">PokeFace</h1>
+          <div className="flex items-center gap-3">
+            <Link href="/room/create">
+              <Button variant="primary">+ 创建房间</Button>
+            </Link>
           </div>
-          <Link href="/auth/login">
-            <Button variant="dark-outlined" className="text-sm">
-              Sign Out
-            </Button>
-          </Link>
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="max-w-5xl mx-auto py-6 lg:py-10 px-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 lg:mb-8 gap-4">
-          <div>
-            <h1 className="text-2xl lg:text-3xl font-bold text-starbucks tracking-tight">Game Lobby</h1>
-            <p className="text-sm text-text-black-soft mt-1">Choose a room or create your own</p>
-          </div>
-          <Link href="/room/create" className="w-full sm:w-auto">
-            <Button variant="primary" className="w-full sm:w-auto justify-center">+ Create Room</Button>
-          </Link>
-        </div>
-
-        <Card padding="lg">
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        <h2 className="text-lg font-bold text-text-black-strong mb-4">游戏房间</h2>
+        {loading ? (
+          <div className="text-center py-12 text-text-black-soft">加载中...</div>
+        ) : rooms.length === 0 ? (
           <div className="text-center py-12">
-            <div className="text-5xl mb-4 opacity-40">🃏</div>
-            <p className="text-lg font-semibold text-text-black-soft">No active rooms yet</p>
-            <p className="text-sm text-text-black-soft mt-1">
-              Create a room to start playing!
-            </p>
+            <p className="text-text-black-soft mb-4">暂无开放房间</p>
+            <Link href="/room/create">
+              <Button variant="primary">创建房间</Button>
+            </Link>
           </div>
-        </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {rooms.map((room) => (
+              <RoomCard key={room.id} room={room} />
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
