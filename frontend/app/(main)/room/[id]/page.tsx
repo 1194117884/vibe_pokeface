@@ -534,6 +534,53 @@ export default function RoomPage() {
             </div>
           </div>
         )}
+
+        {/* Round end overlay */}
+        {phase === "ended" && roundResult && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-2xl shadow-frap p-8 max-w-sm w-full mx-4 text-center">
+              <h2 className="text-2xl font-bold text-text-black-strong mb-2">
+                🎉 本局结束
+              </h2>
+              <div className="space-y-3 my-6">
+                {players.map((p) => {
+                  const score = roundResult.scores.find(s => String(s.player_id) === p.userId);
+                  const isPositive = score && score.score > 0;
+                  return (
+                    <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-cream rounded-xl">
+                      <span className="font-medium text-text-black">{p.nickname || p.name}</span>
+                      <span className={`font-bold text-lg ${isPositive ? 'text-green-accent' : 'text-red-400'}`}>
+                        {score ? (score.score > 0 ? "+" : "") + score.score : "0"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    setPhase("waiting");
+                    setRoundResult(null);
+                    setLandlordCards([]);
+                    setLastPlay(null);
+                    setCardsLeftMessage(null);
+                    setCurrentSeat(undefined);
+                    handleReady();
+                  }}
+                  className="px-6 py-2 bg-green-accent text-white rounded-pill font-semibold hover:bg-green-accent/90 transition-colors"
+                >
+                  再来一局
+                </button>
+                <button
+                  onClick={() => router.push("/lobby")}
+                  className="px-6 py-2 bg-white text-text-black border border-ceramic rounded-pill font-semibold hover:border-green-accent/50 transition-colors"
+                >
+                  返回大厅
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </RoomThemeProvider>
   );
