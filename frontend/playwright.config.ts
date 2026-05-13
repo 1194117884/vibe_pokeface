@@ -12,5 +12,8 @@ export default defineConfig({
     command: "npm run dev",
     port: 3000,
     reuseExistingServer: true,
+    env: {
+      NEXT_PUBLIC_WS_URL: "ws://localhost:18765",
+    },
   },
 });
