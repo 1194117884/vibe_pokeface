@@ -155,8 +155,8 @@ export class WSGameClient {
     this.send("start_game", this.roomId || undefined);
   }
 
-  addBot() {
-    this.send("add_bot", this.roomId || undefined);
+  addBot(characterId?: number) {
+    this.send("add_bot", this.roomId || undefined, characterId != null ? { character_id: characterId } : undefined);
   }
 
   on(type: GameMessageType, handler: (msg: GameMessage) => void) {

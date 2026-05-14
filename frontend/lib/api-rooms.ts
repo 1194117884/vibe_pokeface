@@ -42,11 +42,40 @@ export async function createRoom(params: CreateRoomParams): Promise<string> {
   return data.room_id;
 }
 
+export interface AICharacterInfo {
+  id: number;
+  name: string;
+  avatar_url?: string;
+  personality?: string;
+  play_style: string;
+  catchphrase?: string;
+  occupation?: string;
+  greeting?: string;
+  enabled: boolean;
+}
+
+export async function listAICharacters(): Promise<AICharacterInfo[]> {
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_BASE}/api/ai-characters`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function listRooms(): Promise<RoomInfo[]> {
-  const token = localStorage.getItem("token");
-  const res = await fetch(`${API_BASE}/api/rooms`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error("Failed to list rooms");
-  return res.json();
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_BASE}/api/rooms`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
 }

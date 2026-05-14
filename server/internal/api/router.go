@@ -66,6 +66,7 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 			w.Write([]byte(`{"message":"reconnect - coming soon","status":"ok"}`))
 		})
 
+		r.Get("/api/ai-characters", adminHandler.AIChars.ListEnabled)
 		r.Get("/api/rooms", roomHandler.ListRooms)
 		r.Post("/api/rooms", roomHandler.CreateRoom)
 	})

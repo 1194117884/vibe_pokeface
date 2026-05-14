@@ -13,6 +13,7 @@ export interface TablePlayer {
   isOwner: boolean;
   isReady: boolean;
   isCurrentTurn?: boolean;
+  isLandlord?: boolean;
   cardCount: number;
 }
 
@@ -25,6 +26,37 @@ interface RoomTableProps {
   landlordCards?: number[];
   lastPlay?: { seat: number; cards: number[] } | null;
   cardsLeftMessage?: string | null;
+  maxPlayers?: number;
+  tableSize?: "sm" | "lg";
+}
+
+interface SeatLayout {
+  seatNum: number;
+  left: string;
+  top: string;
+}
+
+const TABLE_WIDTHS: Record<string, string> = {
+  sm: "max-w-sm",
+  lg: "max-w-3xl",
+};
+
+const SEAT_RADIUS: Record<string, number> = {
+  sm: 34,
+  lg: 38,
+};
+
+function calcSeatPositions(numSeats: number, mySeat: number, radius: number): SeatLayout[] {
+  return Array.from({ length: numSeats }, (_, i) => {
+    const seatNum = (mySeat + i) % numSeats;
+    const angleDeg = 90 + (i / numSeats) * 360;
+    const angleRad = (angleDeg * Math.PI) / 180;
+    return {
+      seatNum,
+      left: `${50 + radius * Math.cos(angleRad)}%`,
+      top: `${50 + radius * Math.sin(angleRad)}%`,
+    };
+  });
 }
 
 export function RoomTable({
@@ -36,14 +68,17 @@ export function RoomTable({
   landlordCards = [],
   lastPlay = null,
   cardsLeftMessage = null,
+  maxPlayers = 3,
+  tableSize = "sm",
 }: RoomTableProps) {
   const theme = useRoomTheme();
 
   const seatMap = new Map<number, TablePlayer>();
   players.forEach((p) => seatMap.set(p.seat, p));
 
-  // For 3-player doudizhu: seats 0, 1, 2
-  const activeSeats = [0, 1, 2];
+  // Evenly spaced seat positions around the table
+  const radius = SEAT_RADIUS[tableSize];
+  const seatLayouts = calcSeatPositions(maxPlayers, mySeat, radius);
 
   // Center text based on phase
   const centerText = phase === "playing" ? "游戏中" : phase === "ended" ? "已结束" : "等待中";
@@ -57,7 +92,7 @@ export function RoomTable({
   })();
 
   return (
-    <div className="relative w-full max-w-3xl mx-auto aspect-[4/3]">
+    <div className={`relative w-full ${TABLE_WIDTHS[tableSize]} mx-auto aspect-[4/3]`}>
       {/* Theme-aware felt table */}
       <div
         className="absolute inset-0 rounded-[40%] shadow-xl"
@@ -117,28 +152,24 @@ export function RoomTable({
         )}
       </div>
 
-      {/* Seats positioned around the table */}
-      <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 p-4">
-        <div className="col-start-2 row-start-1 flex justify-center items-start pt-2">
-          {renderSeat(activeSeats[0])}
+      {/* Seats evenly distributed around the table */}
+      {seatLayouts.map(({ seatNum, left, top }) => (
+        <div
+          key={seatNum}
+          className="absolute z-10 pointer-events-none"
+          style={{ left, top, transform: "translate(-50%, -50%)" }}
+        >
+          <div className="pointer-events-auto">
+            {renderSeat(seatNum)}
+          </div>
         </div>
-        <div className="col-start-1 row-start-2 flex items-center justify-start pl-2">
-          {renderSeat(activeSeats[1])}
-        </div>
-        <div className="col-start-3 row-start-2 flex items-center justify-end pr-2">
-          {renderSeat(activeSeats[2])}
-        </div>
-        <div className="col-start-2 row-start-3 flex justify-center items-end pb-2">
-          {renderSeat(mySeat)}
-        </div>
-      </div>
+      ))}
     </div>
   );
 
   function renderSeat(seatNum: number) {
     const player = seatMap.get(seatNum);
     const isMine = seatNum === mySeat;
-    const posLabel = seatNum === 0 ? "top" : seatNum === 1 ? "left" : "bottom";
 
     return (
       <SeatPosition
@@ -152,9 +183,9 @@ export function RoomTable({
           isOwner: player.isOwner,
           isReady: player.isReady,
           isCurrentTurn: player.isCurrentTurn,
+          isLandlord: player.isLandlord,
           cardCount: player.cardCount,
         } : null}
-        position={posLabel}
         isMySeat={isMine}
         cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
         onChangeSeat={() => {

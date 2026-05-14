@@ -81,6 +81,20 @@ func (h *AICharacterHandler) Update(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(c)
 }
 
+// ListEnabled returns only enabled AI characters for the bot picker.
+func (h *AICharacterHandler) ListEnabled(w http.ResponseWriter, r *http.Request) {
+	chars, err := h.store.ListCharacters(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"failed to list characters"}`, http.StatusInternalServerError)
+		return
+	}
+	if chars == nil {
+		chars = []model.AICharacter{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chars)
+}
+
 func (h *AICharacterHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)

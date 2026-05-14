@@ -284,13 +284,39 @@ func (h *Hub) handleStartGame(client *Client, msg C2SMessage) {
 
 func (h *Hub) handleAddBot(client *Client, msg C2SMessage) {
 	room := h.RoomManager.GetRoom(client.RoomID)
-	if room != nil {
-		if err := room.AddBot(client.ID); err != nil {
-			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
-			select {
-			case client.Send <- errMsg:
-			default:
+	if room == nil {
+		return
+	}
+
+	var addBotData struct {
+		CharacterID *int `json:"character_id,omitempty"`
+	}
+	if len(msg.Data) > 0 {
+		json.Unmarshal(msg.Data, &addBotData)
+	}
+
+	var opts []game.BotOption
+
+	if addBotData.CharacterID != nil && h.AIStore != nil {
+		char, err := h.AIStore.GetCharacter(context.Background(), *addBotData.CharacterID)
+		if err == nil && char != nil {
+			opts = append(opts, game.WithAICharacter(char))
+
+			cfg, cfgErr := h.AIStore.GetActiveConfig(context.Background())
+			if cfgErr == nil && cfg != nil {
+				provider, pErr := ai.NewProvider(cfg)
+				if pErr == nil {
+					opts = append(opts, game.WithLLMProvider(provider))
+				}
 			}
+		}
+	}
+
+	if err := room.AddBot(client.ID, opts...); err != nil {
+		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
+		select {
+		case client.Send <- errMsg:
+		default:
 		}
 	}
 }

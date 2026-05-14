@@ -11,7 +11,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     port: 3000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     env: {
       NEXT_PUBLIC_WS_URL: "ws://localhost:18765",
     },

@@ -67,6 +67,8 @@ export class MockGameServer {
               nickname: `Player ${p.seat}`,
             })),
             theme: "classic-poker",
+            game_type: "doudizhu",
+            max_players: 3,
           },
         }));
       });

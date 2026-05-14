@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
@@ -164,19 +165,42 @@ func (rm *RoomManager) FillEmptySeats(roomID string) int {
 	if room == nil {
 		return 0
 	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
 	if room.Status != "waiting" {
 		return 0
 	}
 
-	nextN := room.nextBotNumber()
 	added := 0
-	for room.PlayerCount() < 3 {
-		botID := fmt.Sprintf("ai:bot:%d", nextN)
-		if err := room.FillWithBot(botID, make(chan []byte, 256)); err != nil {
+	for len(room.Players) < 3 {
+		seat, err := room.nextAvailableSeat()
+		if err != nil {
 			break
 		}
+		nextN := room.nextBotNumberLocked()
+		botID := fmt.Sprintf("ai:bot:%d", nextN)
+		conn := make(chan []byte, 256)
+
+		bot := &PlayerSession{
+			UserID:    botID,
+			Seat:      seat,
+			Conn:      conn,
+			IsBot:     true,
+			Connected: true,
+			Ready:     true,
+			Nickname:  fmt.Sprintf("AI Player %d", nextN),
+		}
+		room.Players = append(room.Players, bot)
+
+		room.broadcastMsg("player_joined", map[string]interface{}{
+			"user_id": botID,
+			"seat":    seat,
+			"is_bot":  true,
+			"players": room.playerList(),
+		})
 		added++
-		nextN++
 	}
 	return added
 }
@@ -199,6 +223,21 @@ func (r *GameRoom) nextBotNumberLocked() int {
 		}
 	}
 	return n
+}
+
+// nextAvailableSeat returns the first unoccupied seat number (0..2).
+// The caller must hold r.mu.
+func (r *GameRoom) nextAvailableSeat() (int, error) {
+	occupied := map[int]bool{}
+	for _, p := range r.Players {
+		occupied[p.Seat] = true
+	}
+	for seat := 0; seat < 3; seat++ {
+		if !occupied[seat] {
+			return seat, nil
+		}
+	}
+	return -1, fmt.Errorf("no available seats")
 }
 
 // ChangeSeat moves a player to a different seat.
@@ -480,7 +519,10 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 		}
 	}
 
-	seat := len(r.Players)
+	seat, err := r.nextAvailableSeat()
+	if err != nil {
+		return fmt.Errorf("room is full")
+	}
 	bot := &PlayerSession{
 		UserID:   botID,
 		Seat:     seat,
@@ -503,7 +545,7 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 	for _, opt := range opts {
 		opt(botCfg)
 	}
-	if botCfg.Provider != nil {
+	if botCfg.Character != nil || botCfg.Provider != nil {
 		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
 		agent.Start()
 		r.agents[botID] = agent
@@ -520,7 +562,7 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 }
 
 // AddBot adds an AI bot to the room by owner action.
-func (r *GameRoom) AddBot(ownerID string) error {
+func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -538,23 +580,48 @@ func (r *GameRoom) AddBot(ownerID string) error {
 	botID := fmt.Sprintf("ai:bot:%d", nextN)
 	conn := make(chan []byte, 256)
 
-	seat := len(r.Players)
+	seat, err := r.nextAvailableSeat()
+	if err != nil {
+		return fmt.Errorf("room is full")
+	}
+
+	botCfg := &botConfig{}
+	for _, opt := range opts {
+		opt(botCfg)
+	}
+
+	nickname := fmt.Sprintf("AI Player %d", nextN)
+	var characterID string
+	if botCfg.Character != nil {
+		characterID = strconv.Itoa(botCfg.Character.ID)
+		if botCfg.Character.Name != "" {
+			nickname = botCfg.Character.Name
+		}
+	}
+
 	bot := &PlayerSession{
-		UserID:   botID,
-		Seat:     seat,
-		Conn:     conn,
-		IsBot:    true,
+		UserID:    botID,
+		Seat:      seat,
+		Conn:      conn,
+		IsBot:     true,
 		Connected: true,
-		Ready:    true,
-		Nickname: fmt.Sprintf("AI Player %d", nextN),
+		Ready:     true,
+		Nickname:  nickname,
+		CharacterID: characterID,
 	}
 	r.Players = append(r.Players, bot)
 
+	if botCfg.Character != nil || botCfg.Provider != nil {
+		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+		agent.Start()
+		r.agents[botID] = agent
+	}
+
 	r.broadcastMsg("player_joined", map[string]interface{}{
-		"user_id": botID,
-		"seat":    seat,
-		"is_bot":  true,
-		"players": r.playerList(),
+		"user_id":  botID,
+		"seat":     seat,
+		"is_bot":   true,
+		"players":  r.playerList(),
 	})
 	return nil
 }
@@ -581,7 +648,9 @@ func (r *GameRoom) setReady(userID string) {
 			break
 		}
 	}
-	r.broadcastMsg("player_ready", r.playerList())
+	r.broadcastMsg("player_ready", map[string]interface{}{
+		"players": r.playerList(),
+	})
 }
 
 // StartGame validates conditions and starts the game.
@@ -630,7 +699,7 @@ func (r *GameRoom) startGame() {
 		p.Ready = false
 	}
 
-	r.broadcastMsg("game_start", state)
+	r.broadcastMsg("game_start", r.State)
 
 	// Trigger AI agent if the first player to act is a bot
 	r.triggerAIAgent()

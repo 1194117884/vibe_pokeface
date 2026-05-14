@@ -13,27 +13,25 @@ interface ActionBarProps {
 }
 
 export function ActionBar({ phase, isMyTurn, onBidCall, onBidPass, onPlay, onPass, timer }: ActionBarProps) {
-  if (!isMyTurn) return null;
-
   return (
     <div className="flex justify-center gap-3 py-3">
       {phase === "bidding" && (
         <>
-          <Button variant="primary" onClick={onBidCall}>
-            叫地主
+          <Button variant="primary" onClick={onBidCall} disabled={!isMyTurn}>
+            {isMyTurn ? "叫地主" : "叫地主 ⌛"}
           </Button>
-          <Button variant="outlined" onClick={onBidPass}>
-            不叫
+          <Button variant="outlined" onClick={onBidPass} disabled={!isMyTurn}>
+            {isMyTurn ? "不叫" : "不叫 ⌛"}
           </Button>
         </>
       )}
       {phase === "playing" && (
         <>
-          <Button variant="primary" onClick={onPlay}>
-            出牌
+          <Button variant="primary" onClick={onPlay} disabled={!isMyTurn}>
+            {isMyTurn ? "出牌" : "出牌 ⌛"}
           </Button>
-          <Button variant="outlined" onClick={onPass}>
-            不出
+          <Button variant="outlined" onClick={onPass} disabled={!isMyTurn}>
+            {isMyTurn ? "不出" : "不出 ⌛"}
           </Button>
         </>
       )}

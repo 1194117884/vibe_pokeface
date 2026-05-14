@@ -298,6 +298,164 @@ func TestRoomAllReadyStartsGame(t *testing.T) {
 	}
 }
 
+// TestRoomAddBot_SeatAssignment verifies that AddBot assigns unique seats.
+func TestRoomAddBot_SeatAssignment(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	conn1 := make(chan []byte, 20)
+	conn2 := make(chan []byte, 20)
+
+	room.AddPlayer("user-1", "", "", conn1) // owner
+	room.AddPlayer("user-2", "", "", conn2)
+
+	// Drain broadcast messages
+	drainN(t, conn1, 2, "player_joined")
+	drainN(t, conn2, 1, "player_joined")
+
+	// Add a bot via AddBot
+	err := room.AddBot("user-1")
+	if err != nil {
+		t.Fatalf("AddBot failed: %v", err)
+	}
+
+	if len(room.Players) != 3 {
+		t.Fatalf("Players = %d, want 3", len(room.Players))
+	}
+
+	// Verify all 3 players have unique seats
+	seatSet := map[int]bool{}
+	for _, p := range room.Players {
+		if seatSet[p.Seat] {
+			t.Errorf("Seat collision: seat %d is used by multiple players", p.Seat)
+		}
+		seatSet[p.Seat] = true
+	}
+
+	// Verify owner is still in the room
+	ownerFound := false
+	for _, p := range room.Players {
+		if p.UserID == "user-1" {
+			ownerFound = true
+			break
+		}
+	}
+	if !ownerFound {
+		t.Error("Owner was removed from room after AddBot")
+	}
+
+	// Verify room is full
+	err = room.AddBot("user-1")
+	if err == nil {
+		t.Error("AddBot should fail when room is full")
+	}
+}
+
+// TestRoomAddBot_NonSequentialSeats verifies AddBot doesn't collide with
+// non-contiguous seat numbers caused by AddPlayer's random seat selection.
+func TestRoomAddBot_NonSequentialSeats(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	// Set up non-contiguous seats directly: owner at seat 0, second player at seat 2.
+	// This simulates what AddPlayer does when rand picks a non-sequential seat.
+	room.mu.Lock()
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, Conn: make(chan []byte, 10), Connected: true},
+		{UserID: "user-2", Seat: 2, Conn: make(chan []byte, 10), Connected: true},
+	}
+	room.mu.Unlock()
+
+	// Debug: check state before AddBot
+	t.Logf("Players before AddBot:")
+	for _, p := range room.Players {
+		t.Logf("  %s at seat %d", p.UserID, p.Seat)
+	}
+
+	// Players = [owner(seat=0), user-2(seat=2)], len=2, seat=1 is free
+	// Old bug: AddBot would assign seat := len(r.Players) = 2 → COLLISION with user-2
+	err := room.AddBot("user-1")
+	if err != nil {
+		t.Fatalf("AddBot failed: %v", err)
+	}
+
+	if len(room.Players) != 3 {
+		t.Fatalf("Players = %d, want 3", len(room.Players))
+	}
+
+	// Debug: check state after AddBot
+	t.Logf("Players after AddBot:")
+	for _, p := range room.Players {
+		t.Logf("  %s at seat %d (bot=%v)", p.UserID, p.Seat, p.IsBot)
+	}
+
+	// Verify all seats are unique
+	seatSet := map[int]bool{}
+	for _, p := range room.Players {
+		if seatSet[p.Seat] {
+			t.Errorf("Seat collision: seat %d is used by multiple players", p.Seat)
+		}
+		seatSet[p.Seat] = true
+	}
+
+	// Verify seat 1 is now occupied (was the only free seat)
+	seat1found := false
+	for _, p := range room.Players {
+		if p.Seat == 1 {
+			seat1found = true
+			break
+		}
+	}
+	if !seat1found {
+		t.Error("Seat 1 should be occupied after AddBot, but it's still empty")
+	}
+}
+
+// TestFillEmptySeats_NoOverfill verifies FillEmptySeats correctly fills
+// only up to capacity and doesn't exceed it.
+func TestFillEmptySeats_NoOverfill(t *testing.T) {
+	rm := NewRoomManager(nil)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Add 1 human player (owner)
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+
+	// Fill empty seats
+	added := rm.FillEmptySeats("room-1")
+	if added != 2 {
+		t.Errorf("Added %d bots, want 2", added)
+	}
+
+	if len(room.Players) != 3 {
+		t.Errorf("Players = %d, want 3", len(room.Players))
+	}
+
+	// Verify owner is still in the room
+	ownerFound := false
+	for _, p := range room.Players {
+		if p.UserID == "user-1" {
+			ownerFound = true
+			break
+		}
+	}
+	if !ownerFound {
+		t.Error("Owner was removed after FillEmptySeats")
+	}
+
+	// All seats should be unique
+	seatSet := map[int]bool{}
+	for _, p := range room.Players {
+		if seatSet[p.Seat] {
+			t.Errorf("Seat collision: seat %d is used by multiple players", p.Seat)
+		}
+		seatSet[p.Seat] = true
+	}
+
+	// FillEmptySeats on already full room should add 0
+	added = rm.FillEmptySeats("room-1")
+	if added != 0 {
+		t.Errorf("Added %d bots on full room, want 0", added)
+	}
+}
+
 // drainN reads n messages from conn and verifies each has the expected type.
 func drainN(t *testing.T, conn chan []byte, n int, expectedType string) {
 	t.Helper()

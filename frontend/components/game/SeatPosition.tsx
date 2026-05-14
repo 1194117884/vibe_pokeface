@@ -14,9 +14,10 @@ interface SeatPositionProps {
     isOwner: boolean;
     isReady: boolean;
     isCurrentTurn?: boolean;
+    isLandlord?: boolean;
     cardCount: number;
   } | null;
-  position: "top" | "bottom" | "left" | "right";
+  position?: "top" | "bottom" | "left" | "right";
   isMySeat?: boolean;
   onChangeSeat?: () => void;
   onAddBot?: () => void;
@@ -76,8 +77,13 @@ export function SeatPosition({
       )}
     >
       {player.isOwner && (
-        <span className="absolute -top-2 text-lg" title="房主">
+        <span className="absolute -top-2 -left-1 text-lg" title="房主">
           👑
+        </span>
+      )}
+      {player.isLandlord && (
+        <span className="absolute -top-2 -right-1 text-lg" title="地主">
+          🏆
         </span>
       )}
 

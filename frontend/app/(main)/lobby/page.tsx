@@ -56,10 +56,7 @@ export default function LobbyPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    listRooms()
-      .then(setRooms)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    listRooms().then(setRooms).finally(() => setLoading(false));
   }, []);
 
   return (

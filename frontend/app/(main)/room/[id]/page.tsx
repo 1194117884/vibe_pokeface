@@ -13,6 +13,7 @@ import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
 import { RoomThemeProvider } from "@/themes";
 import { NPCWalker } from "@/components/game/NPCWalker";
+import { AICharacterPicker } from "@/components/game/AICharacterPicker";
 
 interface ChatMessage {
   userId: string;
@@ -37,6 +38,8 @@ interface ServerPlayer {
   nickname?: string;
   character_id?: string;
   characterId?: string;
+  is_landlord?: boolean;
+  isLandlord?: boolean;
 }
 
 interface RoundResult {
@@ -64,7 +67,13 @@ interface ServerData {
   timestamp?: number;
   error?: string;
   theme?: string;
+  game_type?: string;
+  max_players?: number;
 }
+
+const GAME_CONFIG: Record<string, { maxPlayers: number; tableSize: "sm" | "lg" }> = {
+  doudizhu: { maxPlayers: 3, tableSize: "sm" },
+};
 
 function toTablePlayer(p: ServerPlayer): TablePlayer {
   return {
@@ -76,8 +85,29 @@ function toTablePlayer(p: ServerPlayer): TablePlayer {
     isBot: p.is_bot ?? p.isBot ?? false,
     isOwner: p.is_owner ?? p.isOwner ?? false,
     isReady: p.ready ?? p.isReady ?? false,
+    isLandlord: p.is_landlord ?? false,
     cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
   };
+}
+
+function mergePlayers(existing: TablePlayer[], incoming: TablePlayer[]): TablePlayer[] {
+  const existingBySeat = new Map<number, TablePlayer>();
+  for (const p of existing) {
+    existingBySeat.set(p.seat, p);
+  }
+  return incoming.map((p) => {
+    const old = existingBySeat.get(p.seat);
+    if (old) {
+      return {
+        ...p,
+        isBot: old.isBot,
+        nickname: old.nickname || p.nickname,
+        characterId: old.characterId,
+        isOwner: old.isOwner,
+      };
+    }
+    return p;
+  });
 }
 
 function extractHand(p: ServerPlayer): number[] {
@@ -104,6 +134,11 @@ export default function RoomPage() {
 
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [mySeat, setMySeat] = useState<number | null>(null);
+  const mySeatRef = useRef<number | null>(null);
+  const setMySeatWithRef = (seat: number | null) => {
+    mySeatRef.current = seat;
+    setMySeat(seat);
+  };
   const [phase, setPhase] = useState<"waiting" | "bidding" | "playing" | "ended">("waiting");
   const [roomTheme, setRoomTheme] = useState("classic-poker");
   const [connected, setConnected] = useState(false);
@@ -116,6 +151,9 @@ export default function RoomPage() {
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [cardsLeftMessage, setCardsLeftMessage] = useState<string | null>(null);
+  const [gameType, setGameType] = useState("doudizhu");
+  const [showAIPicker, setShowAIPicker] = useState(false);
+  const gameConfig = GAME_CONFIG[gameType] || GAME_CONFIG.doudizhu;
 
   const wsClientRef = useRef<WSGameClient | null>(null);
   const voiceClientRef = useRef<LiveKitClient | null>(null);
@@ -146,8 +184,9 @@ export default function RoomPage() {
       if (data?.players) {
         setPlayers(data.players.map(toTablePlayer));
       }
-      if (data?.seat !== undefined) setMySeat(data.seat);
+      if (data?.seat !== undefined && String(data.user_id) === uid) setMySeatWithRef(data.seat);
       if (data?.theme) setRoomTheme(data.theme);
+      if (data?.game_type) setGameType(data.game_type);
       setConnected(true);
       joined = true;
     });
@@ -162,11 +201,13 @@ export default function RoomPage() {
     client.on("state_update", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map(toTablePlayer));
-        const me = data.players.find(
-          (p) => String(p.user_id ?? p.userId) === uid,
-        );
-        if (me) setHand(extractHand(me));
+        setPlayers((prev) => mergePlayers(prev, data.players!.map(toTablePlayer)));
+        if (mySeatRef.current !== null) {
+          const me = data.players.find(
+            (p) => (p.seat ?? 0) === mySeatRef.current,
+          );
+          if (me) setHand(extractHand(me));
+        }
       }
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.phase !== undefined) {
@@ -204,18 +245,21 @@ export default function RoomPage() {
         setPlayers(data.players.map(toTablePlayer));
       }
       if (data?.new_seat !== undefined && String(data.user_id) === uid) {
-        setMySeat(data.new_seat);
+        setMySeatWithRef(data.new_seat);
       }
     });
 
     client.on("game_start", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map(toTablePlayer));
-        const me = data.players.find(
-          (p) => String(p.user_id ?? p.userId) === uid,
-        );
-        if (me) setHand(extractHand(me));
+        setPlayers((prev) => mergePlayers(prev, data.players!.map(toTablePlayer)));
+        // Find my hand by matching seat (engine user_id is seat index, not real user ID)
+        if (mySeatRef.current !== null) {
+          const me = data.players.find(
+            (p) => (p.seat ?? 0) === mySeatRef.current,
+          );
+          if (me) setHand(extractHand(me));
+        }
       }
       setPhase("bidding");
       setRoundResult(null);
@@ -288,12 +332,12 @@ export default function RoomPage() {
   }, [roomId, router]);
 
   const myUserId = getUserIdFromToken();
-  const myPlayer = players.find((p) => p.userId === myUserId);
+  const myPlayer = players.find((p) => p.seat === mySeatRef.current);
   const amIOwner = players.some((p) => p.userId === myUserId && p.isOwner);
   const amIReady = myPlayer?.isReady ?? false;
   const allReady = players.length >= 2 && players.every((p) => p.isReady);
-  const canStart = players.length >= 3 && allReady;
-  const isMyTurn = currentSeat !== undefined && myPlayer?.seat === currentSeat;
+  const canStart = players.length >= gameConfig.maxPlayers && allReady;
+  const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
   const displayPlayers = players.map((p) => ({
     ...p,
     isCurrentTurn: p.seat === currentSeat,
@@ -304,7 +348,12 @@ export default function RoomPage() {
   };
 
   const handleAddBot = () => {
-    wsClientRef.current?.addBot();
+    setShowAIPicker(true);
+  };
+
+  const handleSelectAICharacter = (characterId: number) => {
+    setShowAIPicker(false);
+    wsClientRef.current?.addBot(characterId);
   };
 
   const handleReady = () => {
@@ -424,16 +473,20 @@ export default function RoomPage() {
               <div className="text-center text-text-black-soft">房间是空的</div>
             ) : (
               <>
-                <RoomTable
-                  players={displayPlayers}
-                  mySeat={mySeat ?? 0}
-                  phase={phase}
-                  onSitDown={handleSitDown}
-                  onAddBot={handleAddBot}
-                  landlordCards={landlordCards}
-                  lastPlay={lastPlay}
-                  cardsLeftMessage={cardsLeftMessage}
-                />
+                <div className="w-full pb-12">
+                  <RoomTable
+                    players={displayPlayers}
+                    mySeat={mySeat ?? 0}
+                    phase={phase}
+                    onSitDown={handleSitDown}
+                    onAddBot={handleAddBot}
+                    landlordCards={landlordCards}
+                    lastPlay={lastPlay}
+                    cardsLeftMessage={cardsLeftMessage}
+                    maxPlayers={gameConfig.maxPlayers}
+                    tableSize={gameConfig.tableSize}
+                  />
+                </div>
 
                 {/* Waiting phase: Ready/Start controls */}
                 {phase === "waiting" && (
@@ -442,7 +495,7 @@ export default function RoomPage() {
                     isReady={amIReady}
                     allReady={allReady}
                     playerCount={players.length}
-                    maxPlayers={3}
+                    maxPlayers={gameConfig.maxPlayers}
                     canStart={canStart}
                     onReady={handleReady}
                     onStartGame={handleStartGame}
@@ -467,6 +520,11 @@ export default function RoomPage() {
                         onBidCall={handleBidCall}
                         onBidPass={handleBidPass}
                       />
+                    )}
+                    {phase === "bidding" && !isMyTurn && (
+                      <p className="text-center text-sm text-text-black-soft animate-pulse">
+                        等待其他玩家叫地主...
+                      </p>
                     )}
                   </div>
                 )}
@@ -534,6 +592,13 @@ export default function RoomPage() {
             </div>
           </div>
         )}
+
+        {/* AI character picker */}
+        <AICharacterPicker
+          open={showAIPicker}
+          onClose={() => setShowAIPicker(false)}
+          onSelect={handleSelectAICharacter}
+        />
 
         {/* Round end overlay */}
         {phase === "ended" && roundResult && (
