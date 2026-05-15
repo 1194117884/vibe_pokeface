@@ -116,7 +116,13 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 		if play.Type == PlayInvalid && len(cards) > 0 {
 			return false
 		}
-		return cardsInHand(gs.Players[seat].Hand, cards)
+		if !cardsInHand(gs.Players[seat].Hand, cards) {
+			return false
+		}
+		if gs.LastPlay != nil && !CanBeat(play, gs.LastPlay.Play) {
+			return false
+		}
+		return true
 	}
 	return false
 }

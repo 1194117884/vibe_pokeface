@@ -35,7 +35,6 @@ type GameState struct {
 	LandlordCards     []Card       `json:"landlord_cards"`
 	LastPlay           *PlayRecord  `json:"last_play"`
 	LastPlaySeat      int          `json:"last_play_seat"`
-	PassCount         int          `json:"pass_count"`
 	ConsecutivePasses int          `json:"consecutive_passes"`
 	WinnerSeat        *int         `json:"winner_seat,omitempty"`
 	BidHistory        []BidRecord  `json:"bid_history"`
