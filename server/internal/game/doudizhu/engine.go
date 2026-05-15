@@ -44,24 +44,24 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 	}
 
 	state := &GameState{
-		Phase:         PhaseBidding,
+		Phase:         PhaseCalling,
 		Players:       playerHands,
 		CurrentSeat:   0,
 		LandlordCards: remaining,
-		LandlordSeat:  -1, // -1 means no landlord yet
+		LandlordSeat:  -1,
 		RoundNum:      1,
+		Multiplier:    1,
+		HasPassed:     make(map[int]bool),
 	}
 	return state, nil
 }
 
 // ExecuteAction processes a player action and transitions the game state.
-// Returns an error if the action is invalid or it's not the player's turn.
 func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (game.GameState, error) {
 	gs, ok := state.(*GameState)
 	if !ok {
 		return nil, fmt.Errorf("invalid state type")
 	}
-	// Find player by UserID
 	seat := -1
 	for i, p := range gs.Players {
 		if p.UserID == action.PlayerID {
@@ -73,13 +73,16 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 		return nil, fmt.Errorf("not your turn")
 	}
 
-	if gs.Phase == PhaseBidding {
-		return e.handleBid(gs, seat, action)
-	}
-	if gs.Phase == PhasePlaying {
+	switch gs.Phase {
+	case PhaseCalling:
+		return e.handleCallBid(gs, seat, action)
+	case PhaseSnatching:
+		return e.handleSnatchBid(gs, seat, action)
+	case PhasePlaying:
 		return e.handlePlay(gs, seat, action)
+	default:
+		return nil, fmt.Errorf("game already ended")
 	}
-	return nil, fmt.Errorf("game already ended")
 }
 
 // ValidateAction checks whether a player action is valid without mutating state.
@@ -98,7 +101,7 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 	if seat == -1 || seat != gs.CurrentSeat {
 		return false
 	}
-	if gs.Phase == PhaseBidding {
+	if gs.Phase == PhaseCalling || gs.Phase == PhaseSnatching {
 		return action.Action == "bid_call" || action.Action == "bid_pass"
 	}
 	if gs.Phase == PhasePlaying {
@@ -136,9 +139,8 @@ func (e *Engine) IsRoundEnd(state game.GameState) bool {
 	return gs.Phase == PhaseEnded
 }
 
-// CalculateScore computes the scores for each player based on the game result.
-// Landlord earns 2 points for winning, farmers earn 1 each.
-// Losers lose the same amount.
+// CalculateScore computes the scores for each player based on the game result
+// multiplied by the game multiplier (from 抢地主 snatches).
 func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error) {
 	gs, ok := state.(*GameState)
 	if !ok {
@@ -150,25 +152,29 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 
 	scores := make([]game.PlayerScore, 3)
 	winnerIsLandlord := gs.Players[*gs.WinnerSeat].IsLandlord
+	mult := gs.Multiplier
+	if mult < 1 {
+		mult = 1
+	}
 
 	for i, p := range gs.Players {
-		var score int
+		var base int
 		if p.IsLandlord {
 			if winnerIsLandlord {
-				score = 2
+				base = 2
 			} else {
-				score = -2
+				base = -2
 			}
 		} else {
 			if winnerIsLandlord {
-				score = -1
+				base = -1
 			} else {
-				score = 1
+				base = 1
 			}
 		}
 		scores[i] = game.PlayerScore{
 			PlayerID: p.UserID,
-			Score:    score,
+			Score:    base * mult,
 		}
 	}
 	return scores, nil
@@ -184,6 +190,7 @@ func (e *Engine) SerializeForAI(state game.GameState) string {
 	sb.WriteString(fmt.Sprintf("Phase: %d\n", gs.Phase))
 	sb.WriteString(fmt.Sprintf("Landlord: seat %d\n", gs.LandlordSeat))
 	sb.WriteString(fmt.Sprintf("Current turn: seat %d\n", gs.CurrentSeat))
+	sb.WriteString(fmt.Sprintf("Multiplier: %d\n", gs.Multiplier))
 	for _, p := range gs.Players {
 		role := "farmer"
 		if p.IsLandlord {
@@ -194,11 +201,12 @@ func (e *Engine) SerializeForAI(state game.GameState) string {
 	return sb.String()
 }
 
-// handleBid processes a bidding action. All 3 players bid in order.
-// The last player to bid_call becomes landlord (this is 抢地主 — any
-// subsequent player can "snatch" the landlord role).
-// If all pass, the round ends with no winner.
-func (e *Engine) handleBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
+// handleCallBid processes the 叫地主 phase.
+// First player to bid_call becomes landlord nominee; bidding immediately
+// transitions to PhaseSnatching. Players who passed before the caller are
+// marked in HasPassed and cannot participate in snatching.
+// If all 3 pass, the round ends with no winner.
+func (e *Engine) handleCallBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "bid_call" && action.Action != "bid_pass" {
 		return nil, fmt.Errorf("invalid bid action: %s", action.Action)
 	}
@@ -208,38 +216,85 @@ func (e *Engine) handleBid(state *GameState, seat int, action game.PlayerAction)
 		Called: action.Action == "bid_call",
 	})
 
-	if action.Action == "bid_call" {
-		state.LandlordSeat = seat
+	if action.Action == "bid_pass" {
+		state.HasPassed[seat] = true
+		// All 3 passed — end round
+		if len(state.BidHistory) >= 3 {
+			state.Phase = PhaseEnded
+			return state, nil
+		}
+		state.CurrentSeat = (seat + 1) % 3
+		return state, nil
 	}
 
-	// After all 3 players have bid
-	if len(state.BidHistory) >= 3 {
+	// bid_call — immediately becomes landlord nominee, enter snatching
+	state.LandlordSeat = seat
+	state.Phase = PhaseSnatching
+	state.SnatchCount = 0
+	state.CurrentSeat = (seat + 1) % 3
+	// Auto-advance past players who already passed during 叫地主
+	for state.SnatchCount < 3 && state.HasPassed[state.CurrentSeat] {
+		state.SnatchCount++
+		state.CurrentSeat = (state.CurrentSeat + 1) % 3
+	}
+	return state, nil
+}
+
+// handleSnatchBid processes the 抢地主 phase.
+// Each player gets one chance to snatch (bid_call) or pass.
+// Players marked in HasPassed are auto-skipped.
+// Each snatch doubles the multiplier and updates the landlord nominee.
+// After all 3 players have had their turn, the final nominee becomes landlord.
+func (e *Engine) handleSnatchBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
+	if action.Action != "bid_call" && action.Action != "bid_pass" {
+		return nil, fmt.Errorf("invalid snatch action: %s", action.Action)
+	}
+
+	// Auto-skip players who passed during 叫地主
+	if state.HasPassed[seat] {
+		state.SnatchCount++
+	} else {
+		state.BidHistory = append(state.BidHistory, BidRecord{
+			Seat:   seat,
+			Called: action.Action == "bid_call",
+		})
+
+		if action.Action == "bid_call" {
+			state.LandlordSeat = seat
+			state.Multiplier *= 2
+		}
+		state.SnatchCount++
+	}
+
+	// All 3 have had their turn — finalize landlord
+	if state.SnatchCount >= 3 {
 		if state.LandlordSeat >= 0 {
-			// Someone called landlord (or grabbed it) — assign landlord cards
 			state.Players[state.LandlordSeat].IsLandlord = true
-			state.Players[state.LandlordSeat].Hand = append(state.Players[state.LandlordSeat].Hand, state.LandlordCards...)
+			state.Players[state.LandlordSeat].Hand = append(
+				state.Players[state.LandlordSeat].Hand, state.LandlordCards...)
 			SortCards(state.Players[state.LandlordSeat].Hand)
 			state.Phase = PhasePlaying
 			state.CurrentSeat = state.LandlordSeat
 		} else {
-			// All passed — end the round
 			state.Phase = PhaseEnded
 		}
 		return state, nil
 	}
 
-	// Next player's turn
 	state.CurrentSeat = (seat + 1) % 3
+	// Auto-advance past HasPassed players
+	for state.SnatchCount < 3 && state.HasPassed[state.CurrentSeat] {
+		state.SnatchCount++
+		state.CurrentSeat = (state.CurrentSeat + 1) % 3
+	}
 	return state, nil
 }
 
 // handlePlay processes a card play action during the playing phase.
 func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
-	// Handle pass action
 	if action.Action == "pass" {
 		state.ConsecutivePasses++
 		if state.ConsecutivePasses >= 2 {
-			// Two passes after a play — clear last play, current player leads
 			state.LastPlay = nil
 			state.ConsecutivePasses = 0
 		}

@@ -6,9 +6,10 @@ import "encoding/json"
 type GamePhase int
 
 const (
-	PhaseBidding GamePhase = iota
-	PhasePlaying
-	PhaseEnded
+	PhaseCalling   GamePhase = iota // 叫地主 — first call wins immediately
+	PhaseSnatching                   // 抢地主 — each eligible player gets one snatch chance
+	PhasePlaying                     // 出牌
+	PhaseEnded                       // 结束
 )
 
 // PlayerHand represents a player's hand and metadata during a game.
@@ -33,12 +34,15 @@ type GameState struct {
 	CurrentSeat       int          `json:"current_seat"`
 	LandlordSeat      int          `json:"landlord_seat"`
 	LandlordCards     []Card       `json:"landlord_cards"`
-	LastPlay           *PlayRecord  `json:"last_play"`
+	LastPlay          *PlayRecord  `json:"last_play"`
 	LastPlaySeat      int          `json:"last_play_seat"`
 	ConsecutivePasses int          `json:"consecutive_passes"`
 	WinnerSeat        *int         `json:"winner_seat,omitempty"`
 	BidHistory        []BidRecord  `json:"bid_history"`
 	RoundNum          int          `json:"round_num"`
+	Multiplier        int          `json:"multiplier"`  // game multiplier (×2 per snatch)
+	HasPassed         map[int]bool `json:"has_passed"`  // seats that passed during 叫地主
+	SnatchCount       int          `json:"snatch_count"` // number of snatch decisions made
 }
 
 // BidRecord records a single bid action during the bidding phase.

@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/Button";
 
 interface ActionBarProps {
-  phase: "bidding" | "playing" | "ended";
+  phase: "calling" | "snatching" | "playing" | "ended";
   isMyTurn: boolean;
   onBidCall?: () => void;
   onBidPass?: () => void;
@@ -13,15 +13,19 @@ interface ActionBarProps {
 }
 
 export function ActionBar({ phase, isMyTurn, onBidCall, onBidPass, onPlay, onPass, timer }: ActionBarProps) {
+  const isBidding = phase === "calling" || phase === "snatching";
+  const callLabel = phase === "calling" ? "叫地主" : "抢地主";
+  const passLabel = phase === "calling" ? "不叫" : "不抢";
+
   return (
     <div className="flex justify-center gap-3 py-3">
-      {phase === "bidding" && (
+      {isBidding && (
         <>
           <Button variant="primary" onClick={onBidCall} disabled={!isMyTurn}>
-            {isMyTurn ? "叫地主" : "叫地主 ⌛"}
+            {isMyTurn ? callLabel : `${callLabel} ⌛`}
           </Button>
           <Button variant="outlined" onClick={onBidPass} disabled={!isMyTurn}>
-            {isMyTurn ? "不叫" : "不叫 ⌛"}
+            {isMyTurn ? passLabel : `${passLabel} ⌛`}
           </Button>
         </>
       )}
