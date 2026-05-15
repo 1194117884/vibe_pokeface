@@ -69,31 +69,51 @@ export function SeatPosition({
   return (
     <div
       className={clsx(
-        "relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 min-w-[120px] transition-all",
-        player.isCurrentTurn
-          ? "border-yellow-400 bg-yellow-50 shadow-md"
-          : "border-ceramic/30 bg-white",
-        isMySeat && "ring-2 ring-green-accent/30",
+        "relative flex flex-col items-center gap-2 p-3 rounded-xl min-w-[120px] transition-all",
+        // Landlord gets red theme; current turn just enhances glow
+        player.isLandlord
+          ? "border-[2.5px] border-amber-400 bg-gradient-to-br from-red-950 to-red-900 shadow-[0_0_20px_rgba(251,191,36,0.4)]"
+          : clsx(
+              "border-2",
+              player.isCurrentTurn
+                ? "border-yellow-400 bg-yellow-50 shadow-md"
+                : "border-ceramic/30 bg-white"
+            ),
+        // Landlord + current turn = even stronger glow
+        player.isLandlord && player.isCurrentTurn && "shadow-[0_0_28px_rgba(251,191,36,0.6)]",
+        isMySeat && !player.isLandlord && "ring-2 ring-green-accent/30",
       )}
     >
       {player.isOwner && (
-        <span className="absolute -top-2 -left-1 text-lg" title="房主">
-          👑
+        <span className="absolute -top-2 -left-1 text-base" title="房主">
+          ⭐
         </span>
       )}
       {player.isLandlord && (
-        <span className="absolute -top-2 -right-1 text-lg" title="地主">
-          🏆
-        </span>
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-400 text-red-950 text-[11px] font-extrabold px-3 py-0.5 rounded tracking-wider whitespace-nowrap">
+          👑 地主
+        </div>
+      )}
+
+      {player.isCurrentTurn && (
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-950 text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(250,204,21,0.5)]">
+          ⚡ 出牌中
+        </div>
       )}
 
       {player.isBot ? (
-        <div className="w-12 h-12 rounded-full bg-purple-400 flex items-center justify-center text-white font-bold text-lg">
+        <div className={clsx(
+          "w-12 h-12 rounded-full bg-purple-400 flex items-center justify-center text-white font-bold text-lg",
+          player.isLandlord && "ring-[2.5px] ring-amber-400"
+        )}>
           AI
         </div>
       ) : (
         <div
-          className="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
+          className={clsx(
+            "w-12 h-12 rounded-full flex items-center justify-center text-2xl",
+            player.isLandlord && "ring-[2.5px] ring-amber-400"
+          )}
           style={{
             backgroundColor: charStyle?.backgroundColor ?? "#374151",
             borderColor: charStyle?.borderColor ?? "#4B5563",
@@ -105,16 +125,27 @@ export function SeatPosition({
         </div>
       )}
 
-      <p className="text-sm font-medium text-text-black-strong truncate max-w-[100px]">
+      <p className={clsx(
+        "text-sm font-medium truncate max-w-[100px]",
+        player.isLandlord ? "text-white" : "text-text-black-strong"
+      )}>
         {player.nickname || player.name}
       </p>
 
-      <p className="text-xs text-text-black-soft">
+      <p className={clsx(
+        "text-xs",
+        player.isLandlord ? "text-amber-300" : "text-text-black-soft"
+      )}>
         {player.cardCount} 张牌
       </p>
 
       {player.isReady && (
-        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+        <span className={clsx(
+          "text-xs px-2 py-0.5 rounded-full",
+          player.isLandlord
+            ? "bg-green-700 text-green-100"
+            : "bg-green-100 text-green-700"
+        )}>
           ✓ 已准备
         </span>
       )}
@@ -129,12 +160,18 @@ export function SeatPosition({
       )}
 
       {cardsLeft === "baodan" && (
-        <span className="absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+        <span className={player.isLandlord
+          ? "absolute -bottom-2 left-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+          : "absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+        }>
           报单
         </span>
       )}
       {cardsLeft === "baoshuang" && (
-        <span className="absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+        <span className={player.isLandlord
+          ? "absolute -bottom-2 left-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+          : "absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+        }>
           报双
         </span>
       )}
