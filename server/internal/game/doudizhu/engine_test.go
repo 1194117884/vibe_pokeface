@@ -70,46 +70,51 @@ func TestEngine_FullGameFlow(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
-
-	// Phase 1 — 叫地主: Alice passes, Bob calls immediately
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
-
 	gs := state.(*GameState)
+
+	// Phase 1 — 叫地主: first player passes, next player calls immediately
+	firstSeat := gs.CurrentSeat
+	secondSeat := (firstSeat + 1) % 3
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[firstSeat].ID, Action: "bid_pass"})
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[secondSeat].ID, Action: "bid_call"})
+
+	gs = state.(*GameState)
 	if gs.Phase != PhaseSnatching {
 		t.Errorf("after call, phase = %d, want %d (PhaseSnatching)", gs.Phase, PhaseSnatching)
 	}
-	if gs.LandlordSeat != 1 {
-		t.Errorf("after Bob call, landlord seat = %d, want 1", gs.LandlordSeat)
+	if gs.LandlordSeat != secondSeat {
+		t.Errorf("landlord seat = %d, want %d", gs.LandlordSeat, secondSeat)
 	}
 
-	// Phase 2 — 抢地主: Charlie 不抢, Alice skipped (HasPassed), Bob 不抢
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_pass"})
+	// Phase 2 — 抢地主: follow dynamic turn order, pass for all remaining
+	for gs.SnatchCount < 3 {
+		seat := gs.CurrentSeat
+		state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[seat].ID, Action: "bid_pass"})
+		gs = state.(*GameState)
+	}
 
-	gs = state.(*GameState)
 	if gs.Phase != PhasePlaying {
 		t.Errorf("after snatching, phase = %d, want %d (PhasePlaying)", gs.Phase, PhasePlaying)
 	}
-	if !gs.Players[1].IsLandlord {
-		t.Error("expected player 1 to be landlord")
+	if !gs.Players[secondSeat].IsLandlord {
+		t.Error("expected second player to be landlord")
 	}
-	if len(gs.Players[1].Hand) != 20 {
-		t.Errorf("landlord hand = %d cards, want 20", len(gs.Players[1].Hand))
+	if len(gs.Players[secondSeat].Hand) != 20 {
+		t.Errorf("landlord hand = %d cards, want 20", len(gs.Players[secondSeat].Hand))
 	}
 
 	// Playing phase — landlord leads
-	landlordHand := gs.Players[1].Hand
+	landlordHand := gs.Players[secondSeat].Hand
 	if len(landlordHand) > 0 {
 		firstCard := []int{landlordHand[0].ID}
 		var err error
-		state, err = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "play", Cards: firstCard})
+		state, err = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[secondSeat].ID, Action: "play", Cards: firstCard})
 		if err != nil {
 			t.Fatalf("landlord play error: %v", err)
 		}
 		gs = state.(*GameState)
-		if len(gs.Players[1].Hand) != 19 {
-			t.Errorf("landlord hand after play = %d cards, want 19", len(gs.Players[1].Hand))
+		if len(gs.Players[secondSeat].Hand) != 19 {
+			t.Errorf("landlord hand after play = %d cards, want 19", len(gs.Players[secondSeat].Hand))
 		}
 	}
 }
@@ -123,13 +128,43 @@ func TestEngine_FullGameFlow_AllPass(t *testing.T) {
 	}
 	state, _ := e.Init(players)
 
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_pass"})
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
-
 	gs := state.(*GameState)
-	if gs.Phase != PhaseEnded {
-		t.Errorf("after all pass, phase = %d, want %d (PhaseEnded)", gs.Phase, PhaseEnded)
+	oldHand0 := make([]Card, len(gs.Players[0].Hand))
+	copy(oldHand0, gs.Players[0].Hand)
+
+	// Send pass for each seat in current turn order
+	for i := 0; i < 3; i++ {
+		seat := gs.CurrentSeat
+		pid := players[seat].ID
+		state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: pid, Action: "bid_pass"})
+		gs = state.(*GameState)
+	}
+
+	// After all pass, should re-deal and restart PhaseCalling
+	if gs.Phase != PhaseCalling {
+		t.Errorf("after all pass re-deal, phase = %d, want %d (PhaseCalling)", gs.Phase, PhaseCalling)
+	}
+	if gs.RoundNum != 2 {
+		t.Errorf("after re-deal, round = %d, want 2", gs.RoundNum)
+	}
+	if gs.LandlordSeat != -1 {
+		t.Errorf("after re-deal, landlord seat = %d, want -1", gs.LandlordSeat)
+	}
+	if gs.Multiplier != 1 {
+		t.Errorf("after re-deal, multiplier = %d, want 1", gs.Multiplier)
+	}
+	// Verify hands were re-dealt (different cards)
+	sameCount := 0
+	for i := 0; i < len(oldHand0); i++ {
+		for j := 0; j < len(gs.Players[0].Hand); j++ {
+			if oldHand0[i].ID == gs.Players[0].Hand[j].ID {
+				sameCount++
+				break
+			}
+		}
+	}
+	if sameCount == 17 {
+		t.Error("hands should be different after re-deal")
 	}
 }
 
@@ -141,11 +176,13 @@ func TestEngine_ValidateAction_WrongPlayer(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
+	gs := state.(*GameState)
 
-	// Bob (seat 1) tries to bid, but it's Alice's turn (seat 0)
-	valid := e.ValidateAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
+	// Send from a seat that is NOT the current seat
+	wrongSeat := (gs.CurrentSeat + 1) % 3
+	valid := e.ValidateAction(state, game.PlayerAction{PlayerID: players[wrongSeat].ID, Action: "bid_call"})
 	if valid {
-		t.Error("expected invalid: not Bob's turn")
+		t.Error("expected invalid: not their turn")
 	}
 }
 
@@ -157,12 +194,14 @@ func TestEngine_ValidateAction_ValidBid(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
+	gs := state.(*GameState)
 
-	if !e.ValidateAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_call"}) {
-		t.Error("expected valid: Alice can bid call")
+	cur := gs.CurrentSeat
+	if !e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_call"}) {
+		t.Error("expected valid: current player can bid call")
 	}
-	if !e.ValidateAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"}) {
-		t.Error("expected valid: Alice can bid pass")
+	if !e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_pass"}) {
+		t.Error("expected valid: current player can bid pass")
 	}
 }
 
@@ -309,10 +348,12 @@ func TestEngine_ExecuteAction_WrongPlayer(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
+	gs := state.(*GameState)
 
-	_, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
+	wrongSeat := (gs.CurrentSeat + 1) % 3
+	_, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: players[wrongSeat].ID, Action: "bid_call"})
 	if err == nil {
-		t.Error("expected error: not Bob's turn")
+		t.Error("expected error: not their turn")
 	}
 }
 
@@ -324,8 +365,9 @@ func TestEngine_ExecuteAction_InvalidBid(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
+	gs := state.(*GameState)
 
-	_, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_invalid"})
+	_, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: players[gs.CurrentSeat].ID, Action: "bid_invalid"})
 	if err == nil {
 		t.Error("expected error: invalid bid action")
 	}
@@ -356,50 +398,52 @@ func TestEngine_Bidding_SnatchLandlord(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
-
-	// Alice calls 叫地主 → nominee = 0
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_call"})
 	gs := state.(*GameState)
+
+	// First player (random) calls 叫地主
+	first := gs.CurrentSeat
+	second := (first + 1) % 3
+	third := (first + 2) % 3
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[first].ID, Action: "bid_call"})
+	gs = state.(*GameState)
 	if gs.Phase != PhaseSnatching {
 		t.Errorf("after call, phase = %d, want PhaseSnatching", gs.Phase)
 	}
-	if gs.LandlordSeat != 0 {
-		t.Errorf("after Alice call, landlord seat = %d, want 0", gs.LandlordSeat)
-	}
 
-	// Bob snatches 抢地主 → nominee = 1, multiplier ×2
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
+	// Second player snatches 抢地主 → multiplier ×2
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[second].ID, Action: "bid_call"})
 	gs = state.(*GameState)
-	if gs.LandlordSeat != 1 {
-		t.Errorf("after Bob snatch, landlord seat = %d, want 1", gs.LandlordSeat)
+	if gs.LandlordSeat != second {
+		t.Errorf("after snatch, landlord seat = %d, want %d", gs.LandlordSeat, second)
 	}
 	if gs.Multiplier != 2 {
 		t.Errorf("after 1 snatch, multiplier = %d, want 2", gs.Multiplier)
 	}
 
-	// Charlie 不抢
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
+	// Third player 不抢
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[third].ID, Action: "bid_pass"})
 
-	// Alice 不抢 (final snatch turn)
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
+	// First player 不抢 (final snatch turn)
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[first].ID, Action: "bid_pass"})
 
 	gs = state.(*GameState)
 	if gs.Phase != PhasePlaying {
 		t.Errorf("after snatching, phase = %d, want PhasePlaying", gs.Phase)
 	}
-	if gs.LandlordSeat != 1 {
-		t.Errorf("final landlord seat = %d, want 1", gs.LandlordSeat)
+	if gs.LandlordSeat != second {
+		t.Errorf("final landlord seat = %d, want %d", gs.LandlordSeat, second)
 	}
 	if gs.Multiplier != 2 {
 		t.Errorf("final multiplier = %d, want 2", gs.Multiplier)
 	}
-	if !gs.Players[1].IsLandlord {
-		t.Error("expected Bob to be landlord")
+	if !gs.Players[second].IsLandlord {
+		t.Error("expected second player to be landlord")
 	}
-	if len(gs.Players[1].Hand) != 20 {
-		t.Errorf("Bob hand = %d cards, want 20", len(gs.Players[1].Hand))
+	if len(gs.Players[second].Hand) != 20 {
+		t.Errorf("landlord hand = %d cards, want 20", len(gs.Players[second].Hand))
 	}
 }
+
 
 func TestEngine_Bidding_PassRestriction(t *testing.T) {
 	e := &Engine{}
@@ -409,32 +453,29 @@ func TestEngine_Bidding_PassRestriction(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
-
-	// Alice 不叫 → HasPassed[0] = true
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_pass"})
-	// Bob 叫地主 → nominee = 1, enter snatching
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_call"})
-
 	gs := state.(*GameState)
-	if gs.LandlordSeat != 1 {
-		t.Errorf("landlord seat = %d, want 1", gs.LandlordSeat)
-	}
-	if !gs.HasPassed[0] {
-		t.Error("Alice should be marked as HasPassed")
-	}
 
-	// Charlie 不抢
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "bid_pass"})
-	// Alice auto-skipped → seat moves to Bob
-	// Bob 不抢 → finalize
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "bid_pass"})
+	first := gs.CurrentSeat
+	second := (first + 1) % 3
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[first].ID, Action: "bid_pass"})
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[second].ID, Action: "bid_call"})
 
 	gs = state.(*GameState)
+	if !gs.HasPassed[first] {
+		t.Error("first player should be marked as HasPassed")
+	}
+
+	for gs.SnatchCount < 3 {
+		seat := gs.CurrentSeat
+		state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[seat].ID, Action: "bid_pass"})
+		gs = state.(*GameState)
+	}
+
 	if gs.Phase != PhasePlaying {
 		t.Errorf("phase = %d, want PhasePlaying", gs.Phase)
 	}
-	if gs.LandlordSeat != 1 {
-		t.Errorf("final landlord = %d, want 1", gs.LandlordSeat)
+	if gs.LandlordSeat != second {
+		t.Errorf("final landlord = %d, want %d", gs.LandlordSeat, second)
 	}
 	if gs.Multiplier != 1 {
 		t.Errorf("multiplier = %d, want 1 (no snatches)", gs.Multiplier)
@@ -449,19 +490,21 @@ func TestEngine_Bidding_FirstCallWinsImmediately(t *testing.T) {
 		{ID: 3, Name: "Charlie", Seat: 2},
 	}
 	state, _ := e.Init(players)
-
-	// Alice calls immediately → bidding ends, enter snatching
-	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "bid_call"})
-
 	gs := state.(*GameState)
+
+	first := gs.CurrentSeat
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[first].ID, Action: "bid_call"})
+
+	gs = state.(*GameState)
 	if gs.Phase != PhaseSnatching {
 		t.Errorf("after immediate call, phase = %d, want PhaseSnatching", gs.Phase)
 	}
-	if gs.LandlordSeat != 0 {
-		t.Errorf("landlord seat = %d, want 0", gs.LandlordSeat)
+	if gs.LandlordSeat != first {
+		t.Errorf("landlord seat = %d, want %d", gs.LandlordSeat, first)
 	}
-	// Bob and Charlie never got a turn in 叫地主 — they should NOT be in HasPassed
-	if gs.HasPassed[1] || gs.HasPassed[2] {
-		t.Error("players who didn't bid should not be in HasPassed")
+	for i := 0; i < 3; i++ {
+		if i != first && gs.HasPassed[i] {
+			t.Errorf("seat %d should not be in HasPassed (never bid)", i)
+		}
 	}
 }

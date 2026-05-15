@@ -2,6 +2,7 @@ package doudizhu
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"github.com/yongkl/vibe-pokeface/internal/game"
@@ -46,7 +47,7 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 	state := &GameState{
 		Phase:         PhaseCalling,
 		Players:       playerHands,
-		CurrentSeat:   0,
+		CurrentSeat:   rand.Intn(3),
 		LandlordCards: remaining,
 		LandlordSeat:  -1,
 		RoundNum:      1,
@@ -201,6 +202,44 @@ func (e *Engine) SerializeForAI(state game.GameState) string {
 	return sb.String()
 }
 
+// reDeal shuffles a new deck, re-deals to all players, and resets the
+// bidding state (PhaseCalling, random first bidder, cleared history).
+func (e *Engine) reDeal(state *GameState) {
+	deck := NewDeck()
+	Shuffle(deck)
+	h1, h2, h3, remaining := Deal(deck)
+
+	SortCards(h1)
+	SortCards(h2)
+	SortCards(h3)
+
+	for i := range state.Players {
+		var hand []Card
+		switch i {
+		case 0:
+			hand = h1
+		case 1:
+			hand = h2
+		case 2:
+			hand = h3
+		}
+		state.Players[i].Hand = hand
+		state.Players[i].IsLandlord = false
+	}
+
+	state.LandlordCards = remaining
+	state.LandlordSeat = -1
+	state.Phase = PhaseCalling
+	state.CurrentSeat = rand.Intn(3)
+	state.BidHistory = nil
+	state.HasPassed = make(map[int]bool)
+	state.Multiplier = 1
+	state.SnatchCount = 0
+	state.LastPlay = nil
+	state.ConsecutivePasses = 0
+	state.RoundNum++
+}
+
 // handleCallBid processes the 叫地主 phase.
 // First player to bid_call becomes landlord nominee; bidding immediately
 // transitions to PhaseSnatching. Players who passed before the caller are
@@ -218,9 +257,9 @@ func (e *Engine) handleCallBid(state *GameState, seat int, action game.PlayerAct
 
 	if action.Action == "bid_pass" {
 		state.HasPassed[seat] = true
-		// All 3 passed — end round
+		// All 3 passed — re-deal and restart
 		if len(state.BidHistory) >= 3 {
-			state.Phase = PhaseEnded
+			e.reDeal(state)
 			return state, nil
 		}
 		state.CurrentSeat = (seat + 1) % 3
