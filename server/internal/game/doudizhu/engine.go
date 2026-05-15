@@ -401,6 +401,9 @@ func (e *Engine) handleDoubleBid(state *GameState, seat int, action game.PlayerA
 // handlePlay processes a card play action during the playing phase.
 func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action == "pass" {
+		if state.LastPlay == nil {
+			return nil, fmt.Errorf("cannot pass: no active play, you must lead")
+		}
 		state.ConsecutivePasses++
 		if state.ConsecutivePasses >= 2 {
 			state.LastPlay = nil

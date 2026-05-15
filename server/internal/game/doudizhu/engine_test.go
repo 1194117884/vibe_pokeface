@@ -685,3 +685,56 @@ func TestEngine_Double_WithDouble(t *testing.T) {
 		t.Errorf("after double, phase = %d, want PhasePlaying", gs.Phase)
 	}
 }
+
+func TestEngine_PassNotAllowedWhenLeading(t *testing.T) {
+	e := &Engine{}
+	players := []game.PlayerInfo{
+		{ID: 1, Name: "Alice", Seat: 0},
+		{ID: 2, Name: "Bob", Seat: 1},
+		{ID: 3, Name: "Charlie", Seat: 2},
+	}
+	state, _ := e.Init(players)
+	gs := state.(*GameState)
+
+	// Go through bidding → snatch → reveal → double to reach playing
+	first := gs.CurrentSeat
+	state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[first].ID, Action: "bid_call"})
+	for gs.SnatchCount < 3 {
+		state, _ = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[gs.CurrentSeat].ID, Action: "bid_pass"})
+		gs = state.(*GameState)
+	}
+	state = passRevealAndDouble(t, e, players, state)
+	gs = state.(*GameState)
+
+	if gs.Phase != PhasePlaying {
+		t.Fatalf("expected PhasePlaying, got %d", gs.Phase)
+	}
+
+	landlordSeat := gs.CurrentSeat
+	// Landlord plays a card
+	landlordHand := gs.Players[landlordSeat].Hand
+	state, err := e.ExecuteAction(state, game.PlayerAction{PlayerID: players[landlordSeat].ID, Action: "play", Cards: []int{landlordHand[0].ID}})
+	if err != nil {
+		t.Fatalf("landlord play error: %v", err)
+	}
+	gs = state.(*GameState)
+
+	// Two opponents pass
+	for i := 0; i < 2; i++ {
+		seat := gs.CurrentSeat
+		state, err = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[seat].ID, Action: "pass"})
+		if err != nil {
+			t.Fatalf("opponent pass error: %v", err)
+		}
+		gs = state.(*GameState)
+	}
+
+	// Now landlord leads again — passing should be rejected
+	if gs.CurrentSeat != landlordSeat {
+		t.Fatalf("expected landlord's turn after 2 passes")
+	}
+	_, err = e.ExecuteAction(state, game.PlayerAction{PlayerID: players[landlordSeat].ID, Action: "pass"})
+	if err == nil {
+		t.Error("expected error: cannot pass when leading")
+	}
+}
