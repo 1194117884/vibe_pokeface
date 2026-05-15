@@ -53,6 +53,8 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 		RoundNum:      1,
 		Multiplier:    1,
 		HasPassed:     make(map[int]bool),
+		Revealed:      make(map[int]bool),
+		Doubled:       make(map[int]bool),
 	}
 	return state, nil
 }
@@ -79,6 +81,10 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 		return e.handleCallBid(gs, seat, action)
 	case PhaseSnatching:
 		return e.handleSnatchBid(gs, seat, action)
+	case PhaseRevealing:
+		return e.handleRevealBid(gs, seat, action)
+	case PhaseDoubling:
+		return e.handleDoubleBid(gs, seat, action)
 	case PhasePlaying:
 		return e.handlePlay(gs, seat, action)
 	default:
@@ -104,6 +110,12 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 	}
 	if gs.Phase == PhaseCalling || gs.Phase == PhaseSnatching {
 		return action.Action == "bid_call" || action.Action == "bid_pass"
+	}
+	if gs.Phase == PhaseRevealing {
+		return action.Action == "reveal_all" || action.Action == "pass"
+	}
+	if gs.Phase == PhaseDoubling {
+		return action.Action == "double" || action.Action == "no_double"
 	}
 	if gs.Phase == PhasePlaying {
 		if action.Action == "pass" {
@@ -173,9 +185,13 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 				base = 1
 			}
 		}
+		score := base * mult
+		if gs.Doubled[p.Seat] {
+			score *= 2
+		}
 		scores[i] = game.PlayerScore{
 			PlayerID: p.UserID,
-			Score:    base * mult,
+			Score:    score,
 		}
 	}
 	return scores, nil
@@ -235,6 +251,10 @@ func (e *Engine) reDeal(state *GameState) {
 	state.HasPassed = make(map[int]bool)
 	state.Multiplier = 1
 	state.SnatchCount = 0
+	state.Revealed = make(map[int]bool)
+	state.Doubled = make(map[int]bool)
+	state.RevealCount = 0
+	state.DoubleCount = 0
 	state.LastPlay = nil
 	state.ConsecutivePasses = 0
 	state.RoundNum++
@@ -312,7 +332,8 @@ func (e *Engine) handleSnatchBid(state *GameState, seat int, action game.PlayerA
 			state.Players[state.LandlordSeat].Hand = append(
 				state.Players[state.LandlordSeat].Hand, state.LandlordCards...)
 			SortCards(state.Players[state.LandlordSeat].Hand)
-			state.Phase = PhasePlaying
+			state.Phase = PhaseRevealing
+			state.RevealCount = 0
 			state.CurrentSeat = state.LandlordSeat
 		} else {
 			state.Phase = PhaseEnded
@@ -326,6 +347,54 @@ func (e *Engine) handleSnatchBid(state *GameState, seat int, action game.PlayerA
 		state.SnatchCount++
 		state.CurrentSeat = (state.CurrentSeat + 1) % 3
 	}
+	return state, nil
+}
+
+// handleRevealBid processes the 明牌 phase.
+// Each player can reveal_all (multiplier ×2) or pass. After all 3
+// decide, proceed to PhaseDoubling.
+func (e *Engine) handleRevealBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
+	if action.Action != "reveal_all" && action.Action != "pass" {
+		return nil, fmt.Errorf("invalid reveal action: %s", action.Action)
+	}
+
+	if action.Action == "reveal_all" {
+		state.Revealed[seat] = true
+		state.Multiplier *= 2
+	}
+	state.RevealCount++
+
+	if state.RevealCount >= 3 {
+		state.Phase = PhaseDoubling
+		state.DoubleCount = 0
+		state.CurrentSeat = state.LandlordSeat
+		return state, nil
+	}
+
+	state.CurrentSeat = (seat + 1) % 3
+	return state, nil
+}
+
+// handleDoubleBid processes the 加倍 phase.
+// Each player can double or no_double. Choice is recorded in Doubled
+// and affects scoring in CalculateScore. After all 3, proceed to PhasePlaying.
+func (e *Engine) handleDoubleBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
+	if action.Action != "double" && action.Action != "no_double" {
+		return nil, fmt.Errorf("invalid double action: %s", action.Action)
+	}
+
+	if action.Action == "double" {
+		state.Doubled[seat] = true
+	}
+	state.DoubleCount++
+
+	if state.DoubleCount >= 3 {
+		state.Phase = PhasePlaying
+		state.CurrentSeat = state.LandlordSeat
+		return state, nil
+	}
+
+	state.CurrentSeat = (seat + 1) % 3
 	return state, nil
 }
 

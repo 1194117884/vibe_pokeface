@@ -139,7 +139,7 @@ export default function RoomPage() {
     mySeatRef.current = seat;
     setMySeat(seat);
   };
-  const [phase, setPhase] = useState<"waiting" | "calling" | "snatching" | "playing" | "ended">("waiting");
+  const [phase, setPhase] = useState<"waiting" | "calling" | "snatching" | "revealing" | "doubling" | "playing" | "ended">("waiting");
   const [roomTheme, setRoomTheme] = useState("classic-poker");
   const [connected, setConnected] = useState(false);
   const [currentSeat, setCurrentSeat] = useState<number | undefined>(undefined);
@@ -212,7 +212,7 @@ export default function RoomPage() {
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.phase !== undefined) {
         const p = data.phase;
-        setPhase(p === 3 ? "ended" : p === 2 ? "playing" : p === 1 ? "snatching" : "calling");
+        setPhase(p === 5 ? "ended" : p === 4 ? "playing" : p === 3 ? "doubling" : p === 2 ? "revealing" : p === 1 ? "snatching" : "calling");
       }
       // Extract landlord cards (revealed after bidding ends)
       if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
@@ -377,6 +377,22 @@ export default function RoomPage() {
     wsClientRef.current?.sendAction("bid_pass");
   };
 
+  const handleReveal = () => {
+    wsClientRef.current?.sendAction("reveal_all");
+  };
+
+  const handleRevealPass = () => {
+    wsClientRef.current?.sendAction("pass");
+  };
+
+  const handleDouble = () => {
+    wsClientRef.current?.sendAction("double");
+  };
+
+  const handleNoDouble = () => {
+    wsClientRef.current?.sendAction("no_double");
+  };
+
   const handleSendChat = (content: string, type: "text" | "emoji") => {
     wsClientRef.current?.sendChat(content, type);
   };
@@ -513,17 +529,31 @@ export default function RoomPage() {
                       }
                       disabled={!isMyTurn}
                     />
-                    {(phase === "calling" || phase === "snatching") && (
+                    {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
                       <ActionBar
                         phase={phase}
                         isMyTurn={isMyTurn}
                         onBidCall={handleBidCall}
                         onBidPass={handleBidPass}
+                        onReveal={handleReveal}
+                        onRevealPass={handleRevealPass}
+                        onDouble={handleDouble}
+                        onNoDouble={handleNoDouble}
                       />
                     )}
                     {(phase === "calling" || phase === "snatching") && !isMyTurn && (
                       <p className="text-center text-sm text-text-black-soft animate-pulse">
                         {phase === "calling" ? "等待其他玩家叫地主..." : "等待其他玩家抢地主..."}
+                      </p>
+                    )}
+                    {phase === "revealing" && !isMyTurn && (
+                      <p className="text-center text-sm text-text-black-soft animate-pulse">
+                        等待其他玩家明牌...
+                      </p>
+                    )}
+                    {phase === "doubling" && !isMyTurn && (
+                      <p className="text-center text-sm text-text-black-soft animate-pulse">
+                        等待其他玩家加倍...
                       </p>
                     )}
                   </div>

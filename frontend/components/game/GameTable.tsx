@@ -18,7 +18,7 @@ interface GameTableProps {
   players: PlayerData[];
   currentSeat?: number;
   mySeat?: number;
-  phase: "calling" | "snatching" | "playing" | "ended";
+  phase: "calling" | "snatching" | "revealing" | "doubling" | "playing" | "ended";
   plays?: Array<{ seat: number; cards: number[] }>;
   landlordCards?: number[];
   onPlayCards?: (cardIds: number[]) => void;

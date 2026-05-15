@@ -6,8 +6,10 @@ import "encoding/json"
 type GamePhase int
 
 const (
-	PhaseCalling   GamePhase = iota // 叫地主 — first call wins immediately
-	PhaseSnatching                   // 抢地主 — each eligible player gets one snatch chance
+	PhaseCalling   GamePhase = iota // 叫地主
+	PhaseSnatching                   // 抢地主
+	PhaseRevealing                   // 明牌
+	PhaseDoubling                    // 加倍
 	PhasePlaying                     // 出牌
 	PhaseEnded                       // 结束
 )
@@ -40,9 +42,13 @@ type GameState struct {
 	WinnerSeat        *int         `json:"winner_seat,omitempty"`
 	BidHistory        []BidRecord  `json:"bid_history"`
 	RoundNum          int          `json:"round_num"`
-	Multiplier        int          `json:"multiplier"`  // game multiplier (×2 per snatch)
-	HasPassed         map[int]bool `json:"has_passed"`  // seats that passed during 叫地主
-	SnatchCount       int          `json:"snatch_count"` // number of snatch decisions made
+	Multiplier        int          `json:"multiplier"`
+	HasPassed         map[int]bool `json:"has_passed"`
+	SnatchCount       int          `json:"snatch_count"`
+	Revealed          map[int]bool `json:"revealed"`   // players who chose 明牌
+	Doubled           map[int]bool `json:"doubled"`    // players who chose 加倍
+	RevealCount       int          `json:"reveal_count"` // reveal decisions made
+	DoubleCount       int          `json:"double_count"` // double decisions made
 }
 
 // BidRecord records a single bid action during the bidding phase.
