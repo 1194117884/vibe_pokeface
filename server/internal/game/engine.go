@@ -31,4 +31,5 @@ type GameEngine interface {
 	IsRoundEnd(state GameState) bool
 	CalculateScore(state GameState) ([]PlayerScore, error)
 	SerializeForAI(state GameState) string
+	FilterForPlayer(state GameState, seat int) GameState
 }

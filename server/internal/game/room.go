@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -678,8 +679,15 @@ func (r *GameRoom) StartGame(ownerID string) error {
 
 // startGame initializes the game engine and broadcasts the initial game state.
 func (r *GameRoom) startGame() {
+	// Sort players by seat so array indices match seat numbers.
+	// Players may have joined in non-seat order (random seat assignment),
+	// and the game engine relies on array index == seat for turn tracking.
+	sort.Slice(r.Players, func(i, j int) bool {
+		return r.Players[i].Seat < r.Players[j].Seat
+	})
 	players := make([]PlayerInfo, len(r.Players))
 	for i, p := range r.Players {
+		p.Seat = i
 		p.PlayerID = int64(i)
 		players[i] = PlayerInfo{
 			ID:   p.PlayerID,
@@ -699,7 +707,7 @@ func (r *GameRoom) startGame() {
 		p.Ready = false
 	}
 
-	r.broadcastMsg("game_start", r.State)
+	r.sendStateToAll("game_start")
 
 	// Trigger AI agent if the first player to act is a bot
 	r.triggerAIAgent()
@@ -781,7 +789,7 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 			delete(r.agents, id)
 		}
 	} else {
-		r.broadcastMsg("state_update", newState)
+		r.sendStateToAll("state_update")
 
 		// Trigger AI agent if next player is a bot
 		r.triggerAIAgent()
@@ -896,6 +904,31 @@ func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string
 		"content": content,
 		"type":    msgType,
 	})
+}
+
+// sendStateToAll sends the current game state to each player with their
+// own hand visible. Other players' hands are hidden unless 明牌 revealed.
+func (r *GameRoom) sendStateToAll(msgType string) {
+	if r.State == nil || r.Engine == nil {
+		return
+	}
+	for _, p := range r.Players {
+		if !p.Connected || p.IsBot {
+			continue
+		}
+		filtered := r.Engine.FilterForPlayer(r.State, p.Seat)
+		msg, err := json.Marshal(map[string]interface{}{
+			"type": msgType,
+			"data": filtered,
+		})
+		if err != nil {
+			continue
+		}
+		select {
+		case p.Conn <- msg:
+		default:
+		}
+	}
 }
 
 // broadcastMsg sends a JSON message with the given type and data to all players.

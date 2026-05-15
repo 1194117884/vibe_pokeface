@@ -36,6 +36,10 @@ func (m *mockEngine) SerializeForAI(state GameState) string {
 	return ""
 }
 
+func (m *mockEngine) FilterForPlayer(state GameState, seat int) GameState {
+	return state
+}
+
 func TestNewGameRoom(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 	if room.ID != "room-1" {

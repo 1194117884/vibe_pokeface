@@ -436,7 +436,6 @@ func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction
 		Cards: cards,
 	}
 	state.LastPlay = record
-	state.LastPlaySeat = seat
 	state.ConsecutivePasses = 0
 
 	if len(newHand) == 0 {
@@ -464,6 +463,25 @@ func removeCardsFromHand(hand, cards []Card) []Card {
 		}
 	}
 	return result
+}
+
+// FilterForPlayer returns a copy of the game state with hand cards hidden
+// for other players, unless a player has chosen 明牌 (Revealed).
+func (e *Engine) FilterForPlayer(state game.GameState, seat int) game.GameState {
+	gs, ok := state.(*GameState)
+	if !ok {
+		return state
+	}
+	// Shallow copy the struct, then deep copy the Players slice
+	clone := *gs
+	clone.Players = make([]PlayerHand, len(gs.Players))
+	for i, p := range gs.Players {
+		clone.Players[i] = p
+		if p.Seat != seat && !gs.Revealed[p.Seat] {
+			clone.Players[i].Hand = nil
+		}
+	}
+	return &clone
 }
 
 // cardsInHand checks whether all specified cards exist in the hand, matching by ID.
