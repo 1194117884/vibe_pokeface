@@ -38,7 +38,7 @@ type GameRoom struct {
 	Status   string
 	Theme    string
 	Closed   bool
-	store    *model.GameStore
+	store    RoomStore
 	mu       sync.Mutex
 	notify   chan []byte
 	agents   map[string]*ai.AIAgent
@@ -50,12 +50,12 @@ type GameRoom struct {
 type RoomManager struct {
 	rooms map[string]*GameRoom
 	mu    sync.RWMutex
-	store *model.GameStore
+	store RoomStore
 }
 
 // NewGameRoom creates a new game room with the given engine and store.
 // The engine must be provided by the caller based on the game type.
-func NewGameRoom(id string, gameType string, engine GameEngine, store *model.GameStore) *GameRoom {
+func NewGameRoom(id string, gameType string, engine GameEngine, store RoomStore) *GameRoom {
 	now := time.Now()
 	return &GameRoom{
 		ID:           id,
@@ -73,7 +73,7 @@ func NewGameRoom(id string, gameType string, engine GameEngine, store *model.Gam
 }
 
 // NewRoomManager creates a new RoomManager.
-func NewRoomManager(store *model.GameStore) *RoomManager {
+func NewRoomManager(store RoomStore) *RoomManager {
 	return &RoomManager{
 		rooms: make(map[string]*GameRoom),
 		store: store,
@@ -138,18 +138,35 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 		room.RemoveDisconnectedPlayers(disconnectTimeout)
 		// Close empty room past idle timeout
 		if len(room.Players) == 0 && now.Sub(room.lastActiveAt) > roomIdleTimeout {
-			closeRoom(room)
+			room.closeRoom()
 			delete(rm.rooms, id)
 		}
 	}
 }
 
-// closeRoom marks a room as closed (no more joins allowed).
-func closeRoom(r *GameRoom) {
+// closeRoom marks the room as closed, stops AI agents, broadcasts to players,
+// persists the closed state to the DB.
+func (r *GameRoom) closeRoom() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.Closed = true
+
+	// Stop all AI agents
+	for id, agent := range r.agents {
+		agent.Stop()
+		delete(r.agents, id)
+	}
+
+	// Broadcast room_closed to all connected players
 	r.broadcastMsg("room_closed", map[string]interface{}{})
+
+	// Persist to DB: ensure a row exists, then close it
+	if r.store != nil {
+		ctx := context.Background()
+		r.store.EnsureRoom(ctx, r.ID, r.GameType)
+		r.store.CloseRoom(ctx, r.ID)
+	}
 }
 
 // RemoveRoom removes a room from the manager.

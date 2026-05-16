@@ -1,7 +1,9 @@
 package game
 
 import (
+	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 )
@@ -517,6 +519,86 @@ func TestRoomAllBots(t *testing.T) {
 	if len(room.Players) != 3 {
 		t.Errorf("Players = %d, want 3 (2 bots + 1 human)", len(room.Players))
 	}
+}
+
+// mockRoomStore implements RoomStore for testing lifecycle logic.
+type mockRoomStore struct {
+	mu         sync.Mutex
+	closedIDs  []string
+	ensuredIDs []string
+}
+
+func (m *mockRoomStore) CloseRoom(ctx context.Context, roomID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closedIDs = append(m.closedIDs, roomID)
+	return nil
+}
+
+func (m *mockRoomStore) EnsureRoom(ctx context.Context, roomID, gameType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensuredIDs = append(m.ensuredIDs, roomID)
+	return nil
+}
+
+func (m *mockRoomStore) closedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.closedIDs)
+}
+
+func TestCloseRoom_FullCleanup(t *testing.T) {
+	store := &mockRoomStore{}
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, store)
+
+	// Add 2 bots + 1 human
+	conn1 := make(chan []byte, 20)
+	conn2 := make(chan []byte, 20)
+	conn3 := make(chan []byte, 20)
+	room.AddPlayer("ai:bot:1", "", "", conn1)
+	room.AddPlayer("ai:bot:2", "", "", conn2)
+	room.AddPlayer("user-1", "", "", conn3)
+
+	// Mark bots
+	room.mu.Lock()
+	for _, p := range room.Players {
+		if p.UserID == "ai:bot:1" || p.UserID == "ai:bot:2" {
+			p.IsBot = true
+		}
+	}
+	room.mu.Unlock()
+
+	// Drain join broadcasts (3 adds = 3 broadcasts per conn for the first player, 2 for second, etc.)
+	drainN(t, conn1, 3, "player_joined")
+	drainN(t, conn2, 2, "player_joined")
+	drainN(t, conn3, 1, "player_joined")
+
+	// Call closeRoom directly
+	room.closeRoom()
+
+	// Assert Closed flag
+	if !room.Closed {
+		t.Error("room.Closed = false, want true")
+	}
+
+	// Assert DB was called
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+	if store.closedIDs[0] != "room-1" {
+		t.Errorf("closed room ID = %s, want room-1", store.closedIDs[0])
+	}
+
+	// Assert EnsureRoom was called
+	if len(store.ensuredIDs) != 1 {
+		t.Errorf("EnsureRoom called %d times, want 1", len(store.ensuredIDs))
+	}
+
+	// Assert room_closed broadcast was sent to connected players
+	drainN(t, conn1, 1, "room_closed")
+	drainN(t, conn2, 1, "room_closed")
+	drainN(t, conn3, 1, "room_closed")
 }
 
 // drainN reads n messages from conn and verifies each has the expected type.
