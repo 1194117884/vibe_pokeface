@@ -601,6 +601,141 @@ func TestCloseRoom_FullCleanup(t *testing.T) {
 	drainN(t, conn3, 1, "room_closed")
 }
 
+func TestCleanup_TriggerB_AllHumansLeave(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// 1 human + 2 bots
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	room.mu.Lock()
+	room.Players = append(room.Players,
+		&PlayerSession{UserID: "ai:bot:1", Seat: 1, IsBot: true, Connected: true},
+		&PlayerSession{UserID: "ai:bot:2", Seat: 2, IsBot: true, Connected: true},
+	)
+	room.mu.Unlock()
+
+	// Remove the human — now 0 humans
+	room.RemovePlayer("user-1")
+
+	// Run cleanup — should close the room
+	rm.cleanup(0, 0)
+
+	// Room should be removed from manager
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed from manager after all humans leave")
+	}
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+}
+
+func TestCleanup_TriggerC_IdleEmpty(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Room has 0 players, set lastActiveAt to 6 minutes ago
+	room.mu.Lock()
+	room.lastActiveAt = time.Now().Add(-6 * time.Minute)
+	room.mu.Unlock()
+
+	// Run cleanup with 5min idle timeout
+	rm.cleanup(0, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed from manager when idle-empty")
+	}
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+}
+
+func TestCleanup_TriggerE_AllDisconnected(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// All players disconnected for > 2 minutes
+	room.mu.Lock()
+	discAt := time.Now().Add(-3 * time.Minute)
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, IsBot: false, Connected: false, DisconnectedAt: &discAt},
+		{UserID: "user-2", Seat: 1, IsBot: false, Connected: false, DisconnectedAt: &discAt},
+		{UserID: "ai:bot:1", Seat: 2, IsBot: true, Connected: false, DisconnectedAt: &discAt},
+	}
+	room.mu.Unlock()
+
+	rm.cleanup(2*time.Minute, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed when all players disconnected > timeout")
+	}
+}
+
+func TestCleanup_TriggerF_OnlyBotsInPlaying(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Room in "playing" with only bots
+	room.mu.Lock()
+	room.Status = "playing"
+	room.Players = []*PlayerSession{
+		{UserID: "ai:bot:1", Seat: 0, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 1, IsBot: true, Connected: true},
+		{UserID: "ai:bot:3", Seat: 2, IsBot: true, Connected: true},
+	}
+	room.lastActiveAt = time.Now().Add(-6 * time.Minute)
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed when only bots in playing state")
+	}
+}
+
+func TestCleanup_NotClosed_HumanPresent(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// 1 human + 2 bots
+	room.mu.Lock()
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, IsBot: false, Connected: true},
+		{UserID: "ai:bot:1", Seat: 1, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 2, IsBot: true, Connected: true},
+	}
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	// Room should still exist
+	if got := rm.GetRoom("room-1"); got == nil {
+		t.Error("room-1 should NOT be closed — human is still present")
+	}
+}
+
+func TestCleanup_NotClosed_RecentlyActive(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Empty room but just recently active
+	room.mu.Lock()
+	room.lastActiveAt = time.Now() // just now
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	// Room should still exist — not idle long enough
+	if got := rm.GetRoom("room-1"); got == nil {
+		t.Error("room-1 should NOT be closed — recently active")
+	}
+}
+
 // drainN reads n messages from conn and verifies each has the expected type.
 func drainN(t *testing.T, conn chan []byte, n int, expectedType string) {
 	t.Helper()

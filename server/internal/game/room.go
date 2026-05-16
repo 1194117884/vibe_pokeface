@@ -125,6 +125,16 @@ func (rm *RoomManager) RunCleanup(ctx context.Context, interval time.Duration, d
 }
 
 // cleanup removes stale disconnected players and closes idle rooms.
+// It checks 4 close triggers:
+//
+//	Trigger B: All humans have left (bots-only remaining)
+//	Trigger C: Empty room idle past roomIdleTimeout
+//	Trigger E: All players disconnected past disconnectTimeout
+//	Trigger F: Only bots in "playing" state, idle past roomIdleTimeout
+//
+// The caller must hold rm.mu. This method also accesses room fields (Players,
+// lastActiveAt, Status) directly without acquiring room-level locks, which is
+// safe because the manager lock serializes access to the room's lifecycle.
 func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout time.Duration) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -134,10 +144,55 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 			delete(rm.rooms, id)
 			continue
 		}
-		// Remove disconnected players past the timeout
-		room.RemoveDisconnectedPlayers(disconnectTimeout)
-		// Close empty room past idle timeout
-		if len(room.Players) == 0 && now.Sub(room.lastActiveAt) > roomIdleTimeout {
+
+		origPlayers := len(room.Players)
+		origLastActive := room.lastActiveAt
+
+		shouldClose := false
+
+		// Trigger E: all players disconnected past the disconnect timeout.
+		// This is checked before RemoveDisconnectedPlayers so we detect the
+		// condition before players are removed from the slice.
+		if origPlayers > 0 {
+			allDisconnected := true
+			for _, p := range room.Players {
+				if p.Connected {
+					allDisconnected = false
+					break
+				}
+				if p.DisconnectedAt == nil || now.Sub(*p.DisconnectedAt) <= disconnectTimeout {
+					allDisconnected = false
+					break
+				}
+			}
+			if allDisconnected {
+				shouldClose = true
+			}
+		}
+
+		if !shouldClose {
+			// Remove disconnected players past the timeout
+			room.RemoveDisconnectedPlayers(disconnectTimeout)
+		}
+
+		// Trigger B: all humans left (bots-only remaining).
+		// Guard with len > 0 so empty rooms don't trigger B (C handles them).
+		if !shouldClose && room.humanCount() == 0 && len(room.Players) > 0 {
+			shouldClose = true
+		}
+
+		// Trigger C: empty room idle too long.
+		// Use origLastActive because RemoveDisconnectedPlayers resets lastActiveAt.
+		if !shouldClose && len(room.Players) == 0 && now.Sub(origLastActive) > roomIdleTimeout {
+			shouldClose = true
+		}
+
+		// Trigger F: only bots in "playing" state, idle too long
+		if !shouldClose && room.Status == "playing" && room.allBots() && now.Sub(origLastActive) > roomIdleTimeout {
+			shouldClose = true
+		}
+
+		if shouldClose {
 			room.closeRoom()
 			delete(rm.rooms, id)
 		}
