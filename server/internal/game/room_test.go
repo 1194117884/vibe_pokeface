@@ -579,7 +579,7 @@ func TestCloseRoom_FullCleanup(t *testing.T) {
 	drainN(t, conn3, 1, "player_joined")
 
 	// Call closeRoom directly
-	room.closeRoom()
+	room.CloseRoom()
 
 	// Assert Closed flag
 	if !room.Closed {

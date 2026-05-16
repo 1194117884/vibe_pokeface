@@ -191,7 +191,7 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 		}
 
 		if shouldClose {
-			room.closeRoom()
+			room.CloseRoom()
 			delete(rm.rooms, id)
 		}
 	}
@@ -204,9 +204,9 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 	}
 }
 
-// closeRoom marks the room as closed, stops AI agents, broadcasts to players,
+// CloseRoom marks the room as closed, stops AI agents, broadcasts to players,
 // persists the closed state to the DB.
-func (r *GameRoom) closeRoom() {
+func (r *GameRoom) CloseRoom() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -454,10 +454,12 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 }
 
 // RemovePlayer removes a player from the room and broadcasts the leave event.
-func (r *GameRoom) RemovePlayer(userID string) {
+// Returns true if the room should be closed (last human left, bots-only now).
+func (r *GameRoom) RemovePlayer(userID string) (shouldClose bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.removePlayer(userID)
+	return r.humanCount() == 0 && len(r.Players) > 0
 }
 
 // removePlayer removes a player from the room. The caller must hold r.mu.

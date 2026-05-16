@@ -134,7 +134,10 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	if client.RoomID != "" {
 		if oldRoom := h.RoomManager.GetRoom(client.RoomID); oldRoom != nil {
-			oldRoom.RemovePlayer(client.ID)
+			if oldRoom.RemovePlayer(client.ID) {
+				oldRoom.CloseRoom()
+				h.RoomManager.RemoveRoom(client.RoomID)
+			}
 		}
 		h.Unregister <- client
 	}
@@ -205,10 +208,14 @@ func (h *Hub) handleLeaveRoom(client *Client, msg C2SMessage) {
 	}
 
 	if room := h.RoomManager.GetRoom(client.RoomID); room != nil {
-		room.RemovePlayer(client.ID)
+		if room.RemovePlayer(client.ID) {
+			// Last human left — close the room immediately.
+			room.CloseRoom()
+			h.RoomManager.RemoveRoom(client.RoomID)
+		} else {
+			h.fillRoomBots(client.RoomID)
+		}
 	}
-
-	h.fillRoomBots(client.RoomID)
 
 	h.Unregister <- client
 	client.RoomID = ""
