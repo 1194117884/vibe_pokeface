@@ -115,7 +115,7 @@ func TestAgent_FallbackBid(t *testing.T) {
 	exec := &mockExecutor{}
 	agent := NewAIAgent("ai:bot:1", 0, nil, nil, exec)
 
-	agent.fallbackAction("bidding")
+	agent.fallbackAction("calling")
 
 	if exec.lastAction != "bid_pass" {
 		t.Errorf("expected bid_pass, got %s", exec.lastAction)

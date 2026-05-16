@@ -144,18 +144,26 @@ func (a *AIAgent) makeDecision() {
 
 func (a *AIAgent) detectPhase() string {
 	if a.stateJSON == "" {
-		return "bidding"
+		return "calling"
 	}
 	var state struct {
 		Phase int `json:"phase"`
 	}
 	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
-		return "bidding"
+		return "calling"
 	}
-	if state.Phase == 0 {
-		return "bidding"
+	switch state.Phase {
+	case 0:
+		return "calling"
+	case 1:
+		return "snatching"
+	case 2:
+		return "revealing"
+	case 3:
+		return "doubling"
+	default:
+		return "playing"
 	}
-	return "playing"
 }
 
 func (a *AIAgent) buildAgentPrompt(phase string) string {
@@ -177,11 +185,24 @@ func (a *AIAgent) buildAgentPrompt(phase string) string {
 	sb.WriteString(fmt.Sprintf("你是斗地主AI玩家「%s」。\n", name))
 	sb.WriteString(fmt.Sprintf("性格：%s。出牌风格：%s。\n\n", personality, playStyle))
 
-	if phase == "bidding" {
+	switch phase {
+	case "calling":
 		sb.WriteString("## 当前阶段：叫地主\n\n")
 		sb.WriteString("根据手牌强度决定是否叫地主。有炸弹、多张2、有大王时应该叫地主。\n")
 		sb.WriteString("手牌较弱时选择不叫。\n\n")
-	} else {
+	case "snatching":
+		sb.WriteString("## 当前阶段：抢地主\n\n")
+		sb.WriteString("有人已经叫地主了。根据手牌强度决定是否抢地主。\n")
+		sb.WriteString("抢地主会使倍数翻倍。手牌很强时抢，否则不抢。\n\n")
+	case "revealing":
+		sb.WriteString("## 当前阶段：明牌\n\n")
+		sb.WriteString("选择是否明牌。明牌会让所有人看到你的手牌，但倍数翻倍。\n")
+		sb.WriteString("手牌非常好（有炸弹、火箭）时可以考虑明牌，否则选择不显示。\n\n")
+	case "doubling":
+		sb.WriteString("## 当前阶段：加倍\n\n")
+		sb.WriteString("选择是否加倍。加倍会让你的得分翻倍（赢多输多）。\n")
+		sb.WriteString("手牌很好或你是地主时可以考虑加倍，否则选择不加倍。\n\n")
+	default:
 		sb.WriteString("## 当前阶段：出牌\n\n")
 		sb.WriteString("规则：单张、对子、三张、三带一、三带二、顺子(5张+)、连对(3对+)、飞机、炸弹、火箭。\n")
 		sb.WriteString("必须出比上家更大的牌，或选择过牌。牌型相同才能比较大小。\n")
@@ -189,10 +210,17 @@ func (a *AIAgent) buildAgentPrompt(phase string) string {
 	}
 
 	sb.WriteString("## 可用工具\n\n")
-	if phase == "bidding" {
-		sb.WriteString("- bid_landlord：叫地主\n")
-		sb.WriteString("- pass_bid：不叫\n\n")
-	} else {
+	switch phase {
+	case "calling", "snatching":
+		sb.WriteString("- bid_landlord：叫地主/抢地主\n")
+		sb.WriteString("- pass_bid：不叫/不抢\n\n")
+	case "revealing":
+		sb.WriteString("- reveal_cards：明牌（亮出手牌）\n")
+		sb.WriteString("- pass_reveal：不明牌\n\n")
+	case "doubling":
+		sb.WriteString("- choose_double：加倍\n")
+		sb.WriteString("- choose_no_double：不加倍\n\n")
+	default:
 		sb.WriteString("- play_cards：出牌，参数cards=要出的牌ID列表，cards=[]表示过牌\n")
 	}
 
@@ -213,38 +241,88 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 	// Show game state context
 	if a.stateJSON != "" {
 		var state struct {
-			Phase        int `json:"phase"`
-			CurrentSeat  int `json:"current_seat"`
-			LandlordSeat int `json:"landlord_seat"`
-			LastPlay     *struct {
+			Phase         int `json:"phase"`
+			CurrentSeat   int `json:"current_seat"`
+			LandlordSeat  int `json:"landlord_seat"`
+			Multiplier    int `json:"multiplier"`
+			LandlordCards []int `json:"landlord_cards"`
+			LastPlay      *struct {
 				Seat  int   `json:"seat"`
 				Cards []int `json:"cards"`
+				Play  *struct {
+					Type     int `json:"type"`
+					MainRank int `json:"main_rank"`
+					Length   int `json:"length"`
+				} `json:"play"`
 			} `json:"last_play"`
 			Players []struct {
 				Seat       int   `json:"seat"`
 				IsLandlord bool  `json:"is_landlord"`
 				Hand       []int `json:"hand"`
 			} `json:"players"`
+			BidHistory []struct {
+				Seat   int  `json:"seat"`
+				Called bool `json:"called"`
+			} `json:"bid_history"`
 		}
 		if json.Unmarshal([]byte(a.stateJSON), &state) == nil {
 			sb.WriteString(fmt.Sprintf("你的座位：%d\n", a.Seat))
 			sb.WriteString(fmt.Sprintf("当前轮到座位：%d\n", state.CurrentSeat))
+			sb.WriteString(fmt.Sprintf("当前倍率：%d\n", state.Multiplier))
 
+			// Landlord info and 底牌
 			if state.LandlordSeat >= 0 {
 				sb.WriteString(fmt.Sprintf("地主座位：%d\n", state.LandlordSeat))
 				if state.LandlordSeat == a.Seat {
 					sb.WriteString("你是地主！\n")
+					if len(state.LandlordCards) > 0 {
+						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCards(state.LandlordCards)))
+					}
 				} else {
 					sb.WriteString("你是农民，队友也是农民。\n")
+					if len(state.LandlordCards) > 0 {
+						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCards(state.LandlordCards)))
+					}
 				}
 			}
 
+			// Bid history
+			if len(state.BidHistory) > 0 {
+				sb.WriteString("\n叫地主/抢地主记录：\n")
+				for _, bid := range state.BidHistory {
+					action := "不叫/不抢"
+					if bid.Called {
+						action = "叫地主/抢地主"
+					}
+					sb.WriteString(fmt.Sprintf("  座位%d：%s\n", bid.Seat, action))
+				}
+			}
+
+			// Opponent card counts
+			sb.WriteString("\n各玩家剩余手牌：\n")
+			for _, p := range state.Players {
+				role := "农民"
+				if p.IsLandlord {
+					role = "地主"
+				}
+				sb.WriteString(fmt.Sprintf("  座位%d（%s）：%d张手牌\n", p.Seat, role, len(p.Hand)))
+			}
+
+			// Last play
 			if state.LastPlay != nil && len(state.LastPlay.Cards) > 0 {
-				sb.WriteString(fmt.Sprintf("上家(座位%d)出了：%s\n",
+				sb.WriteString(fmt.Sprintf("\n上家(座位%d)出了：%s\n",
 					state.LastPlay.Seat, formatCards(state.LastPlay.Cards)))
+				if state.LastPlay.Play != nil {
+					playTypeNames := []string{"无效", "单张", "对子", "三张", "三带一", "三带二", "顺子", "连对", "飞机", "飞机带翅膀", "四带二", "炸弹", "火箭"}
+					ptName := "未知"
+					if state.LastPlay.Play.Type > 0 && state.LastPlay.Play.Type < len(playTypeNames) {
+						ptName = playTypeNames[state.LastPlay.Play.Type]
+					}
+					sb.WriteString(fmt.Sprintf("牌型：%s，主牌等级：%d\n", ptName, state.LastPlay.Play.MainRank))
+				}
 				sb.WriteString("你需要出更大的牌型，或选择过牌。\n")
 			} else {
-				sb.WriteString("你可以自由出牌。\n")
+				sb.WriteString("\n你可以自由出牌（你是本轮首家）。\n")
 			}
 		}
 	}
@@ -255,7 +333,8 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 
 func (a *AIAgent) isActionTool(name string) bool {
 	switch name {
-	case "play_cards", "bid_landlord", "pass_bid", "say":
+	case "play_cards", "bid_landlord", "pass_bid", "say",
+		"reveal_cards", "pass_reveal", "choose_double", "choose_no_double":
 		return true
 	}
 	return false
@@ -302,6 +381,26 @@ func (a *AIAgent) executeToolCall(raw string) {
 			a.Executor.SendChat(a.UserID, args.Chat, "text")
 		}
 
+	case "reveal_cards":
+		if a.Executor != nil {
+			a.Executor.ExecuteAction(a.UserID, "reveal_all", nil)
+		}
+
+	case "pass_reveal":
+		if a.Executor != nil {
+			a.Executor.ExecuteAction(a.UserID, "pass", nil)
+		}
+
+	case "choose_double":
+		if a.Executor != nil {
+			a.Executor.ExecuteAction(a.UserID, "double", nil)
+		}
+
+	case "choose_no_double":
+		if a.Executor != nil {
+			a.Executor.ExecuteAction(a.UserID, "no_double", nil)
+		}
+
 	case "say":
 		if a.Executor != nil {
 			var args SayArgs
@@ -316,9 +415,14 @@ func (a *AIAgent) fallbackAction(phase string) {
 	if a.Executor == nil {
 		return
 	}
-	if phase == "bidding" {
+	switch phase {
+	case "calling", "snatching":
 		a.Executor.ExecuteAction(a.UserID, "bid_pass", nil)
-	} else {
+	case "revealing":
+		a.Executor.ExecuteAction(a.UserID, "pass", nil)
+	case "doubling":
+		a.Executor.ExecuteAction(a.UserID, "no_double", nil)
+	default:
 		a.Executor.ExecuteAction(a.UserID, "pass", nil)
 	}
 }
@@ -348,9 +452,14 @@ func (a *AIAgent) ruleBasedAction(phase string) {
 	if a.Executor == nil {
 		return
 	}
-	if phase == "bidding" {
+	switch phase {
+	case "calling", "snatching":
 		a.Executor.ExecuteAction(a.UserID, a.ruleBasedBid(), nil)
-	} else {
+	case "revealing":
+		a.Executor.ExecuteAction(a.UserID, "pass", nil)
+	case "doubling":
+		a.Executor.ExecuteAction(a.UserID, "no_double", nil)
+	default:
 		cards := a.ruleBasedPlay(a.isFreePlay())
 		if len(cards) == 0 {
 			a.Executor.ExecuteAction(a.UserID, "pass", nil)
@@ -381,12 +490,18 @@ func (a *AIAgent) ruleBasedBid() string {
 }
 
 func (a *AIAgent) ruleBasedPlay(isFreePlay bool) []int {
-	if !isFreePlay {
-		return nil
-	}
 	if len(a.HandCards) == 0 {
 		return nil
 	}
+	// Free play: lead with lowest single
+	if isFreePlay {
+		return a.lowestSingle()
+	}
+	// Must beat last play: try single or pair
+	return a.tryBeatLastPlay()
+}
+
+func (a *AIAgent) lowestSingle() []int {
 	rankFreq := make(map[int]int)
 	for _, id := range a.HandCards {
 		if id >= 52 {
@@ -405,6 +520,74 @@ func (a *AIAgent) ruleBasedPlay(isFreePlay bool) []int {
 	}
 	if len(a.HandCards) > 0 {
 		return []int{a.HandCards[0]}
+	}
+	return nil
+}
+
+func (a *AIAgent) tryBeatLastPlay() []int {
+	// Parse last play info from state
+	var state struct {
+		LastPlay *struct {
+			Seat  int   `json:"seat"`
+			Cards []int `json:"cards"`
+			Play  *struct {
+				Type     int `json:"type"`
+				MainRank int `json:"main_rank"`
+			} `json:"play"`
+		} `json:"last_play"`
+	}
+	if a.stateJSON == "" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+		return nil
+	}
+	if state.LastPlay == nil || state.LastPlay.Play == nil {
+		return nil
+	}
+
+	lp := state.LastPlay.Play
+	switch lp.Type {
+	case 1: // Single — try higher single
+		return a.higherSingle(lp.MainRank)
+	case 2: // Pair — try higher pair
+		return a.higherPair(lp.MainRank)
+	}
+	return nil
+}
+
+func (a *AIAgent) higherSingle(minRank int) []int {
+	for _, id := range a.HandCards {
+		if id >= 52 {
+			continue
+		}
+		rank := id % 13
+		if rank > minRank || (id >= 52 && minRank < 16) {
+			return []int{id}
+		}
+	}
+	// Try jokers
+	for _, id := range a.HandCards {
+		if id == 52 || id == 53 {
+			return []int{id}
+		}
+	}
+	return nil
+}
+
+func (a *AIAgent) higherPair(minRank int) []int {
+	rankFreq := make(map[int][]int)
+	for _, id := range a.HandCards {
+		if id >= 52 {
+			continue
+		}
+		rank := id % 13
+		rankFreq[rank] = append(rankFreq[rank], id)
+	}
+	for rank := minRank + 1; rank < 13; rank++ {
+		if len(rankFreq[rank]) >= 2 {
+			return []int{rankFreq[rank][0], rankFreq[rank][1]}
+		}
 	}
 	return nil
 }
