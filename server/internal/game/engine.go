@@ -1,5 +1,9 @@
 package game
 
+import (
+	"context"
+)
+
 // PlayerInfo represents a player in a game session.
 type PlayerInfo struct {
 	ID   int64  `json:"id"`
@@ -32,4 +36,10 @@ type GameEngine interface {
 	CalculateScore(state GameState) ([]PlayerScore, error)
 	SerializeForAI(state GameState) string
 	FilterForPlayer(state GameState, seat int) GameState
+}
+
+// RoomStore abstracts DB operations needed by GameRoom for lifecycle management.
+type RoomStore interface {
+	CloseRoom(ctx context.Context, roomID string) error
+	EnsureRoom(ctx context.Context, roomID, gameType string) error
 }
