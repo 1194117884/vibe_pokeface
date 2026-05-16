@@ -11,6 +11,7 @@ import (
 type Room struct {
 	ID         string     `db:"id" json:"id"`
 	Name       string     `db:"name" json:"name"`
+	Theme      string     `db:"theme" json:"theme"`
 	GameType   string     `db:"game_type" json:"game_type"`
 	OwnerID    int64      `db:"owner_id" json:"owner_id"`
 	Status     string     `db:"status" json:"status"`

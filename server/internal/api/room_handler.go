@@ -98,6 +98,7 @@ func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 func (h *RoomHandler) ListRooms(w http.ResponseWriter, r *http.Request) {
 	rooms, err := h.store.ListActiveRooms(r.Context())
 	if err != nil {
+		log.Printf("ERROR listing rooms: %v", err)
 		http.Error(w, `{"error":"failed to list rooms"}`, http.StatusInternalServerError)
 		return
 	}
