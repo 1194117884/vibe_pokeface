@@ -469,6 +469,32 @@ func (r *GameRoom) RemoveDisconnectedPlayers(timeout time.Duration) int {
 	return len(r.Players)
 }
 
+// humanCount returns the number of non-bot players in the room.
+// The caller must hold r.mu.
+func (r *GameRoom) humanCount() int {
+	n := 0
+	for _, p := range r.Players {
+		if !p.IsBot {
+			n++
+		}
+	}
+	return n
+}
+
+// allBots returns true if every player in the room is a bot.
+// Returns false for an empty room.
+func (r *GameRoom) allBots() bool {
+	if len(r.Players) == 0 {
+		return false
+	}
+	for _, p := range r.Players {
+		if !p.IsBot {
+			return false
+		}
+	}
+	return true
+}
+
 // sendStateTo sends the current game state to a single player (for reconnection).
 func (r *GameRoom) sendStateTo(p *PlayerSession) {
 	// Send player_joined with current room state

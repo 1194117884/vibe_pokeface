@@ -460,6 +460,65 @@ func TestFillEmptySeats_NoOverfill(t *testing.T) {
 	}
 }
 
+func TestRoomHumanCount(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	// Empty room
+	if n := room.humanCount(); n != 0 {
+		t.Errorf("humanCount = %d, want 0 for empty room", n)
+	}
+
+	// Add 1 human + 2 bots
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	room.AddPlayer("ai:bot:1", "", "", make(chan []byte, 10))
+	room.AddPlayer("ai:bot:2", "", "", make(chan []byte, 10))
+
+	// Mark bots
+	room.mu.Lock()
+	for _, p := range room.Players {
+		if p.UserID == "ai:bot:1" || p.UserID == "ai:bot:2" {
+			p.IsBot = true
+		}
+	}
+	room.mu.Unlock()
+
+	if n := room.humanCount(); n != 1 {
+		t.Errorf("humanCount = %d, want 1", n)
+	}
+}
+
+func TestRoomAllBots(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	// Empty room — should be false (no players at all)
+	if room.allBots() {
+		t.Error("allBots = true for empty room, want false")
+	}
+
+	// Add only bots (2 bots so there is room for a human)
+	room.mu.Lock()
+	room.Players = []*PlayerSession{
+		{UserID: "ai:bot:1", Seat: 0, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 1, IsBot: true, Connected: true},
+	}
+	room.mu.Unlock()
+
+	if !room.allBots() {
+		t.Error("allBots = false for all-bot room, want true")
+	}
+
+	// Add a human (room has capacity 3, 2 bots + 1 human = 3)
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	if room.allBots() {
+		t.Error("allBots = true for mixed room, want false")
+	}
+
+	// Verify we have 3 players (2 bots + 1 human)
+	if len(room.Players) != 3 {
+		t.Errorf("Players = %d, want 3 (2 bots + 1 human)", len(room.Players))
+	}
+}
+
 // drainN reads n messages from conn and verifies each has the expected type.
 func drainN(t *testing.T, conn chan []byte, n int, expectedType string) {
 	t.Helper()
