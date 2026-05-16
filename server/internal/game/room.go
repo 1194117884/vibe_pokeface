@@ -195,6 +195,13 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 			delete(rm.rooms, id)
 		}
 	}
+
+	// Safety net: close stale DB rooms that have no in-memory counterpart.
+	// Covers rooms created via REST that never had a WebSocket join, and
+	// rooms orphaned by server restart (memory was cleared, DB was not).
+	if rm.store != nil {
+		rm.store.CloseStaleRooms(context.Background(), 30*time.Minute, 60*time.Minute)
+	}
 }
 
 // closeRoom marks the room as closed, stops AI agents, broadcasts to players,

@@ -2,6 +2,7 @@ package game
 
 import (
 	"context"
+	"time"
 )
 
 // PlayerInfo represents a player in a game session.
@@ -42,4 +43,5 @@ type GameEngine interface {
 type RoomStore interface {
 	CloseRoom(ctx context.Context, roomID string) error
 	EnsureRoom(ctx context.Context, roomID, gameType string) error
+	CloseStaleRooms(ctx context.Context, waitingTimeout, playingTimeout time.Duration) (int64, error)
 }

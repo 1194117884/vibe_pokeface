@@ -542,6 +542,10 @@ func (m *mockRoomStore) EnsureRoom(ctx context.Context, roomID, gameType string)
 	return nil
 }
 
+func (m *mockRoomStore) CloseStaleRooms(ctx context.Context, waitingTimeout, playingTimeout time.Duration) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockRoomStore) closedCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

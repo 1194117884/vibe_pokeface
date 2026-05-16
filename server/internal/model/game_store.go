@@ -89,6 +89,24 @@ func (s *GameStore) CloseRoom(ctx context.Context, roomID string) error {
 	return err
 }
 
+// CloseStaleRooms closes rooms that have been stuck in a state too long.
+// waiting rooms older than waitingTimeout are closed (nobody ever joined).
+// playing rooms older than playingTimeout are closed (game stuck, probably only bots).
+// Returns the number of rooms closed.
+func (s *GameStore) CloseStaleRooms(ctx context.Context, waitingTimeout, playingTimeout time.Duration) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE rooms SET status = 'ended', ended_at = NOW()
+		 WHERE status IN ('waiting','playing')
+		 AND ((status = 'waiting' AND created_at < DATE_SUB(NOW(), INTERVAL ? SECOND))
+		   OR (status = 'playing' AND created_at < DATE_SUB(NOW(), INTERVAL ? SECOND)))`,
+		int(waitingTimeout.Seconds()), int(playingTimeout.Seconds()))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
+}
+
 // EnsureRoom inserts a minimal room row if one does not already exist.
 // This is used when a room is created in-memory via WebSocket without
 // a prior REST CreateRoom call.
