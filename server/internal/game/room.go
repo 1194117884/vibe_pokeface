@@ -146,7 +146,6 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 		}
 
 		origPlayers := len(room.Players)
-		origLastActive := room.lastActiveAt
 
 		shouldClose := false
 
@@ -182,13 +181,12 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 		}
 
 		// Trigger C: empty room idle too long.
-		// Use origLastActive because RemoveDisconnectedPlayers resets lastActiveAt.
-		if !shouldClose && len(room.Players) == 0 && now.Sub(origLastActive) > roomIdleTimeout {
+		if !shouldClose && len(room.Players) == 0 && now.Sub(room.lastActiveAt) > roomIdleTimeout {
 			shouldClose = true
 		}
 
 		// Trigger F: only bots in "playing" state, idle too long
-		if !shouldClose && room.Status == "playing" && room.allBots() && now.Sub(origLastActive) > roomIdleTimeout {
+		if !shouldClose && room.Status == "playing" && room.allBots() && now.Sub(room.lastActiveAt) > roomIdleTimeout {
 			shouldClose = true
 		}
 
@@ -537,7 +535,9 @@ func (r *GameRoom) RemoveDisconnectedPlayers(timeout time.Duration) int {
 			r.State = nil
 		}
 	}
-	r.lastActiveAt = now
+	if changed {
+		r.lastActiveAt = now
+	}
 	return len(r.Players)
 }
 
