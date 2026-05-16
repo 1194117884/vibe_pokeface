@@ -38,7 +38,7 @@ type GameRoom struct {
 	Status   string
 	Theme    string
 	Closed   bool
-	store    *model.GameStore
+	store    RoomStore
 	mu       sync.Mutex
 	notify   chan []byte
 	agents   map[string]*ai.AIAgent
@@ -50,12 +50,12 @@ type GameRoom struct {
 type RoomManager struct {
 	rooms map[string]*GameRoom
 	mu    sync.RWMutex
-	store *model.GameStore
+	store RoomStore
 }
 
 // NewGameRoom creates a new game room with the given engine and store.
 // The engine must be provided by the caller based on the game type.
-func NewGameRoom(id string, gameType string, engine GameEngine, store *model.GameStore) *GameRoom {
+func NewGameRoom(id string, gameType string, engine GameEngine, store RoomStore) *GameRoom {
 	now := time.Now()
 	return &GameRoom{
 		ID:           id,
@@ -73,7 +73,7 @@ func NewGameRoom(id string, gameType string, engine GameEngine, store *model.Gam
 }
 
 // NewRoomManager creates a new RoomManager.
-func NewRoomManager(store *model.GameStore) *RoomManager {
+func NewRoomManager(store RoomStore) *RoomManager {
 	return &RoomManager{
 		rooms: make(map[string]*GameRoom),
 		store: store,
@@ -125,6 +125,16 @@ func (rm *RoomManager) RunCleanup(ctx context.Context, interval time.Duration, d
 }
 
 // cleanup removes stale disconnected players and closes idle rooms.
+// It checks 4 close triggers:
+//
+//	Trigger B: All humans have left (bots-only remaining)
+//	Trigger C: Empty room idle past roomIdleTimeout
+//	Trigger E: All players disconnected past disconnectTimeout
+//	Trigger F: Only bots in "playing" state, idle past roomIdleTimeout
+//
+// The caller must hold rm.mu. This method also accesses room fields (Players,
+// lastActiveAt, Status) directly without acquiring room-level locks, which is
+// safe because the manager lock serializes access to the room's lifecycle.
 func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout time.Duration) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -134,22 +144,84 @@ func (rm *RoomManager) cleanup(disconnectTimeout time.Duration, roomIdleTimeout 
 			delete(rm.rooms, id)
 			continue
 		}
-		// Remove disconnected players past the timeout
-		room.RemoveDisconnectedPlayers(disconnectTimeout)
-		// Close empty room past idle timeout
-		if len(room.Players) == 0 && now.Sub(room.lastActiveAt) > roomIdleTimeout {
-			closeRoom(room)
+
+		origPlayers := len(room.Players)
+		origLastActive := room.lastActiveAt
+
+		shouldClose := false
+
+		// Trigger E: all players disconnected past the disconnect timeout.
+		// This is checked before RemoveDisconnectedPlayers so we detect the
+		// condition before players are removed from the slice.
+		if origPlayers > 0 {
+			allDisconnected := true
+			for _, p := range room.Players {
+				if p.Connected {
+					allDisconnected = false
+					break
+				}
+				if p.DisconnectedAt == nil || now.Sub(*p.DisconnectedAt) <= disconnectTimeout {
+					allDisconnected = false
+					break
+				}
+			}
+			if allDisconnected {
+				shouldClose = true
+			}
+		}
+
+		if !shouldClose {
+			// Remove disconnected players past the timeout
+			room.RemoveDisconnectedPlayers(disconnectTimeout)
+		}
+
+		// Trigger B: all humans left (bots-only remaining).
+		// Guard with len > 0 so empty rooms don't trigger B (C handles them).
+		if !shouldClose && room.humanCount() == 0 && len(room.Players) > 0 {
+			shouldClose = true
+		}
+
+		// Trigger C: empty room idle too long.
+		// Use origLastActive because RemoveDisconnectedPlayers resets lastActiveAt.
+		if !shouldClose && len(room.Players) == 0 && now.Sub(origLastActive) > roomIdleTimeout {
+			shouldClose = true
+		}
+
+		// Trigger F: only bots in "playing" state, idle too long
+		if !shouldClose && room.Status == "playing" && room.allBots() && now.Sub(origLastActive) > roomIdleTimeout {
+			shouldClose = true
+		}
+
+		if shouldClose {
+			room.closeRoom()
 			delete(rm.rooms, id)
 		}
 	}
 }
 
-// closeRoom marks a room as closed (no more joins allowed).
-func closeRoom(r *GameRoom) {
+// closeRoom marks the room as closed, stops AI agents, broadcasts to players,
+// persists the closed state to the DB.
+func (r *GameRoom) closeRoom() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.Closed = true
+
+	// Stop all AI agents
+	for id, agent := range r.agents {
+		agent.Stop()
+		delete(r.agents, id)
+	}
+
+	// Broadcast room_closed to all connected players
 	r.broadcastMsg("room_closed", map[string]interface{}{})
+
+	// Persist to DB: ensure a row exists, then close it
+	if r.store != nil {
+		ctx := context.Background()
+		r.store.EnsureRoom(ctx, r.ID, r.GameType)
+		r.store.CloseRoom(ctx, r.ID)
+	}
 }
 
 // RemoveRoom removes a room from the manager.
@@ -467,6 +539,32 @@ func (r *GameRoom) RemoveDisconnectedPlayers(timeout time.Duration) int {
 	}
 	r.lastActiveAt = now
 	return len(r.Players)
+}
+
+// humanCount returns the number of non-bot players in the room.
+// The caller must hold r.mu.
+func (r *GameRoom) humanCount() int {
+	n := 0
+	for _, p := range r.Players {
+		if !p.IsBot {
+			n++
+		}
+	}
+	return n
+}
+
+// allBots returns true if every player in the room is a bot.
+// Returns false for an empty room.
+func (r *GameRoom) allBots() bool {
+	if len(r.Players) == 0 {
+		return false
+	}
+	for _, p := range r.Players {
+		if !p.IsBot {
+			return false
+		}
+	}
+	return true
 }
 
 // sendStateTo sends the current game state to a single player (for reconnection).

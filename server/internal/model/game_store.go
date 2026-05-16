@@ -83,6 +83,22 @@ func (s *GameStore) UpdateRoomStatus(ctx context.Context, roomID, status string)
 	return err
 }
 
+// CloseRoom marks a room as ended and sets the ended_at timestamp.
+func (s *GameStore) CloseRoom(ctx context.Context, roomID string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE rooms SET status = 'ended', ended_at = NOW() WHERE id = ?", roomID)
+	return err
+}
+
+// EnsureRoom inserts a minimal room row if one does not already exist.
+// This is used when a room is created in-memory via WebSocket without
+// a prior REST CreateRoom call.
+func (s *GameStore) EnsureRoom(ctx context.Context, roomID, gameType string) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT IGNORE INTO rooms (id, name, game_type, owner_id, status, max_players, is_open, bot_enabled) VALUES (?, ?, ?, 0, 'waiting', 3, true, true)",
+		roomID, roomID, gameType)
+	return err
+}
+
 func (s *GameStore) GetRoom(ctx context.Context, roomID string) (*Room, error) {
 	var room Room
 	err := s.db.GetContext(ctx, &room, "SELECT * FROM rooms WHERE id = ?", roomID)

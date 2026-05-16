@@ -1,7 +1,9 @@
 package game
 
 import (
+	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 )
@@ -457,6 +459,280 @@ func TestFillEmptySeats_NoOverfill(t *testing.T) {
 	added = rm.FillEmptySeats("room-1")
 	if added != 0 {
 		t.Errorf("Added %d bots on full room, want 0", added)
+	}
+}
+
+func TestRoomHumanCount(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	// Empty room
+	if n := room.humanCount(); n != 0 {
+		t.Errorf("humanCount = %d, want 0 for empty room", n)
+	}
+
+	// Add 1 human + 2 bots
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	room.AddPlayer("ai:bot:1", "", "", make(chan []byte, 10))
+	room.AddPlayer("ai:bot:2", "", "", make(chan []byte, 10))
+
+	// Mark bots
+	room.mu.Lock()
+	for _, p := range room.Players {
+		if p.UserID == "ai:bot:1" || p.UserID == "ai:bot:2" {
+			p.IsBot = true
+		}
+	}
+	room.mu.Unlock()
+
+	if n := room.humanCount(); n != 1 {
+		t.Errorf("humanCount = %d, want 1", n)
+	}
+}
+
+func TestRoomAllBots(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+
+	// Empty room — should be false (no players at all)
+	if room.allBots() {
+		t.Error("allBots = true for empty room, want false")
+	}
+
+	// Add only bots (2 bots so there is room for a human)
+	room.mu.Lock()
+	room.Players = []*PlayerSession{
+		{UserID: "ai:bot:1", Seat: 0, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 1, IsBot: true, Connected: true},
+	}
+	room.mu.Unlock()
+
+	if !room.allBots() {
+		t.Error("allBots = false for all-bot room, want true")
+	}
+
+	// Add a human (room has capacity 3, 2 bots + 1 human = 3)
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	if room.allBots() {
+		t.Error("allBots = true for mixed room, want false")
+	}
+
+	// Verify we have 3 players (2 bots + 1 human)
+	if len(room.Players) != 3 {
+		t.Errorf("Players = %d, want 3 (2 bots + 1 human)", len(room.Players))
+	}
+}
+
+// mockRoomStore implements RoomStore for testing lifecycle logic.
+type mockRoomStore struct {
+	mu         sync.Mutex
+	closedIDs  []string
+	ensuredIDs []string
+}
+
+func (m *mockRoomStore) CloseRoom(ctx context.Context, roomID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closedIDs = append(m.closedIDs, roomID)
+	return nil
+}
+
+func (m *mockRoomStore) EnsureRoom(ctx context.Context, roomID, gameType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensuredIDs = append(m.ensuredIDs, roomID)
+	return nil
+}
+
+func (m *mockRoomStore) closedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.closedIDs)
+}
+
+func TestCloseRoom_FullCleanup(t *testing.T) {
+	store := &mockRoomStore{}
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, store)
+
+	// Add 2 bots + 1 human
+	conn1 := make(chan []byte, 20)
+	conn2 := make(chan []byte, 20)
+	conn3 := make(chan []byte, 20)
+	room.AddPlayer("ai:bot:1", "", "", conn1)
+	room.AddPlayer("ai:bot:2", "", "", conn2)
+	room.AddPlayer("user-1", "", "", conn3)
+
+	// Mark bots
+	room.mu.Lock()
+	for _, p := range room.Players {
+		if p.UserID == "ai:bot:1" || p.UserID == "ai:bot:2" {
+			p.IsBot = true
+		}
+	}
+	room.mu.Unlock()
+
+	// Drain join broadcasts (3 adds = 3 broadcasts per conn for the first player, 2 for second, etc.)
+	drainN(t, conn1, 3, "player_joined")
+	drainN(t, conn2, 2, "player_joined")
+	drainN(t, conn3, 1, "player_joined")
+
+	// Call closeRoom directly
+	room.closeRoom()
+
+	// Assert Closed flag
+	if !room.Closed {
+		t.Error("room.Closed = false, want true")
+	}
+
+	// Assert DB was called
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+	if store.closedIDs[0] != "room-1" {
+		t.Errorf("closed room ID = %s, want room-1", store.closedIDs[0])
+	}
+
+	// Assert EnsureRoom was called
+	if len(store.ensuredIDs) != 1 {
+		t.Errorf("EnsureRoom called %d times, want 1", len(store.ensuredIDs))
+	}
+
+	// Assert room_closed broadcast was sent to connected players
+	drainN(t, conn1, 1, "room_closed")
+	drainN(t, conn2, 1, "room_closed")
+	drainN(t, conn3, 1, "room_closed")
+}
+
+func TestCleanup_TriggerB_AllHumansLeave(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// 1 human + 2 bots
+	room.AddPlayer("user-1", "", "", make(chan []byte, 10))
+	room.mu.Lock()
+	room.Players = append(room.Players,
+		&PlayerSession{UserID: "ai:bot:1", Seat: 1, IsBot: true, Connected: true},
+		&PlayerSession{UserID: "ai:bot:2", Seat: 2, IsBot: true, Connected: true},
+	)
+	room.mu.Unlock()
+
+	// Remove the human — now 0 humans
+	room.RemovePlayer("user-1")
+
+	// Run cleanup — should close the room
+	rm.cleanup(0, 0)
+
+	// Room should be removed from manager
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed from manager after all humans leave")
+	}
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+}
+
+func TestCleanup_TriggerC_IdleEmpty(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Room has 0 players, set lastActiveAt to 6 minutes ago
+	room.mu.Lock()
+	room.lastActiveAt = time.Now().Add(-6 * time.Minute)
+	room.mu.Unlock()
+
+	// Run cleanup with 5min idle timeout
+	rm.cleanup(0, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed from manager when idle-empty")
+	}
+	if store.closedCount() != 1 {
+		t.Errorf("CloseRoom called %d times, want 1", store.closedCount())
+	}
+}
+
+func TestCleanup_TriggerE_AllDisconnected(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// All players disconnected for > 2 minutes
+	room.mu.Lock()
+	discAt := time.Now().Add(-3 * time.Minute)
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, IsBot: false, Connected: false, DisconnectedAt: &discAt},
+		{UserID: "user-2", Seat: 1, IsBot: false, Connected: false, DisconnectedAt: &discAt},
+		{UserID: "ai:bot:1", Seat: 2, IsBot: true, Connected: false, DisconnectedAt: &discAt},
+	}
+	room.mu.Unlock()
+
+	rm.cleanup(2*time.Minute, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed when all players disconnected > timeout")
+	}
+}
+
+func TestCleanup_TriggerF_OnlyBotsInPlaying(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Room in "playing" with only bots
+	room.mu.Lock()
+	room.Status = "playing"
+	room.Players = []*PlayerSession{
+		{UserID: "ai:bot:1", Seat: 0, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 1, IsBot: true, Connected: true},
+		{UserID: "ai:bot:3", Seat: 2, IsBot: true, Connected: true},
+	}
+	room.lastActiveAt = time.Now().Add(-6 * time.Minute)
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	if got := rm.GetRoom("room-1"); got != nil {
+		t.Error("room-1 should be removed when only bots in playing state")
+	}
+}
+
+func TestCleanup_NotClosed_HumanPresent(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// 1 human + 2 bots
+	room.mu.Lock()
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, IsBot: false, Connected: true},
+		{UserID: "ai:bot:1", Seat: 1, IsBot: true, Connected: true},
+		{UserID: "ai:bot:2", Seat: 2, IsBot: true, Connected: true},
+	}
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	// Room should still exist
+	if got := rm.GetRoom("room-1"); got == nil {
+		t.Error("room-1 should NOT be closed — human is still present")
+	}
+}
+
+func TestCleanup_NotClosed_RecentlyActive(t *testing.T) {
+	store := &mockRoomStore{}
+	rm := NewRoomManager(store)
+	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
+
+	// Empty room but just recently active
+	room.mu.Lock()
+	room.lastActiveAt = time.Now() // just now
+	room.mu.Unlock()
+
+	rm.cleanup(0, 5*time.Minute)
+
+	// Room should still exist — not idle long enough
+	if got := rm.GetRoom("room-1"); got == nil {
+		t.Error("room-1 should NOT be closed — recently active")
 	}
 }
 
