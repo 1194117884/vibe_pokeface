@@ -30,17 +30,6 @@ CREATE TABLE IF NOT EXISTS game_records (
     result      JSON,
     created_at  DATETIME DEFAULT NOW()
 );
-
-CREATE TABLE IF NOT EXISTS game_snapshots (
-    id           BIGINT PRIMARY KEY AUTO_INCREMENT,
-    room_id      VARCHAR(32) NOT NULL,
-    game_id      BIGINT NOT NULL,
-    snapshot_at  DATETIME(3) DEFAULT NOW(3),
-    full_state   JSON,
-    is_current   BOOLEAN DEFAULT TRUE,
-    INDEX idx_game (room_id, game_id)
-);
-
 CREATE TABLE IF NOT EXISTS game_actions (
     id           BIGINT PRIMARY KEY AUTO_INCREMENT,
     game_id      BIGINT NOT NULL,

@@ -70,7 +70,7 @@ func NewHub(store *model.GameStore, aiStore *model.AIStore, userStore model.User
 		Rooms:       make(map[string]*RoomHub),
 		Register:    make(chan *Client, 256),
 		Unregister:  make(chan *Client, 256),
-		RoomManager: game.NewRoomManager(store),
+		RoomManager: game.NewRoomManager(store, aiStore),
 		AIStore:     aiStore,
 		UserStore:   userStore,
 	}

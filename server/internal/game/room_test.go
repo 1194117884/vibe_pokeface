@@ -64,7 +64,7 @@ func TestNewGameRoom(t *testing.T) {
 }
 
 func TestRoomManagerGetOrCreateRoom(t *testing.T) {
-	rm := NewRoomManager(nil)
+	rm := NewRoomManager(nil, nil)
 	room1 := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 	if room1 == nil {
 		t.Fatal("GetOrCreateRoom returned nil")
@@ -80,7 +80,7 @@ func TestRoomManagerGetOrCreateRoom(t *testing.T) {
 }
 
 func TestRoomManagerGetRoom(t *testing.T) {
-	rm := NewRoomManager(nil)
+	rm := NewRoomManager(nil, nil)
 	rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	room := rm.GetRoom("room-1")
@@ -98,7 +98,7 @@ func TestRoomManagerGetRoom(t *testing.T) {
 }
 
 func TestRoomManagerRemoveRoom(t *testing.T) {
-	rm := NewRoomManager(nil)
+	rm := NewRoomManager(nil, nil)
 	rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 	rm.RemoveRoom("room-1")
 
@@ -420,7 +420,7 @@ func TestRoomAddBot_NonSequentialSeats(t *testing.T) {
 // TestFillEmptySeats_NoOverfill verifies FillEmptySeats correctly fills
 // only up to capacity and doesn't exceed it.
 func TestFillEmptySeats_NoOverfill(t *testing.T) {
-	rm := NewRoomManager(nil)
+	rm := NewRoomManager(nil, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// Add 1 human player (owner)
@@ -560,6 +560,22 @@ func (m *mockRoomStore) SaveScore(ctx context.Context, userID int64, gameType st
 	return nil
 }
 
+func (m *mockRoomStore) SaveChatMessage(ctx context.Context, msg *model.ChatMessage) error {
+	return nil
+}
+
+func (m *mockRoomStore) CreateGameRecord(ctx context.Context, record *model.GameRecord) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockRoomStore) EndGameRecord(ctx context.Context, gameID int64, resultJSON string) error {
+	return nil
+}
+
+func (m *mockRoomStore) AddGameAction(ctx context.Context, action *model.GameAction) error {
+	return nil
+}
+
 func (m *mockRoomStore) closedCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -621,7 +637,7 @@ func TestCloseRoom_FullCleanup(t *testing.T) {
 
 func TestCleanup_TriggerB_AllHumansLeave(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// 1 human + 2 bots
@@ -650,7 +666,7 @@ func TestCleanup_TriggerB_AllHumansLeave(t *testing.T) {
 
 func TestCleanup_TriggerC_IdleEmpty(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// Room has 0 players, set lastActiveAt to 6 minutes ago
@@ -671,7 +687,7 @@ func TestCleanup_TriggerC_IdleEmpty(t *testing.T) {
 
 func TestCleanup_TriggerE_AllDisconnected(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// All players disconnected for > 2 minutes
@@ -693,7 +709,7 @@ func TestCleanup_TriggerE_AllDisconnected(t *testing.T) {
 
 func TestCleanup_TriggerF_OnlyBotsInPlaying(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// Room in "playing" with only bots
@@ -716,7 +732,7 @@ func TestCleanup_TriggerF_OnlyBotsInPlaying(t *testing.T) {
 
 func TestCleanup_NotClosed_HumanPresent(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// 1 human + 2 bots
@@ -738,7 +754,7 @@ func TestCleanup_NotClosed_HumanPresent(t *testing.T) {
 
 func TestCleanup_NotClosed_RecentlyActive(t *testing.T) {
 	store := &mockRoomStore{}
-	rm := NewRoomManager(store)
+	rm := NewRoomManager(store, nil)
 	room := rm.GetOrCreateRoom("room-1", "doudizhu", &mockEngine{})
 
 	// Empty room but just recently active
