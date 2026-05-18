@@ -450,6 +450,12 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 		"players": r.playerList(),
 		"theme":   r.Theme,
 	})
+
+	// Persist room to DB
+	if r.store != nil {
+		r.store.EnsureRoom(context.Background(), r.ID, r.GameType)
+	}
+
 	return nil
 }
 
@@ -853,15 +859,35 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 
 	newState, err := r.Engine.ExecuteAction(r.State, gameAction)
 	if err != nil {
-		errMsg, _ := json.Marshal(map[string]interface{}{
-			"type": "error",
-			"data": err.Error(),
-		})
-		select {
-		case player.Conn <- errMsg:
-		default:
+		if player.IsBot {
+			// Bot action was rejected (e.g., LLM returned invalid cards).
+			// Force a pass to keep the game moving. If pass itself is
+			// rejected (no active play to beat), play lowest single.
+			fallback := "pass"
+			fallbackCards := []int(nil)
+			if action == "pass" {
+				fallback = "play"
+				fallbackCards = r.botLowestSingle(userID)
+			}
+			newState, err = r.Engine.ExecuteAction(r.State, PlayerAction{
+				PlayerID: player.PlayerID,
+				Action:   fallback,
+				Cards:    fallbackCards,
+			})
+			if err != nil {
+				return
+			}
+		} else {
+			errMsg, _ := json.Marshal(map[string]interface{}{
+				"type": "error",
+				"data": err.Error(),
+			})
+			select {
+			case player.Conn <- errMsg:
+			default:
+			}
+			return
 		}
-		return
 	}
 
 	r.State = newState
@@ -883,6 +909,21 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		r.broadcastMsg("round_end", map[string]interface{}{
 			"scores": scores,
 		})
+
+		// Persist scores to DB
+		if r.store != nil {
+			for _, s := range scores {
+				// Find the player to check if human
+				for _, p := range r.Players {
+					if p.PlayerID == s.PlayerID && !p.IsBot {
+						var uid int64
+						if _, err := fmt.Sscanf(p.UserID, "%d", &uid); err == nil {
+							r.store.SaveScore(context.Background(), uid, r.GameType, s.Score, 0, "round_end")
+						}
+					}
+				}
+			}
+		}
 
 		r.Status = "waiting"
 		r.State = nil
@@ -1006,10 +1047,20 @@ func (r *GameRoom) triggerAIAgent() {
 func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	nickname := senderID
+	for _, p := range r.Players {
+		if p.UserID == senderID {
+			nickname = p.Nickname
+			break
+		}
+	}
+
 	r.broadcastMsg("chat", map[string]interface{}{
-		"user_id": senderID,
-		"content": content,
-		"type":    msgType,
+		"user_id":  senderID,
+		"nickname": nickname,
+		"content":  content,
+		"type":     msgType,
 	})
 }
 
@@ -1104,6 +1155,37 @@ func (r *GameRoom) findSeat(userID string) int {
 		}
 	}
 	return -1
+}
+
+// botLowestSingle returns the lowest single card from a bot's hand for
+// use as a forced play when the bot's action was rejected during leading.
+// Caller must hold r.mu.
+func (r *GameRoom) botLowestSingle(userID string) []int {
+	stateJSON, err := json.Marshal(r.State)
+	if err != nil {
+		return nil
+	}
+	var data struct {
+		Players []struct {
+			Seat int `json:"seat"`
+			Hand []struct {
+				ID int `json:"id"`
+			} `json:"hand"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(stateJSON, &data); err != nil {
+		return nil
+	}
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			for _, ph := range data.Players {
+				if ph.Seat == p.Seat && len(ph.Hand) > 0 {
+					return []int{ph.Hand[0].ID}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // checkCardsLeft checks if any player has 1 or 2 cards remaining

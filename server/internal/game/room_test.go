@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
 // mockEngine implements GameEngine for testing.
@@ -546,6 +548,18 @@ func (m *mockRoomStore) CloseStaleRooms(ctx context.Context, waitingTimeout, pla
 	return 0, nil
 }
 
+func (m *mockRoomStore) AddRoomPlayer(ctx context.Context, rp *model.RoomPlayer) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return nil
+}
+
+func (m *mockRoomStore) SaveScore(ctx context.Context, userID int64, gameType string, amount, balance int, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return nil
+}
+
 func (m *mockRoomStore) closedCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -594,9 +608,9 @@ func TestCloseRoom_FullCleanup(t *testing.T) {
 		t.Errorf("closed room ID = %s, want room-1", store.closedIDs[0])
 	}
 
-	// Assert EnsureRoom was called
-	if len(store.ensuredIDs) != 1 {
-		t.Errorf("EnsureRoom called %d times, want 1", len(store.ensuredIDs))
+	// Assert EnsureRoom was called (3 AddPlayers + 1 CloseRoom = 4)
+	if len(store.ensuredIDs) != 4 {
+		t.Errorf("EnsureRoom called %d times, want 4", len(store.ensuredIDs))
 	}
 
 	// Assert room_closed broadcast was sent to connected players

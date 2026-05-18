@@ -3,6 +3,8 @@ package game
 import (
 	"context"
 	"time"
+
+	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
 // PlayerInfo represents a player in a game session.
@@ -44,4 +46,6 @@ type RoomStore interface {
 	CloseRoom(ctx context.Context, roomID string) error
 	EnsureRoom(ctx context.Context, roomID, gameType string) error
 	CloseStaleRooms(ctx context.Context, waitingTimeout, playingTimeout time.Duration) (int64, error)
+	AddRoomPlayer(ctx context.Context, rp *model.RoomPlayer) error
+	SaveScore(ctx context.Context, userID int64, gameType string, amount, balance int, reason string) error
 }
