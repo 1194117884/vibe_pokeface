@@ -48,4 +48,8 @@ type RoomStore interface {
 	CloseStaleRooms(ctx context.Context, waitingTimeout, playingTimeout time.Duration) (int64, error)
 	AddRoomPlayer(ctx context.Context, rp *model.RoomPlayer) error
 	SaveScore(ctx context.Context, userID int64, gameType string, amount, balance int, reason string) error
+	SaveChatMessage(ctx context.Context, msg *model.ChatMessage) error
+	CreateGameRecord(ctx context.Context, record *model.GameRecord) (int64, error)
+	EndGameRecord(ctx context.Context, gameID int64, resultJSON string) error
+	AddGameAction(ctx context.Context, action *model.GameAction) error
 }

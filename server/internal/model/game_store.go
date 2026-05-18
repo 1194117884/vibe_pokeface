@@ -44,13 +44,18 @@ type GameRecord struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-type GameSnapshot struct {
+type GameAction struct {
 	ID         int64     `db:"id" json:"id"`
-	RoomID     string    `db:"room_id" json:"room_id"`
 	GameID     int64     `db:"game_id" json:"game_id"`
-	SnapshotAt time.Time `db:"snapshot_at" json:"snapshot_at"`
-	FullState  string    `db:"full_state" json:"full_state"`
-	IsCurrent  bool      `db:"is_current" json:"is_current"`
+	RoundNum   int       `db:"round_num" json:"round_num"`
+	ActionSeq  int       `db:"action_seq" json:"action_seq"`
+	PlayerID   *int64    `db:"player_id" json:"player_id,omitempty"`
+	SeatIndex  int8      `db:"seat_index" json:"seat_index"`
+	IsBot      bool      `db:"is_bot" json:"is_bot"`
+	ActionType string    `db:"action_type" json:"action_type"`
+	Cards      *string   `db:"cards" json:"cards,omitempty"`
+	FullState  *string   `db:"full_state" json:"full_state,omitempty"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type ScoreRecord struct {
@@ -142,24 +147,6 @@ func (s *GameStore) GetRoomPlayers(ctx context.Context, roomID string) ([]RoomPl
 	return players, nil
 }
 
-func (s *GameStore) SaveSnapshot(ctx context.Context, snap *GameSnapshot) error {
-	s.db.ExecContext(ctx, "UPDATE game_snapshots SET is_current = FALSE WHERE room_id = ? AND game_id = ?", snap.RoomID, snap.GameID)
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO game_snapshots (room_id, game_id, full_state, is_current) VALUES (?, ?, ?, TRUE)",
-		snap.RoomID, snap.GameID, snap.FullState)
-	return err
-}
-
-func (s *GameStore) GetLatestSnapshot(ctx context.Context, roomID string) (*GameSnapshot, error) {
-	var snap GameSnapshot
-	err := s.db.GetContext(ctx, &snap,
-		"SELECT * FROM game_snapshots WHERE room_id = ? AND is_current = TRUE ORDER BY snapshot_at DESC LIMIT 1", roomID)
-	if err != nil {
-		return nil, err
-	}
-	return &snap, nil
-}
-
 func (s *GameStore) SaveScore(ctx context.Context, userID int64, gameType string, amount, balance int, reason string) error {
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO scores (user_id, game_type, amount, balance, reason) VALUES (?, ?, ?, ?, ?)",
@@ -192,4 +179,40 @@ func (s *GameStore) GetScoreHistory(ctx context.Context, userID int64, limit int
 	var records []ScoreRecord
 	err := s.db.SelectContext(ctx, &records, "SELECT * FROM scores WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", userID, limit)
 	return records, err
+}
+
+// SaveChatMessage persists a chat message.
+func (s *GameStore) SaveChatMessage(ctx context.Context, msg *ChatMessage) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO chat_messages (room_id, user_id, content, msg_type) VALUES (?, ?, ?, ?)",
+		msg.RoomID, msg.UserID, msg.Content, msg.MsgType)
+	return err
+}
+
+// CreateGameRecord creates a new game record and returns its ID.
+func (s *GameStore) CreateGameRecord(ctx context.Context, record *GameRecord) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		"INSERT INTO game_records (room_id, game_type, round_num) VALUES (?, ?, ?)",
+		record.RoomID, record.GameType, record.RoundNum)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// EndGameRecord updates a game record with the final result.
+func (s *GameStore) EndGameRecord(ctx context.Context, gameID int64, resultJSON string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE game_records SET result = ? WHERE id = ?", resultJSON, gameID)
+	return err
+}
+
+// AddGameAction records a single game action.
+func (s *GameStore) AddGameAction(ctx context.Context, action *GameAction) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO game_actions (game_id, round_num, action_seq, player_id, seat_index, is_bot, action_type, cards, full_state)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		action.GameID, action.RoundNum, action.ActionSeq, action.PlayerID,
+		action.SeatIndex, action.IsBot, action.ActionType, action.Cards, action.FullState)
+	return err
 }
