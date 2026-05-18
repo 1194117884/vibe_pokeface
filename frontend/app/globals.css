@@ -204,13 +204,33 @@ body {
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
   }
-  /* Constrain table height */
+  /* Constrain table wrapper height */
   .landscape-table {
-    max-height: 50vh !important;
+    max-height: 45vh !important;
+    padding-bottom: 0 !important;
+  }
+  /* Override table aspect ratio for mobile landscape */
+  .landscape-table .room-table {
+    aspect-ratio: auto !important;
+    height: 35vh !important;
+    max-height: 130px !important;
+  }
+  /* Prevent overlap with fixed bottom bar */
+  .landscape-main {
+    justify-content: flex-start !important;
+    padding-top: 2.5rem !important;
+    padding-bottom: 130px !important;
   }
   /* Reduce bottom bar padding */
   .landscape-bottom-bar {
-    padding-top: 0.5rem !important;
-    padding-bottom: 0.75rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  /* Smaller hand card area on mobile landscape */
+  .landscape-bottom-bar .min-h-\[100px\] {
+    min-height: 60px !important;
+  }
+  .landscape-bottom-bar .-space-x-8 {
+    margin-left: -1rem !important;
   }
 }

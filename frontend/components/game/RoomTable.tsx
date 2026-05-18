@@ -74,11 +74,12 @@ export function RoomTable({
   maxPlayers = 3,
   tableSize = "lg",
   speechBubbles = {},
-}: RoomTableProps) {
+  compact = false,
+}: RoomTableProps & { compact?: boolean }) {
   const seatMap = new Map<number, TablePlayer>();
   players.forEach((p) => seatMap.set(p.seat, p));
 
-  const radius = SEAT_RADIUS[tableSize];
+  const radius = compact ? 24 : SEAT_RADIUS[tableSize];
   const seatLayouts = calcSeatPositions(maxPlayers, mySeat, radius);
 
   const centerText = phase === "playing" ? "游戏中" : phase === "ended" ? "已结束" : "等待中";
@@ -91,7 +92,7 @@ export function RoomTable({
   })();
 
   return (
-    <div className={`relative w-full ${TABLE_SIZES[tableSize]} mx-auto aspect-[4/3]`}>
+    <div className={`room-table relative w-full ${TABLE_SIZES[tableSize]} mx-auto aspect-[4/3]`}>
       {/* Stitch-style dark green poker table */}
       <div
         className="absolute inset-0 rounded-[48px]"
@@ -175,6 +176,7 @@ export function RoomTable({
         cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
         action={speechBubbles[seatNum] ?? null}
         landlordCards={isLandlord && landlordSeat === seatNum ? landlordCards : undefined}
+        compact={compact}
         onChangeSeat={() => {
           if (!player && seatNum !== mySeat) {
             onSitDown(seatNum);

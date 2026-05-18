@@ -672,7 +672,7 @@ export default function RoomPage() {
       </nav>
 
       {/* Main Game Canvas — Stitch dark green table */}
-      <main className="flex-grow flex flex-col items-center justify-center pt-16 relative"
+      <main className={clsx("flex-grow flex flex-col items-center justify-center pt-16 relative", compactUI && "landscape-main")}
         style={{
           background: "radial-gradient(circle, #226a4b 0%, #003824 100%)",
         }}
@@ -695,6 +695,7 @@ export default function RoomPage() {
                 maxPlayers={gameConfig.maxPlayers}
                 tableSize={gameConfig.tableSize}
                 speechBubbles={speechBubbles}
+                compact={compactUI}
               />
             </div>
 

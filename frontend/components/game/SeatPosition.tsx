@@ -33,6 +33,7 @@ interface SeatPositionProps {
   cardsLeft?: "baodan" | "baoshuang" | null;
   action?: string | null;
   landlordCards?: number[];
+  compact?: boolean;
 }
 
 export function SeatPosition({
@@ -43,6 +44,7 @@ export function SeatPosition({
   cardsLeft,
   action,
   landlordCards,
+  compact = false,
 }: SeatPositionProps) {
   if (!player) {
     return (
@@ -82,7 +84,8 @@ export function SeatPosition({
   return (
     <div
       className={clsx(
-        "relative flex flex-col items-center gap-3 p-4 rounded-xl min-w-[120px] transition-all",
+        "relative flex flex-col items-center rounded-xl transition-all",
+        compact ? "gap-1.5 p-2 min-w-[80px]" : "gap-3 p-4 min-w-[120px]",
         "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
         // Current turn: gold glow
         player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
@@ -132,7 +135,8 @@ export function SeatPosition({
       <div className="relative">
         <div
           className={clsx(
-            "w-16 h-16 rounded-full border-4 border-surface-container-highest overflow-hidden",
+            "rounded-full border-surface-container-highest overflow-hidden",
+            compact ? "w-10 h-10 border-2" : "w-16 h-16 border-4",
             player.isLandlord && "border-secondary-container/50",
           )}
         >
@@ -159,12 +163,12 @@ export function SeatPosition({
       </div>
 
       {/* Name */}
-      <p className="text-player-name font-player-name text-on-surface text-center truncate max-w-[110px]">
+      <p className={clsx("font-player-name text-on-surface text-center truncate", compact ? "text-[10px] max-w-[70px]" : "text-player-name max-w-[110px]")}>
         {player.nickname || player.name}
       </p>
 
       {/* Status */}
-      <p className="text-label-md text-primary font-bold">
+      <p className={clsx("text-primary font-bold", compact ? "text-[10px]" : "text-label-md")}>
         {player.isReady ? "已准备" : "等待中..."}
       </p>
 
