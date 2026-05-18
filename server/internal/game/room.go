@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -42,15 +43,19 @@ type GameRoom struct {
 	mu       sync.Mutex
 	notify   chan []byte
 	agents   map[string]*ai.AIAgent
-	createdAt    time.Time
-	lastActiveAt time.Time
+	createdAt      time.Time
+	lastActiveAt   time.Time
+	currentGameID  int64
+	actionSeq      int
+	aiStore        *model.AIStore // for LLM call logging on AI agents
 }
 
 // RoomManager manages all active game rooms.
 type RoomManager struct {
-	rooms map[string]*GameRoom
-	mu    sync.RWMutex
-	store RoomStore
+	rooms   map[string]*GameRoom
+	mu      sync.RWMutex
+	store   RoomStore
+	aiStore *model.AIStore // for LLM call logging on AI agents
 }
 
 // NewGameRoom creates a new game room with the given engine and store.
@@ -73,10 +78,11 @@ func NewGameRoom(id string, gameType string, engine GameEngine, store RoomStore)
 }
 
 // NewRoomManager creates a new RoomManager.
-func NewRoomManager(store RoomStore) *RoomManager {
+func NewRoomManager(store RoomStore, aiStore *model.AIStore) *RoomManager {
 	return &RoomManager{
-		rooms: make(map[string]*GameRoom),
-		store: store,
+		rooms:   make(map[string]*GameRoom),
+		store:   store,
+		aiStore: aiStore,
 	}
 }
 
@@ -92,6 +98,7 @@ func (rm *RoomManager) GetOrCreateRoom(roomID string, gameType string, engine Ga
 		return room
 	}
 	room := NewGameRoom(roomID, gameType, engine, rm.store)
+	room.aiStore = rm.aiStore
 	rm.rooms[roomID] = room
 	return room
 }
@@ -661,6 +668,7 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 	}
 	if botCfg.Character != nil || botCfg.Provider != nil {
 		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+		agent.SetAIStore(r.aiStore)
 		agent.Start()
 		r.agents[botID] = agent
 	}
@@ -727,6 +735,7 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 
 	if botCfg.Character != nil || botCfg.Provider != nil {
 		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+		agent.SetAIStore(r.aiStore)
 		agent.Start()
 		r.agents[botID] = agent
 	}
@@ -820,6 +829,21 @@ func (r *GameRoom) startGame() {
 		p.Ready = false
 	}
 
+	// Create a game record for DB persistence
+	if r.store != nil {
+		gameID, err := r.store.CreateGameRecord(context.Background(), &model.GameRecord{
+			RoomID:   r.ID,
+			GameType: r.GameType,
+			RoundNum: 1,
+		})
+		if err != nil {
+			log.Printf("failed to create game record: %v", err)
+		} else {
+			r.currentGameID = gameID
+			r.actionSeq = 0
+		}
+	}
+
 	r.sendStateToAll("game_start")
 
 	// Trigger AI agent if the first player to act is a bot
@@ -892,6 +916,52 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 
 	r.State = newState
 
+	// Record the action to the game_records DB
+	if r.store != nil && r.currentGameID > 0 {
+		r.actionSeq++
+		var cardsJSON *string
+		if len(cards) > 0 {
+			b, _ := json.Marshal(cards)
+			s := string(b)
+			cardsJSON = &s
+		}
+		stateStr := r.Engine.SerializeForAI(r.State)
+		roundNum := 1
+		var sd struct {
+			RoundNum int `json:"round_num"`
+		}
+		if err := json.Unmarshal([]byte(stateStr), &sd); err == nil {
+			roundNum = sd.RoundNum
+		}
+		var seatIdx int8 = -1
+		isBot := false
+		var playerDBID *int64
+		for _, p := range r.Players {
+			if p.UserID == userID {
+				seatIdx = int8(p.Seat)
+				isBot = p.IsBot
+				if !p.IsBot {
+					uid, err := strconv.ParseInt(p.UserID, 10, 64)
+					if err == nil {
+						playerDBID = &uid
+					}
+				}
+				break
+			}
+		}
+		r.store.AddGameAction(context.Background(), &model.GameAction{
+			GameID:     r.currentGameID,
+			RoundNum:   roundNum,
+			ActionSeq:  r.actionSeq,
+			PlayerID:   playerDBID,
+			SeatIndex:  seatIdx,
+			IsBot:      isBot,
+			ActionType: action,
+			Cards:      cardsJSON,
+			FullState:  &stateStr,
+		})
+	}
+
 	// Check for 报单/报双 (cards left announcement)
 	cardsLeftMsg := checkCardsLeft(newState)
 	if cardsLeftMsg != "" {
@@ -923,6 +993,13 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 					}
 				}
 			}
+		}
+
+		// End the game record with final scores
+		if r.store != nil && r.currentGameID > 0 {
+			scoresJSON, _ := json.Marshal(scores)
+			r.store.EndGameRecord(context.Background(), r.currentGameID, string(scoresJSON))
+			r.currentGameID = 0
 		}
 
 		r.Status = "waiting"
@@ -970,6 +1047,7 @@ func WithLLMProvider(provider ai.LLMProvider) BotOption {
 // The caller must hold r.mu.
 func (r *GameRoom) createAIAgent(userID string, seat int, character *model.AICharacter, provider ai.LLMProvider) *ai.AIAgent {
 	agent := ai.NewAIAgent(userID, seat, character, provider, r)
+	agent.SetAIStore(r.aiStore)
 	agent.Start()
 	r.agents[userID] = agent
 	return agent
@@ -1054,6 +1132,16 @@ func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string
 			nickname = p.Nickname
 			break
 		}
+	}
+
+	// Persist chat message to database
+	if r.store != nil {
+		r.store.SaveChatMessage(context.Background(), &model.ChatMessage{
+			RoomID:  r.ID,
+			UserID:  senderID,
+			Content: content,
+			MsgType: msgType,
+		})
 	}
 
 	r.broadcastMsg("chat", map[string]interface{}{

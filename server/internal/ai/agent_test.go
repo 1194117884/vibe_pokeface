@@ -118,6 +118,9 @@ func (m *mockToolProvider) CompleteWithTools(ctx context.Context, messages []Cha
 	return resp, nil
 }
 
+func (m *mockToolProvider) ProviderName() string { return "mock" }
+func (m *mockToolProvider) ModelName() string    { return "mock" }
+
 func TestAgent_MultiTurnInfoThenAction(t *testing.T) {
 	exec := &mockExecutor{}
 	provider := &mockToolProvider{

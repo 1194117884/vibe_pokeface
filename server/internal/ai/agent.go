@@ -40,6 +40,8 @@ type AIAgent struct {
 
 	// Override for testing
 	MakeDecisionFunc func(agent *AIAgent, phase string, handCards []int, stateJSON string) string
+
+	aiStore *model.AIStore // for LLM call logging
 }
 
 // NewAIAgent creates a new AI agent
@@ -53,6 +55,11 @@ func NewAIAgent(userID string, seat int, character *model.AICharacter, provider 
 		triggerChan: make(chan struct{}, 1),
 		stopChan:    make(chan struct{}),
 	}
+}
+
+// SetAIStore sets the AIStore for LLM call logging.
+func (a *AIAgent) SetAIStore(store *model.AIStore) {
+	a.aiStore = store
 }
 
 // Start launches the agent's goroutine
@@ -143,6 +150,27 @@ func (a *AIAgent) makeDecisionWithTools() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		result, err := a.Provider.CompleteWithTools(ctx, messages, tools)
 		cancel()
+
+		// Log LLM call to database
+		if a.aiStore != nil {
+			llmCall := &model.LLMCallLog{
+				Provider: a.Provider.ProviderName(),
+				Model:    a.Provider.ModelName(),
+				CallType: "play_decision",
+				Success:  err == nil,
+			}
+			if err == nil {
+				llmCall.PromptTokens = result.PromptTokens
+				llmCall.CompletionTokens = result.CompletionTokens
+				llmCall.DurationMs = int(result.DurationMs)
+			} else {
+				errMsg := err.Error()
+				llmCall.ErrorMessage = &errMsg
+			}
+			if logErr := a.aiStore.LogLLMCall(context.Background(), llmCall); logErr != nil {
+				log.Printf("[AI:%s] failed to log LLM call: %v", a.UserID, logErr)
+			}
+		}
 
 		if err != nil {
 			log.Printf("[AI:%s] tool loop error at turn %d: %v, falling back", a.UserID, turn, err)

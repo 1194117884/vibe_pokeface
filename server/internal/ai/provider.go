@@ -57,15 +57,18 @@ type LLMResultWithTools struct {
 type LLMProvider interface {
 	Complete(ctx context.Context, systemPrompt, userPrompt string) (*LLMResult, error)
 	CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []ToolSchema) (*LLMResultWithTools, error)
+	ProviderName() string
+	ModelName() string
 }
 
 type OpenAIProvider struct {
-	apiKey      string
-	model       string
-	apiURL      string
-	temperature float64
-	maxTokens   int
-	client      *http.Client
+	apiKey       string
+	providerName string
+	model        string
+	apiURL       string
+	temperature  float64
+	maxTokens    int
+	client       *http.Client
 }
 
 // defaultAPIURL returns the official API endpoint for a given provider.
@@ -91,14 +94,18 @@ func NewOpenAIProvider(cfg *model.LLMConfig) *OpenAIProvider {
 		url = *cfg.APIURL
 	}
 	return &OpenAIProvider{
-		apiKey:      cfg.APIKey,
-		model:       cfg.Model,
-		apiURL:      url,
-		temperature: cfg.Temperature,
-		maxTokens:   cfg.MaxTokens,
-		client:      &http.Client{Timeout: 30 * time.Second},
+		apiKey:       cfg.APIKey,
+		providerName: cfg.Provider,
+		model:        cfg.Model,
+		apiURL:       url,
+		temperature:  cfg.Temperature,
+		maxTokens:    cfg.MaxTokens,
+		client:       &http.Client{Timeout: 30 * time.Second},
 	}
 }
+
+func (p *OpenAIProvider) ProviderName() string { return p.providerName }
+func (p *OpenAIProvider) ModelName() string    { return p.model }
 
 func (p *OpenAIProvider) Complete(ctx context.Context, systemPrompt, userPrompt string) (*LLMResult, error) {
 	body := map[string]interface{}{
@@ -253,6 +260,9 @@ func NewAnthropicProvider(cfg *model.LLMConfig) *AnthropicProvider {
 		client:      &http.Client{Timeout: 30 * time.Second},
 	}
 }
+
+func (p *AnthropicProvider) ProviderName() string { return "anthropic" }
+func (p *AnthropicProvider) ModelName() string    { return p.model }
 
 func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userPrompt string) (*LLMResult, error) {
 	body := map[string]interface{}{
