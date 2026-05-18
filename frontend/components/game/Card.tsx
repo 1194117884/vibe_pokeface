@@ -15,7 +15,7 @@ const SUITS = ["♠", "♥", "♣", "♦"] as const;
 const RANKS = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"] as const;
 
 function suitColor(suit: string): string {
-  return suit === "♥" || suit === "♦" ? "text-[#c82014]" : "text-on-surface";
+  return suit === "♥" || suit === "♦" ? "text-[#c82014]" : "text-[#1a1a1a]";
 }
 
 export function Card({ cardId, selected, onClick, faceDown, small, medium }: CardProps) {
