@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import clsx from "clsx";
 import { WSGameClient } from "@/lib/ws-game";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
@@ -11,12 +10,13 @@ import { ActionBar } from "@/components/game/ActionBar";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
-import { RoomThemeProvider } from "@/themes";
-import { NPCWalker } from "@/components/game/NPCWalker";
 import { AICharacterPicker } from "@/components/game/AICharacterPicker";
+import { useGameAudio } from "@/hooks/useGameAudio";
+import { GameNotifications, ToastItem } from "@/components/game/GameNotifications";
 
 interface ChatMessage {
   userId: string;
+  nickname: string;
   content: string;
   type: "text" | "emoji";
   timestamp: number;
@@ -60,8 +60,9 @@ interface ServerData {
     seat: number;
     play?: { type: number; main_rank: number; length: number };
     cards: Array<{ id: number } | number>;
-  };
+  } | null;
   timer?: number;
+  nickname?: string;
   content?: string;
   type?: string;
   timestamp?: number;
@@ -69,10 +70,142 @@ interface ServerData {
   theme?: string;
   game_type?: string;
   max_players?: number;
+  // Full GameState fields available at runtime
+  reveal_count?: number;
+  double_count?: number;
+  consecutive_passes?: number;
+  revealed?: Record<string, boolean>;
+  doubled?: Record<string, boolean>;
+  has_passed?: Record<string, boolean>;
+  snatch_count?: number;
+  multiplier?: number;
+  round_num?: number;
+  winner_seat?: number;
+}
+
+type ActionType =
+  | "called_landlord" | "passed_calling"
+  | "snatched" | "passed_snatching"
+  | "revealed" | "passed_reveal"
+  | "doubled" | "passed_double"
+  | "played_cards" | "passed_play";
+
+interface DetectedAction {
+  seat: number;
+  type: ActionType;
+  bubbleText: string;
+  toastText: string;
+  speechText: string;
+}
+
+function getPhrases(
+  type: ActionType,
+  ctx?: { hasPrevPlay?: boolean; isBomb?: boolean; isRocket?: boolean },
+): { bubbleText: string; toastText: string; speechText: string } {
+  switch (type) {
+    case "called_landlord": return { bubbleText: "叫地主!", toastText: "叫地主!", speechText: "叫地主" };
+    case "passed_calling": return { bubbleText: "不叫", toastText: "不叫", speechText: "不叫" };
+    case "snatched": return { bubbleText: "抢!", toastText: "抢地主!", speechText: "抢地主" };
+    case "passed_snatching": return { bubbleText: "不抢", toastText: "不抢", speechText: "不抢" };
+    case "revealed": return { bubbleText: "明牌!", toastText: "明牌!", speechText: "明牌" };
+    case "passed_reveal": return { bubbleText: "不亮", toastText: "不亮", speechText: "不亮" };
+    case "doubled": return { bubbleText: "加倍!", toastText: "加倍!", speechText: "加倍" };
+    case "passed_double": return { bubbleText: "不加倍", toastText: "不加倍", speechText: "不加倍" };
+    case "played_cards": {
+      if (ctx?.isRocket) return { bubbleText: "火箭!", toastText: "王炸!", speechText: "压死" };
+      if (ctx?.isBomb) return { bubbleText: "炸弹!", toastText: "炸弹!", speechText: "压死" };
+      if (ctx?.hasPrevPlay) return { bubbleText: "大你～", toastText: "大你～", speechText: "大你" };
+      return { bubbleText: "出牌!", toastText: "打出了一手牌", speechText: "出牌" };
+    }
+    case "passed_play": return { bubbleText: "不出", toastText: "过牌", speechText: "要不起" };
+  }
+}
+
+function isBomb(cards: number[]): boolean {
+  if (cards.length !== 4) return false;
+  const ranks = cards.map((c) => (c >= 52 ? c : c % 13));
+  return new Set(ranks).size === 1;
+}
+function isRocket(cards: number[]): boolean {
+  return cards.length === 2 && cards.includes(52) && cards.includes(53);
+}
+
+function detectAction(prev: ServerData | null, curr: ServerData): DetectedAction | null {
+  if (!prev) return null;
+
+  const prevBids = prev.bid_history ?? [];
+  const currBids = curr.bid_history ?? [];
+  if (currBids.length > prevBids.length) {
+    const entry = currBids[currBids.length - 1];
+    const isSnatching = curr.phase === 1;
+    const type: ActionType = entry.called
+      ? (isSnatching ? "snatched" : "called_landlord")
+      : (isSnatching ? "passed_snatching" : "passed_calling");
+    const phrases = getPhrases(type);
+    return { seat: entry.seat, type, ...phrases };
+  }
+
+  const crc = curr.reveal_count ?? 0;
+  const prc = prev.reveal_count ?? 0;
+  if (crc > prc) {
+    const currRv: Record<string, boolean> = (curr.revealed ?? {}) as Record<string, boolean>;
+    const prevRv: Record<string, boolean> = (prev.revealed ?? {}) as Record<string, boolean>;
+    for (const key of Object.keys(currRv)) {
+      if (currRv[key] && !prevRv[key]) {
+        const phrases = getPhrases("revealed");
+        return { seat: Number(key), type: "revealed", ...phrases };
+      }
+    }
+    if (prev.current_seat !== undefined) {
+      const phrases = getPhrases("passed_reveal");
+      return { seat: prev.current_seat, type: "passed_reveal", ...phrases };
+    }
+  }
+
+  const cdc = curr.double_count ?? 0;
+  const pdc = prev.double_count ?? 0;
+  if (cdc > pdc) {
+    const currDb: Record<string, boolean> = (curr.doubled ?? {}) as Record<string, boolean>;
+    const prevDb: Record<string, boolean> = (prev.doubled ?? {}) as Record<string, boolean>;
+    for (const key of Object.keys(currDb)) {
+      if (currDb[key] && !prevDb[key]) {
+        const phrases = getPhrases("doubled");
+        return { seat: Number(key), type: "doubled", ...phrases };
+      }
+    }
+    if (prev.current_seat !== undefined) {
+      const phrases = getPhrases("passed_double");
+      return { seat: prev.current_seat, type: "passed_double", ...phrases };
+    }
+  }
+
+  const pcp = prev.consecutive_passes ?? 0;
+  const ccp = curr.consecutive_passes ?? 0;
+  if (ccp > pcp) {
+    if (prev.current_seat !== undefined) {
+      const phrases = getPhrases("passed_play");
+      return { seat: prev.current_seat, type: "passed_play", ...phrases };
+    }
+  }
+
+  const prevLP = prev.last_play;
+  const currLP = curr.last_play;
+  if (currLP && (!prevLP || currLP.seat !== prevLP.seat)) {
+    const cards: number[] = Array.isArray(currLP.cards)
+      ? currLP.cards.map((c: number | { id: number }) => (typeof c === "number" ? c : c.id))
+      : [];
+    const hasPrevPlay = !!prevLP;
+    const rocket = isRocket(cards);
+    const bomb = !rocket && isBomb(cards);
+    const phrases = getPhrases("played_cards", { hasPrevPlay, isBomb: bomb, isRocket: rocket });
+    return { seat: currLP.seat, type: "played_cards", ...phrases };
+  }
+
+  return null;
 }
 
 const GAME_CONFIG: Record<string, { maxPlayers: number; tableSize: "sm" | "lg" }> = {
-  doudizhu: { maxPlayers: 3, tableSize: "sm" },
+  doudizhu: { maxPlayers: 3, tableSize: "lg" },
 };
 
 function toTablePlayer(p: ServerPlayer): TablePlayer {
@@ -148,15 +281,49 @@ export default function RoomPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
   const [landlordCards, setLandlordCards] = useState<number[]>([]);
+  const [landlordSeat, setLandlordSeat] = useState<number | undefined>(undefined);
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [cardsLeftMessage, setCardsLeftMessage] = useState<string | null>(null);
   const [gameType, setGameType] = useState("doudizhu");
   const [showAIPicker, setShowAIPicker] = useState(false);
   const gameConfig = GAME_CONFIG[gameType] || GAME_CONFIG.doudizhu;
+  const [speechBubbles, setSpeechBubbles] = useState<Record<number, string>>({});
+  const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
+  const [audioMuted, setAudioMuted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("audio_muted") === "true";
+  });
+  const prevDataRef = useRef<ServerData | null>(null);
+  const toastIdRef = useRef(0);
+  const bubbleTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const { speak } = useGameAudio(audioMuted);
 
   const wsClientRef = useRef<WSGameClient | null>(null);
   const voiceClientRef = useRef<LiveKitClient | null>(null);
+
+  const showSpeechBubble = useCallback((seat: number, text: string) => {
+    if (bubbleTimersRef.current[seat]) {
+      clearTimeout(bubbleTimersRef.current[seat]);
+    }
+    setSpeechBubbles((prev) => ({ ...prev, [seat]: text }));
+    bubbleTimersRef.current[seat] = setTimeout(() => {
+      setSpeechBubbles((prev) => {
+        const next = { ...prev };
+        delete next[seat];
+        return next;
+      });
+      delete bubbleTimersRef.current[seat];
+    }, 3000);
+  }, []);
+
+  const addToast = useCallback((text: string) => {
+    const id = ++toastIdRef.current;
+    setToastQueue((prev) => [...prev, { id, text, seat: -1 }]);
+    setTimeout(() => {
+      setToastQueue((prev) => prev.filter((t) => t.id !== id));
+    }, 3000);
+  }, []);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -200,6 +367,17 @@ export default function RoomPage() {
 
     client.on("state_update", (msg) => {
       const data = msg.data as ServerData;
+
+      // Detect and announce player actions via diff
+      const prev = prevDataRef.current;
+      const action = detectAction(prev, data);
+      if (action) {
+        showSpeechBubble(action.seat, action.bubbleText);
+        addToast(action.toastText);
+        speak(action.speechText);
+      }
+      prevDataRef.current = data;
+
       if (data?.players) {
         setPlayers((prev) => mergePlayers(prev, data.players!.map(toTablePlayer)));
         if (mySeatRef.current !== null) {
@@ -218,6 +396,7 @@ export default function RoomPage() {
       if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
         setLandlordCards(data.landlord_cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id));
       }
+      if (data?.landlord_seat !== undefined) setLandlordSeat(data.landlord_seat);
       // Extract last play
       if (data?.last_play && data?.last_play?.cards) {
         const lp = data.last_play as { seat: number; cards: Array<{ id: number } | number> };
@@ -268,12 +447,14 @@ export default function RoomPage() {
       if (data?.landlord_cards && Array.isArray(data.landlord_cards)) {
         setLandlordCards(data.landlord_cards.map((c: { id: number } | number) => typeof c === "number" ? c : c.id));
       }
+      if (data?.landlord_seat !== undefined) setLandlordSeat(data.landlord_seat);
     });
 
     client.on("round_end", (msg) => {
       setPhase("ended");
       setHand([]);
       setLandlordCards([]);
+      setLandlordSeat(undefined);
       setLastPlay(null);
       setCardsLeftMessage(null);
       const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
@@ -289,6 +470,7 @@ export default function RoomPage() {
           ...prev,
           {
             userId: String(data.user_id ?? "unknown"),
+            nickname: String(data.nickname ?? data.user_id ?? "unknown"),
             content: data.content ?? "",
             type: data.type === "emoji" ? "emoji" : "text",
             timestamp: data.timestamp ?? Date.now(),
@@ -439,244 +621,229 @@ export default function RoomPage() {
   }
 
   return (
-    <RoomThemeProvider themeId={roomTheme}>
-      <NPCWalker />
-      <div
-        className="min-h-screen flex flex-col"
+    <div className="min-h-screen bg-background text-on-background flex flex-col overflow-hidden">
+      {/* Toast notifications */}
+      <GameNotifications toasts={toastQueue} />
+      {/* Top Navigation */}
+      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="flex items-center gap-4">
+          <h1 className="text-display-gold font-display-gold text-secondary-container drop-shadow-md text-[24px]">
+            房间 {roomId.slice(0, 6)}
+          </h1>
+          <span className="text-xs bg-primary-container text-on-primary-container px-2 py-0.5 rounded-full">
+            斗地主
+          </span>
+        </div>
+        <div className="flex gap-2 items-center">
+          <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+          <button
+            onClick={() => {
+              const next = !audioMuted;
+              setAudioMuted(next);
+              localStorage.setItem("audio_muted", String(next));
+            }}
+            className="text-on-surface-variant hover:text-primary transition-colors text-lg"
+            title={audioMuted ? "取消静音" : "静音"}
+            aria-label={audioMuted ? "取消静音" : "静音"}
+          >
+            {audioMuted ? "🔇" : "🔊"}
+          </button>
+          <button
+            onClick={() => router.push("/lobby")}
+            className="text-on-surface-variant hover:text-primary transition-colors text-label-md"
+          >
+            ← 退出
+          </button>
+        </div>
+      </nav>
+
+      {/* Main Game Canvas — Stitch dark green table */}
+      <main className="flex-grow flex flex-col items-center justify-center pt-16 relative"
         style={{
-          backgroundImage: "var(--bg-image)",
-          backgroundColor: "var(--bg-color, #f2f0eb)",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundAttachment: "fixed",
+          background: "radial-gradient(circle, #226a4b 0%, #003824 100%)",
         }}
       >
-        {/* Dark overlay for readability */}
-        <div
-          className="fixed inset-0 pointer-events-none"
-          style={{ background: "var(--bg-overlay, none)", zIndex: 1 }}
-        />
-
-        {/* Room Header */}
-        <header className="bg-white/90 backdrop-blur-sm border-b border-ceramic px-6 py-3 flex items-center justify-between shrink-0 relative z-20">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/lobby")}
-              className="text-sm text-text-black-soft hover:text-green-accent"
-            >
-              ← 退出
-            </button>
-            <h1 className="font-bold text-text-black-strong">
-              房间 {roomId.slice(0, 6)}
-            </h1>
-            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-              斗地主
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-            <span className="text-xs text-text-black-soft">
-              {micEnabled ? "Mic on" : "Mic off"}
-            </span>
-          </div>
-        </header>
-
-        {/* Main Content */}
-        <div className="flex-1 flex min-h-0 relative z-10">
-          {/* Game Area */}
-          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
-            {players.length === 0 ? (
-              <div className="text-center text-text-black-soft">房间是空的</div>
-            ) : (
-              <>
-                <div className="w-full pb-12">
-                  <RoomTable
-                    players={displayPlayers}
-                    mySeat={mySeat ?? 0}
-                    phase={phase}
-                    onSitDown={handleSitDown}
-                    onAddBot={handleAddBot}
-                    landlordCards={landlordCards}
-                    lastPlay={lastPlay}
-                    cardsLeftMessage={cardsLeftMessage}
-                    maxPlayers={gameConfig.maxPlayers}
-                    tableSize={gameConfig.tableSize}
-                  />
-                </div>
-
-                {/* Waiting phase: Ready/Start controls */}
-                {phase === "waiting" && (
-                  <ReadyBar
-                    amIOwner={amIOwner}
-                    isReady={amIReady}
-                    allReady={allReady}
-                    playerCount={players.length}
-                    maxPlayers={gameConfig.maxPlayers}
-                    canStart={canStart}
-                    onReady={handleReady}
-                    onStartGame={handleStartGame}
-                    onAddBot={handleAddBot}
-                  />
-                )}
-
-                {/* Playing/Bidding phase: hand cards and action buttons */}
-                {(phase !== "waiting" && phase !== "ended") && (
-                  <div className="w-full max-w-3xl mt-4 space-y-2">
-                    <HandCards
-                      cards={hand}
-                      onPlayCards={
-                        phase === "playing" ? handlePlayCards : undefined
-                      }
-                      disabled={!isMyTurn}
-                    />
-                    {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
-                      <ActionBar
-                        phase={phase}
-                        isMyTurn={isMyTurn}
-                        onBidCall={handleBidCall}
-                        onBidPass={handleBidPass}
-                        onReveal={handleReveal}
-                        onRevealPass={handleRevealPass}
-                        onDouble={handleDouble}
-                        onNoDouble={handleNoDouble}
-                      />
-                    )}
-                    {(phase === "calling" || phase === "snatching") && !isMyTurn && (
-                      <p className="text-center text-sm text-text-black-soft animate-pulse">
-                        {phase === "calling" ? "等待其他玩家叫地主..." : "等待其他玩家抢地主..."}
-                      </p>
-                    )}
-                    {phase === "revealing" && !isMyTurn && (
-                      <p className="text-center text-sm text-text-black-soft animate-pulse">
-                        等待其他玩家明牌...
-                      </p>
-                    )}
-                    {phase === "doubling" && !isMyTurn && (
-                      <p className="text-center text-sm text-text-black-soft animate-pulse">
-                        等待其他玩家加倍...
-                      </p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Desktop Chat Sidebar */}
-          <div className="hidden lg:flex w-80 p-4 border-l border-white/20 flex-col shrink-0 relative z-10">
-            <div className="flex-1 min-h-0">
-              <ChatPanel
-                messages={chatMessages}
-                onSendMessage={handleSendChat}
-                disabled={!connected}
+        {players.length === 0 ? (
+          <div className="text-center text-on-surface-variant text-lg">房间是空的</div>
+        ) : (
+          <>
+            <div className="w-full pb-8">
+              <RoomTable
+                players={displayPlayers}
+                mySeat={mySeat ?? 0}
+                phase={phase}
+                onSitDown={handleSitDown}
+                onAddBot={handleAddBot}
+                landlordCards={landlordCards}
+                landlordSeat={landlordSeat}
+                lastPlay={lastPlay}
+                cardsLeftMessage={cardsLeftMessage}
+                maxPlayers={gameConfig.maxPlayers}
+                tableSize={gameConfig.tableSize}
+                speechBubbles={speechBubbles}
               />
+            </div>
+
+            {/* Waiting phase: Ready/Start controls */}
+            {phase === "waiting" && (
+              <ReadyBar
+                amIOwner={amIOwner}
+                isReady={amIReady}
+                allReady={allReady}
+                playerCount={players.length}
+                maxPlayers={gameConfig.maxPlayers}
+                canStart={canStart}
+                onReady={handleReady}
+                onStartGame={handleStartGame}
+                onAddBot={handleAddBot}
+              />
+            )}
+
+          </>
+        )}
+      </main>
+
+      {/* Bottom area: bidding controls + hand cards */}
+      {(phase !== "waiting" && phase !== "ended") && (
+        <div className="fixed bottom-0 w-full flex flex-col items-center z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
+          {/* Bidding action buttons — above the hand cards */}
+          {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
+            <div className="w-full max-w-3xl space-y-2 mb-2">
+              <ActionBar
+                phase={phase}
+                isMyTurn={isMyTurn}
+                onBidCall={handleBidCall}
+                onBidPass={handleBidPass}
+                onReveal={handleReveal}
+                onRevealPass={handleRevealPass}
+                onDouble={handleDouble}
+                onNoDouble={handleNoDouble}
+              />
+              {(phase === "calling" || phase === "snatching") && !isMyTurn && (
+                <p className="text-center text-sm text-white/60 animate-pulse">
+                  {phase === "calling" ? "等待其他玩家叫地主..." : "等待其他玩家抢地主..."}
+                </p>
+              )}
+              {phase === "revealing" && !isMyTurn && (
+                <p className="text-center text-sm text-white/60 animate-pulse">
+                  等待其他玩家明牌...
+                </p>
+              )}
+              {phase === "doubling" && !isMyTurn && (
+                <p className="text-center text-sm text-white/60 animate-pulse">
+                  等待其他玩家加倍...
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Player hand cards */}
+          <HandCards
+            cards={hand}
+            onPlayCards={phase === "playing" ? handlePlayCards : undefined}
+            disabled={!isMyTurn}
+          />
+        </div>
+      )}
+
+      {/* Desktop Chat Sidebar */}
+      <aside className="fixed right-0 top-0 h-full z-40 hidden lg:flex flex-col py-24 w-64 bg-surface-container-high border-l border-outline-variant shadow-xl rounded-l-xl">
+        <div className="flex-1 min-h-0 px-2">
+          <ChatPanel
+            messages={chatMessages}
+            onSendMessage={handleSendChat}
+            disabled={!connected}
+          />
+        </div>
+      </aside>
+
+      {/* Mobile Chat FAB */}
+      <button
+        onClick={() => setChatOpen(true)}
+        className="fixed bottom-24 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-primary text-on-primary text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
+        aria-label="Open Chat"
+      >
+        💬
+      </button>
+
+      {/* Mobile Chat Sheet */}
+      {chatOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setChatOpen(false)} />
+          <div className="absolute bottom-0 left-0 right-0 bg-surface-container-high rounded-t-xl shadow-frap flex flex-col max-h-[70vh] pb-[var(--safe-area-bottom,0px)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
+              <div className="flex items-center gap-2">
+                <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+                <span className="text-sm text-on-surface-variant">
+                  {micEnabled ? "Mic on" : "Mic off"}
+                </span>
+              </div>
+              <button
+                onClick={() => setChatOpen(false)}
+                className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-4">
+              <ChatPanel messages={chatMessages} onSendMessage={handleSendChat} disabled={!connected} />
             </div>
           </div>
         </div>
+      )}
 
-        {/* Mobile Chat FAB */}
-        <button
-          onClick={() => setChatOpen(true)}
-          className="fixed bottom-6 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-green-accent text-white text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
-          aria-label="打开聊天"
-        >
-          💬
-        </button>
+      {/* AI character picker */}
+      <AICharacterPicker
+        open={showAIPicker}
+        onClose={() => setShowAIPicker(false)}
+        onSelect={handleSelectAICharacter}
+      />
 
-        {/* Mobile Chat Sheet */}
-        {chatOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
-            <div
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setChatOpen(false)}
-            />
-            <div
-              className={clsx(
-                "absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-frap",
-                "flex flex-col max-h-[70vh] transition-transform duration-300",
-                "pb-[var(--safe-area-bottom,0px)]",
-              )}
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-ceramic">
-                <div className="flex items-center gap-2">
-                  <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-                  <span className="text-sm text-text-black-soft">
-                    {micEnabled ? "Mic on" : "Mic off"}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setChatOpen(false)}
-                  className="w-8 h-8 rounded-full bg-cream flex items-center justify-center text-text-black-soft hover:bg-ceramic transition-colors"
-                  aria-label="关闭聊天"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="flex-1 min-h-0 p-4">
-                <ChatPanel
-                  messages={chatMessages}
-                  onSendMessage={handleSendChat}
-                  disabled={!connected}
-                />
-              </div>
+      {/* Round end overlay */}
+      {phase === "ended" && roundResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-surface-container-high rounded-2xl shadow-frap p-8 max-w-sm w-full mx-4 text-center border border-outline-variant">
+            <h2 className="text-2xl font-bold text-on-surface mb-2">🎉 本局结束</h2>
+            <div className="space-y-3 my-6">
+              {players.map((p) => {
+                const score = roundResult.scores.find((s) => String(s.player_id) === p.userId);
+                const isPositive = score && score.score > 0;
+                return (
+                  <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-surface-container rounded-xl">
+                    <span className="font-medium text-on-surface">{p.nickname || p.name}</span>
+                    <span className={`font-bold text-lg ${isPositive ? "text-primary" : "text-error"}`}>
+                      {score ? (score.score > 0 ? "+" : "") + score.score : "0"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => {
+                  setPhase("waiting");
+                  setRoundResult(null);
+                  setLandlordCards([]);
+                  setLandlordSeat(undefined);
+                  setLastPlay(null);
+                  setCardsLeftMessage(null);
+                  setCurrentSeat(undefined);
+                  handleReady();
+                }}
+                className="px-6 py-2 rounded-full bg-gradient-to-b from-secondary-container to-on-secondary-container text-on-secondary-fixed font-bold hover:brightness-110 active:scale-95 transition-all shadow-[inset_0_2px_0_rgba(255,255,255,0.4),0_4px_6px_rgba(0,0,0,0.2)]"
+              >
+                再来一局
+              </button>
+              <button
+                onClick={() => router.push("/lobby")}
+                className="px-6 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/20 text-on-surface font-bold hover:bg-white/10 active:scale-95 transition-all"
+              >
+                返回大厅
+              </button>
             </div>
           </div>
-        )}
-
-        {/* AI character picker */}
-        <AICharacterPicker
-          open={showAIPicker}
-          onClose={() => setShowAIPicker(false)}
-          onSelect={handleSelectAICharacter}
-        />
-
-        {/* Round end overlay */}
-        {phase === "ended" && roundResult && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-2xl shadow-frap p-8 max-w-sm w-full mx-4 text-center">
-              <h2 className="text-2xl font-bold text-text-black-strong mb-2">
-                🎉 本局结束
-              </h2>
-              <div className="space-y-3 my-6">
-                {players.map((p) => {
-                  const score = roundResult.scores.find(s => String(s.player_id) === p.userId);
-                  const isPositive = score && score.score > 0;
-                  return (
-                    <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-cream rounded-xl">
-                      <span className="font-medium text-text-black">{p.nickname || p.name}</span>
-                      <span className={`font-bold text-lg ${isPositive ? 'text-green-accent' : 'text-red-400'}`}>
-                        {score ? (score.score > 0 ? "+" : "") + score.score : "0"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => {
-                    setPhase("waiting");
-                    setRoundResult(null);
-                    setLandlordCards([]);
-                    setLastPlay(null);
-                    setCardsLeftMessage(null);
-                    setCurrentSeat(undefined);
-                    handleReady();
-                  }}
-                  className="px-6 py-2 bg-green-accent text-white rounded-pill font-semibold hover:bg-green-accent/90 transition-colors"
-                >
-                  再来一局
-                </button>
-                <button
-                  onClick={() => router.push("/lobby")}
-                  className="px-6 py-2 bg-white text-text-black border border-ceramic rounded-pill font-semibold hover:border-green-accent/50 transition-colors"
-                >
-                  返回大厅
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </RoomThemeProvider>
+        </div>
+      )}
+    </div>
   );
 }

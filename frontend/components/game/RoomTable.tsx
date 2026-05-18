@@ -1,7 +1,7 @@
 "use client";
 
 import { SeatPosition } from "./SeatPosition";
-import { useRoomTheme } from "@/themes";
+import { Card } from "./Card";
 
 export interface TablePlayer {
   userId: string;
@@ -24,10 +24,12 @@ interface RoomTableProps {
   onSitDown: (seat: number) => void;
   onAddBot: () => void;
   landlordCards?: number[];
+  landlordSeat?: number;
   lastPlay?: { seat: number; cards: number[] } | null;
   cardsLeftMessage?: string | null;
   maxPlayers?: number;
   tableSize?: "sm" | "lg";
+  speechBubbles?: Record<number, string>;
 }
 
 interface SeatLayout {
@@ -36,14 +38,14 @@ interface SeatLayout {
   top: string;
 }
 
-const TABLE_WIDTHS: Record<string, string> = {
-  sm: "max-w-sm",
-  lg: "max-w-3xl",
+const TABLE_SIZES: Record<string, string> = {
+  sm: "max-w-lg",
+  lg: "max-w-5xl",
 };
 
 const SEAT_RADIUS: Record<string, number> = {
-  sm: 34,
-  lg: 38,
+  sm: 32,
+  lg: 36,
 };
 
 function calcSeatPositions(numSeats: number, mySeat: number, radius: number): SeatLayout[] {
@@ -66,24 +68,21 @@ export function RoomTable({
   onSitDown,
   onAddBot,
   landlordCards = [],
+  landlordSeat = undefined,
   lastPlay = null,
   cardsLeftMessage = null,
   maxPlayers = 3,
-  tableSize = "sm",
+  tableSize = "lg",
+  speechBubbles = {},
 }: RoomTableProps) {
-  const theme = useRoomTheme();
-
   const seatMap = new Map<number, TablePlayer>();
   players.forEach((p) => seatMap.set(p.seat, p));
 
-  // Evenly spaced seat positions around the table
   const radius = SEAT_RADIUS[tableSize];
   const seatLayouts = calcSeatPositions(maxPlayers, mySeat, radius);
 
-  // Center text based on phase
   const centerText = phase === "playing" ? "游戏中" : phase === "ended" ? "已结束" : "等待中";
 
-  // Parse cards left message for seat badge
   const cardsLeftInfo = (() => {
     if (!cardsLeftMessage) return null;
     const match = cardsLeftMessage.match(/^seat_(\d+)_(baodan|baoshuang)$/);
@@ -92,67 +91,48 @@ export function RoomTable({
   })();
 
   return (
-    <div className={`relative w-full ${TABLE_WIDTHS[tableSize]} mx-auto aspect-[4/3]`}>
-      {/* Theme-aware felt table */}
+    <div className={`relative w-full ${TABLE_SIZES[tableSize]} mx-auto aspect-[4/3]`}>
+      {/* Stitch-style dark green poker table */}
       <div
-        className="absolute inset-0 rounded-[40%] shadow-xl"
+        className="absolute inset-0 rounded-[48px]"
         style={{
-          backgroundColor: "var(--felt-color, #1B5E20)",
-          boxShadow: "var(--felt-shadow, 0 20px 60px rgba(0,0,0,0.5))",
-          borderWidth: "var(--table-border-width, 8px)",
+          background: "radial-gradient(circle, #226a4b 0%, #003824 100%)",
+          boxShadow:
+            "0 0 6px rgba(0,0,0,0.24), 0 8px 12px rgba(0,0,0,0.14), 0 20px 60px rgba(0,0,0,0.5)",
+          borderWidth: "12px",
           borderStyle: "solid",
-          borderColor: "var(--table-border-color, #8B4513)",
+          borderColor: "#1a1a1a",
         }}
       >
+        {/* Inner felt rim */}
         <div
-          className="absolute inset-4 rounded-[35%]"
-          style={{ backgroundColor: "var(--felt-color, #1B5E20)", opacity: 0.3 }}
+          className="absolute inset-4 rounded-[36px]"
+          style={{ backgroundColor: "#003824", opacity: 0.4 }}
         />
       </div>
 
-      {/* Center decoration — show landlord cards, last play, or default */}
+      {/* Center: The Kitty (landlord cards) or last play */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center z-10">
         {lastPlay && phase === "playing" ? (
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-xs text-white/70 font-medium">
-              {players.find(p => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-on-surface-variant text-xs font-medium opacity-60">
+              {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
             </span>
-            <div className="flex gap-0.5">
+            <div className="flex gap-1">
               {lastPlay.cards.map((cardId, i) => (
-                <div key={i} className="w-7 h-10 bg-white rounded shadow-md flex items-center justify-center text-xs font-bold"
-                  style={{
-                    color: cardId >= 52 ? "#d32f2f" : [1, 2, 3].includes(Math.floor(cardId / 13)) ? "#d32f2f" : "#333",
-                  }}>
-                  {cardDisplay(cardId)}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : landlordCards && landlordCards.length > 0 && (phase === "playing" || phase === "bidding") ? (
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-xs text-white/70 font-medium">底牌</span>
-            <div className="flex gap-0.5">
-              {landlordCards.map((cardId, i) => (
-                <div key={i} className="w-7 h-10 bg-white rounded shadow-md flex items-center justify-center text-xs font-bold"
-                  style={{
-                    color: cardId >= 52 ? "#d32f2f" : [1, 2, 3].includes(Math.floor(cardId / 13)) ? "#d32f2f" : "#333",
-                  }}>
-                  {cardDisplay(cardId)}
-                </div>
+                <Card key={i} cardId={cardId} medium />
               ))}
             </div>
           </div>
         ) : (
           <>
-            <span className="text-4xl select-none drop-shadow-lg">
-              {theme.table.decoration}
-            </span>
-            <p className="text-white/60 text-sm font-medium mt-1">{centerText}</p>
+            <span className="text-4xl select-none drop-shadow-lg opacity-50">🃏</span>
+            <p className="text-white/40 text-sm font-medium mt-1">{centerText}</p>
           </>
         )}
       </div>
 
-      {/* Seats evenly distributed around the table */}
+      {/* Seats positioned around the table */}
       {seatLayouts.map(({ seatNum, left, top }) => (
         <div
           key={seatNum}
@@ -170,24 +150,31 @@ export function RoomTable({
   function renderSeat(seatNum: number) {
     const player = seatMap.get(seatNum);
     const isMine = seatNum === mySeat;
+    const isLandlord = player?.isLandlord ?? false;
 
     return (
       <SeatPosition
         seatNumber={seatNum}
-        player={player ? {
-          userId: player.userId,
-          name: player.name,
-          nickname: player.nickname,
-          characterId: player.characterId,
-          isBot: player.isBot,
-          isOwner: player.isOwner,
-          isReady: player.isReady,
-          isCurrentTurn: player.isCurrentTurn,
-          isLandlord: player.isLandlord,
-          cardCount: player.cardCount,
-        } : null}
+        player={
+          player
+            ? {
+                userId: player.userId,
+                name: player.name,
+                nickname: player.nickname,
+                characterId: player.characterId,
+                isBot: player.isBot,
+                isOwner: player.isOwner,
+                isReady: player.isReady,
+                isCurrentTurn: player.isCurrentTurn,
+                isLandlord: player.isLandlord,
+                cardCount: player.cardCount,
+              }
+            : null
+        }
         isMySeat={isMine}
         cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
+        action={speechBubbles[seatNum] ?? null}
+        landlordCards={isLandlord && landlordSeat === seatNum ? landlordCards : undefined}
         onChangeSeat={() => {
           if (!player && seatNum !== mySeat) {
             onSitDown(seatNum);
@@ -197,12 +184,4 @@ export function RoomTable({
       />
     );
   }
-}
-
-function cardDisplay(cardId: number): string {
-  const suits = ["♠", "♥", "♣", "♦"];
-  const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
-  if (cardId === 52) return "🃏";
-  if (cardId === 53) return "👑";
-  return suits[Math.floor(cardId / 13)] + ranks[cardId % 13];
 }
