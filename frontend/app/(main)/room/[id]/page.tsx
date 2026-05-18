@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import clsx from "clsx";
 import { WSGameClient } from "@/lib/ws-game";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
@@ -294,6 +295,7 @@ export default function RoomPage() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("audio_muted") === "true";
   });
+  const [compactUI, setCompactUI] = useState(false);
   const prevDataRef = useRef<ServerData | null>(null);
   const toastIdRef = useRef(0);
   const bubbleTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
@@ -513,6 +515,15 @@ export default function RoomPage() {
     };
   }, [roomId, router]);
 
+  useEffect(() => {
+    const check = () => {
+      setCompactUI(window.innerWidth > window.innerHeight && window.innerHeight < 500);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const myUserId = getUserIdFromToken();
   const myPlayer = players.find((p) => p.seat === mySeatRef.current);
   const amIOwner = players.some((p) => p.userId === myUserId && p.isOwner);
@@ -625,7 +636,10 @@ export default function RoomPage() {
       {/* Toast notifications */}
       <GameNotifications toasts={toastQueue} />
       {/* Top Navigation */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-gradient-to-b from-black/60 to-transparent">
+      <nav className={clsx(
+        "fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-gradient-to-b from-black/60 to-transparent",
+        compactUI && "landscape-nav"
+      )}>
         <div className="flex items-center gap-4">
           <h1 className="text-display-gold font-display-gold text-secondary-container drop-shadow-md text-[24px]">
             房间 {roomId.slice(0, 6)}
@@ -667,7 +681,7 @@ export default function RoomPage() {
           <div className="text-center text-on-surface-variant text-lg">房间是空的</div>
         ) : (
           <>
-            <div className="w-full pb-8">
+            <div className={clsx("w-full pb-8", compactUI && "landscape-table")}>
               <RoomTable
                 players={displayPlayers}
                 mySeat={mySeat ?? 0}
@@ -705,7 +719,7 @@ export default function RoomPage() {
 
       {/* Bottom area: bidding controls + hand cards */}
       {(phase !== "waiting" && phase !== "ended") && (
-        <div className="fixed bottom-0 w-full flex flex-col items-center z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
+        <div className={clsx("fixed bottom-0 w-full flex flex-col items-center z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8", compactUI && "landscape-bottom-bar")}>
           {/* Bidding action buttons — above the hand cards */}
           {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
             <div className="w-full max-w-3xl space-y-2 mb-2">
@@ -742,6 +756,7 @@ export default function RoomPage() {
             cards={hand}
             onPlayCards={phase === "playing" ? handlePlayCards : undefined}
             disabled={!isMyTurn}
+            compact={compactUI}
           />
         </div>
       )}

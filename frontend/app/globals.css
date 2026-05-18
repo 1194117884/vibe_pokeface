@@ -1,7 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
+  /* Starbucks-inspired tokens (legacy) */
   --color-starbucks: #006241;
   --color-green-accent: #00754A;
   --color-house-green: #1E3932;
@@ -18,7 +19,79 @@
   --color-text-white-soft: rgba(255, 255, 255, 0.70);
   --color-red-error: #c82014;
   --color-yellow-warn: #fbbc05;
-  --font-family-sans: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* Material Design 3 Dark Theme (Stitch Design) */
+  --color-background: #111415;
+  --color-surface: #111415;
+  --color-surface-dim: #111415;
+  --color-surface-bright: #373a3b;
+  --color-surface-container: #1d2021;
+  --color-surface-container-low: #191c1d;
+  --color-surface-container-lowest: #0c0f10;
+  --color-surface-container-high: #282a2b;
+  --color-surface-container-highest: #323536;
+  --color-surface-variant: #323536;
+  --color-on-surface: #e1e3e4;
+  --color-on-surface-variant: #bfc9c1;
+  --color-on-background: #e1e3e4;
+  --color-outline: #89938c;
+  --color-outline-variant: #3f4943;
+  --color-inverse-surface: #e1e3e4;
+  --color-inverse-on-surface: #2e3132;
+  --color-inverse-primary: #226a4b;
+  --color-primary: #8ed5af;
+  --color-primary-container: #0d5c3e;
+  --color-primary-fixed: #a9f2ca;
+  --color-primary-fixed-dim: #8ed5af;
+  --color-on-primary: #003824;
+  --color-on-primary-container: #8bd2ac;
+  --color-on-primary-fixed: #002113;
+  --color-on-primary-fixed-variant: #005235;
+  --color-surface-tint: #8ed5af;
+  --color-secondary: #fff9ef;
+  --color-secondary-container: #ffdb3c;
+  --color-secondary-fixed: #ffe16d;
+  --color-secondary-fixed-dim: #e9c400;
+  --color-on-secondary: #3a3000;
+  --color-on-secondary-container: #725f00;
+  --color-on-secondary-fixed: #221b00;
+  --color-on-secondary-fixed-variant: #544600;
+  --color-tertiary: #ffb4a5;
+  --color-tertiary-container: #9f1800;
+  --color-tertiary-fixed: #ffdad3;
+  --color-tertiary-fixed-dim: #ffb4a5;
+  --color-on-tertiary: #650b00;
+  --color-on-tertiary-container: #ffaf9e;
+  --color-on-tertiary-fixed: #3e0400;
+  --color-on-tertiary-fixed-variant: #8e1400;
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+  --color-on-error-container: #ffdad6;
+
+  /* Stitch Design Font Stack */
+  --font-family-sans: "Be Vietnam Pro", Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-card-number: "Be Vietnam Pro", sans-serif;
+  --font-button-text: "Be Vietnam Pro", sans-serif;
+  --font-player-name: "Be Vietnam Pro", sans-serif;
+  --font-label-md: "Be Vietnam Pro", sans-serif;
+  --font-display-gold: "Be Vietnam Pro", sans-serif;
+
+  /* Stitch Design Font Sizes */
+  --text-card-number: 32px;
+  --text-card-number--line-height: 32px;
+  --text-card-number--font-weight: 700;
+  --text-button-text: 18px;
+  --text-button-text--line-height: 24px;
+  --text-button-text--font-weight: 800;
+  --text-player-name: 16px;
+  --text-player-name--line-height: 24px;
+  --text-player-name--font-weight: 600;
+  --text-label-md: 14px;
+  --text-label-md--line-height: 20px;
+  --text-label-md--font-weight: 500;
+
+  /* Legacy tokens */
   --radius-pill: 50px;
   --spacing-space-1: 0.4rem;
   --spacing-space-2: 0.8rem;
@@ -89,5 +162,55 @@ body {
   100% {
     transform: translateX(110vw) scaleX(-1);
     opacity: 0;
+  }
+}
+
+@keyframes toast-in {
+  0% { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.95); }
+}
+@keyframes bubble-in {
+  0% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes bubble-out {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(8px) scale(0.9); }
+}
+
+@utility animate-toast-in {
+  animation: toast-in 0.3s ease-out both;
+}
+@utility animate-toast-out {
+  animation: toast-out 0.3s ease-in both;
+}
+@utility animate-bubble-in {
+  animation: bubble-in 0.25s ease-out both;
+}
+@utility animate-bubble-out {
+  animation: bubble-out 0.2s ease-in both;
+}
+
+/* Landscape mobile optimization */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Reduce nav padding */
+  .landscape-nav {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+  /* Constrain table height */
+  .landscape-table {
+    max-height: 50vh !important;
+  }
+  /* Reduce bottom bar padding */
+  .landscape-bottom-bar {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.75rem !important;
   }
 }

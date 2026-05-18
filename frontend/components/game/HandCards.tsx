@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import clsx from "clsx";
 import { Card } from "./Card";
 
 interface HandCardsProps {
   cards: number[];
   onPlayCards?: (cardIds: number[]) => void;
   disabled?: boolean;
+  compact?: boolean;
 }
 
-export function HandCards({ cards, onPlayCards, disabled }: HandCardsProps) {
+export function HandCards({ cards, onPlayCards, disabled, compact = false }: HandCardsProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const toggleCard = (cardId: number) => {
@@ -29,33 +31,42 @@ export function HandCards({ cards, onPlayCards, disabled }: HandCardsProps) {
     setSelected(new Set());
   };
 
+  const handlePass = () => {
+    if (disabled) return;
+    onPlayCards?.([]);
+    setSelected(new Set());
+  };
+
   return (
-    <div className="space-y-2">
-      <div className="flex justify-center gap-1 px-4 py-2 min-h-[72px] flex-wrap">
+    <div className="space-y-4">
+      {/* Hand cards with overlap — matching Stitch design */}
+      <div className={clsx("flex justify-center px-12 overflow-visible items-end pb-2",
+        compact ? "-space-x-8 min-h-[100px]" : "-space-x-12 min-h-[144px]"
+      )}>
         {cards.map((cardId) => (
           <Card
             key={cardId}
             cardId={cardId}
             selected={selected.has(cardId)}
             onClick={() => toggleCard(cardId)}
+            medium={compact}
           />
         ))}
       </div>
+
       {onPlayCards && (
-        <div className="flex justify-center gap-2">
+        <div className="flex justify-center gap-6">
           <button
             onClick={handlePlay}
             disabled={disabled || selected.size === 0}
-            className="px-4 py-1.5 bg-green-accent text-white rounded-pill text-sm font-semibold
-                       disabled:opacity-40 transition-all duration-200 active:scale-[0.95]"
+            className="px-10 py-3 rounded-full bg-gradient-to-b from-secondary-container to-on-secondary-container text-on-secondary-fixed text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40 shadow-[inset_0_2px_0_rgba(255,255,255,0.4),0_4px_6px_rgba(0,0,0,0.2)]"
           >
             出牌
           </button>
           <button
-            onClick={() => { onPlayCards([]); setSelected(new Set()); }}
+            onClick={handlePass}
             disabled={disabled}
-            className="px-4 py-1.5 bg-white text-text-black border border-ceramic rounded-pill text-sm font-semibold
-                       disabled:opacity-40 transition-all duration-200 active:scale-[0.95] hover:border-green-accent/50"
+            className="px-10 py-3 rounded-full bg-white/5 backdrop-blur-md border border-white/20 text-on-surface text-button-text font-button-text hover:bg-white/10 active:scale-95 transition-all disabled:opacity-40"
           >
             不出
           </button>
