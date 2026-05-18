@@ -1,6 +1,7 @@
 package ai
 
 import (
+    "encoding/json"
     "fmt"
     "strings"
     "testing"
@@ -147,4 +148,156 @@ func TestNewProvider_CustomURLOverride(t *testing.T) {
     if provider.apiURL != customURL {
         t.Errorf("apiURL = %s, want %s", provider.apiURL, customURL)
     }
+}
+
+func TestOpenAICompleteWithTools_BodyFormat(t *testing.T) {
+	messages := []ChatMessage{
+		{Role: "system", Content: "You are a card game AI"},
+		{Role: "user", Content: "Your hand: 0(♠3) 1(♥3)"},
+	}
+	tools := GetToolSchemas()
+
+	body := map[string]interface{}{
+		"model":       "test-model",
+		"messages":    messages,
+		"tools":       tools,
+		"temperature": 0.7,
+		"max_tokens":  1024,
+		"stream":      false,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if decoded["tools"] == nil {
+		t.Fatal("tools field missing from request body")
+	}
+	msgs := decoded["messages"].([]interface{})
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(msgs))
+	}
+}
+
+func TestParseOpenAIToolCallResponse(t *testing.T) {
+	respJSON := `{
+		"choices": [{
+			"message": {
+				"content": "",
+				"tool_calls": [{
+					"id": "call_abc123",
+					"type": "function",
+					"function": {
+						"name": "play_cards",
+						"arguments": "{\"cards\":[0,13,26]}"
+					}
+				}]
+			}
+		}],
+		"usage": {"prompt_tokens": 100, "completion_tokens": 20}
+	}`
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content   string              `json:"content"`
+				ToolCalls []AssistantToolCall `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.Unmarshal([]byte(respJSON), &result); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(result.Choices) == 0 {
+		t.Fatal("expected choices")
+	}
+	tc := result.Choices[0].Message.ToolCalls
+	if len(tc) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(tc))
+	}
+	if tc[0].Function.Name != "play_cards" {
+		t.Errorf("tool name = %s, want play_cards", tc[0].Function.Name)
+	}
+	if tc[0].Function.Arguments != `{"cards":[0,13,26]}` {
+		t.Errorf("tool args = %s", tc[0].Function.Arguments)
+	}
+}
+
+func TestParseAnthropicToolUseResponse(t *testing.T) {
+	respJSON := `{
+		"id": "msg_xxx",
+		"role": "assistant",
+		"content": [{
+			"type": "tool_use",
+			"id": "toolu_001",
+			"name": "check_my_hand",
+			"input": {}
+		}],
+		"stop_reason": "tool_use",
+		"usage": {"input_tokens": 50, "output_tokens": 10}
+	}`
+
+	var result struct {
+		Content []struct {
+			Type  string          `json:"type"`
+			ID    string          `json:"id"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+		} `json:"content"`
+	}
+
+	if err := json.Unmarshal([]byte(respJSON), &result); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	toolCalls := make([]AssistantToolCall, 0)
+	for _, c := range result.Content {
+		if c.Type == "tool_use" {
+			args, _ := json.Marshal(c.Input)
+			tc := AssistantToolCall{}
+			tc.ID = c.ID
+			tc.Type = "function"
+			tc.Function.Name = c.Name
+			tc.Function.Arguments = string(args)
+			toolCalls = append(toolCalls, tc)
+		}
+	}
+
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(toolCalls))
+	}
+	if toolCalls[0].Function.Name != "check_my_hand" {
+		t.Errorf("tool name = %s, want check_my_hand", toolCalls[0].Function.Name)
+	}
+}
+
+func TestChatMessage_JSONRoundtrip(t *testing.T) {
+	msg := ChatMessage{
+		Role: "assistant",
+		ToolCalls: []AssistantToolCall{
+			{
+				ID:   "call_1",
+				Type: "function",
+			},
+		},
+	}
+	msg.ToolCalls[0].Function.Name = "play_cards"
+	msg.ToolCalls[0].Function.Arguments = `{"cards":[0]}`
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var decoded ChatMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(decoded.ToolCalls) != 1 || decoded.ToolCalls[0].Function.Name != "play_cards" {
+		t.Error("roundtrip failed")
+	}
 }
