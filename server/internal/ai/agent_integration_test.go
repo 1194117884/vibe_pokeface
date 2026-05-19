@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -65,10 +66,13 @@ func TestAgent_ExecuteChatTool(t *testing.T) {
 	exec := &mockExecutor{}
 	agent := NewAIAgent("ai:bot:1", 0, nil, nil, exec)
 
-	agent.executeToolCall(`{"tool": "say", "args": {"message": "大家好！"}}`)
+	agent.executeToolCall(`{"tool": "play_cards", "args": {"cards": [0, 13], "chat": "看我的！"}}`)
 
-	if exec.lastChat != "大家好！" {
-		t.Errorf("expected chat '大家好！', got '%s'", exec.lastChat)
+	if exec.lastAction != "play" {
+		t.Errorf("expected play action, got %s", exec.lastAction)
+	}
+	if exec.lastChat != "看我的！" {
+		t.Errorf("expected chat '看我的！', got '%s'", exec.lastChat)
 	}
 }
 
@@ -164,7 +168,7 @@ func TestAgent_TriggerAndStop(t *testing.T) {
 	exec := &mockExecutor{}
 	agent := NewAIAgent("ai:bot:1", 0, nil, nil, exec)
 	agent.MakeDecisionFunc = func(agent *AIAgent, phase string, handCards []int, stateJSON string) string {
-		return `{"tool": "say", "args": {"message": "hi"}}`
+		return `{"tool": "play_cards", "args": {"cards": [], "chat": "过"}}`
 	}
 	agent.Start()
 
@@ -173,4 +177,34 @@ func TestAgent_TriggerAndStop(t *testing.T) {
 	// Stopped agent: should not panic on second trigger (channel closed)
 	// Note: after Stop, the channel is closed, so Trigger's select may panic
 	// because sending on a closed channel panics in Go
+}
+
+func TestExecuteInfoTool_CheckGameStatus_ParsesRealStateJSON(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 0, nil, nil, nil)
+	// Real state JSON: hand cards are [{"id":N}, ...] not [N, ...]
+	agent.stateJSON = `{
+		"phase": 4,
+		"current_seat": 0,
+		"landlord_seat": 0,
+		"multiplier": 1,
+		"last_play": null,
+		"players": [
+			{"seat": 0, "is_landlord": true, "hand": [{"id":53},{"id":12}]},
+			{"seat": 1, "is_landlord": false, "hand": null},
+			{"seat": 2, "is_landlord": false, "hand": null}
+		]
+	}`
+
+	result := agent.executeInfoTool("check_game_status")
+
+	if result == "游戏状态不可用" {
+		t.Fatal("state should be available")
+	}
+	if result == "无法解析游戏状态" {
+		t.Fatal("should parse real state JSON with [{\"id\":N}] hand format")
+	}
+	// Verify key data appears in result
+	if !strings.Contains(result, "座位0") {
+		t.Errorf("expected seat 0 info in result, got: %s", result)
+	}
 }

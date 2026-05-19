@@ -14,3 +14,8 @@ pokeface-server.tar.gz
 pokeface-server
 run.sh
 .playwright-mcp/
+.claude
+.superpowers
+.playwright-cli
+logs/
+server.pid

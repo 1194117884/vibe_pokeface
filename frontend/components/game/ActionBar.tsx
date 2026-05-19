@@ -65,7 +65,7 @@ export function ActionBar({
             disabled={!isMyTurn}
             className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
-            {isMyTurn ? "不亮" : "不亮 ⌛"}
+            {isMyTurn ? "不明牌" : "不明牌 ⌛"}
           </button>
         </>
       )}

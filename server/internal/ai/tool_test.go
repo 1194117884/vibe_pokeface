@@ -50,27 +50,27 @@ func TestToolSchemas_PhaseGating(t *testing.T) {
 	}{
 		{
 			phase:     "calling",
-			mustHave:    []string{"check_my_hand", "check_game_status", "say", "bid_landlord", "pass_bid"},
-			mustNotHave: []string{"play_cards", "reveal_cards", "pass_reveal", "choose_double", "choose_no_double"},
+			mustHave:    []string{"check_my_hand", "check_game_status", "check_playing_records", "bid_landlord", "pass_bid"},
+			mustNotHave: []string{"play_cards", "say", "reveal_cards", "pass_reveal", "choose_double", "choose_no_double"},
 		},
 		{
 			phase:     "snatching",
-			mustHave:    []string{"check_my_hand", "check_game_status", "say", "bid_landlord", "pass_bid"},
-			mustNotHave: []string{"play_cards", "reveal_cards", "pass_reveal", "choose_double", "choose_no_double"},
+			mustHave:    []string{"check_my_hand", "check_game_status", "check_playing_records", "bid_landlord", "pass_bid"},
+			mustNotHave: []string{"play_cards", "say", "reveal_cards", "pass_reveal", "choose_double", "choose_no_double"},
 		},
 		{
 			phase:     "revealing",
-			mustHave:    []string{"check_my_hand", "check_game_status", "say", "reveal_cards", "pass_reveal"},
-			mustNotHave: []string{"play_cards", "bid_landlord", "pass_bid", "choose_double", "choose_no_double"},
+			mustHave:    []string{"check_my_hand", "check_game_status", "check_playing_records", "reveal_cards", "pass_reveal"},
+			mustNotHave: []string{"play_cards", "say", "bid_landlord", "pass_bid", "choose_double", "choose_no_double"},
 		},
 		{
 			phase:     "doubling",
-			mustHave:    []string{"check_my_hand", "check_game_status", "say", "choose_double", "choose_no_double"},
-			mustNotHave: []string{"play_cards", "bid_landlord", "pass_bid", "reveal_cards", "pass_reveal"},
+			mustHave:    []string{"check_my_hand", "check_game_status", "check_playing_records", "choose_double", "choose_no_double"},
+			mustNotHave: []string{"play_cards", "say", "bid_landlord", "pass_bid", "reveal_cards", "pass_reveal"},
 		},
 		{
 			phase:     "playing",
-			mustHave:    []string{"check_my_hand", "check_game_status", "say", "play_cards"},
+			mustHave:    []string{"check_my_hand", "check_game_status", "check_playing_records", "play_cards"},
 			mustNotHave: []string{"bid_landlord", "pass_bid", "reveal_cards", "pass_reveal", "choose_double", "choose_no_double"},
 		},
 	}

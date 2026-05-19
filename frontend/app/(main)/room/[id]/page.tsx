@@ -110,7 +110,7 @@ function getPhrases(
     case "snatched": return { bubbleText: "抢!", toastText: "抢地主!", speechText: "抢地主" };
     case "passed_snatching": return { bubbleText: "不抢", toastText: "不抢", speechText: "不抢" };
     case "revealed": return { bubbleText: "明牌!", toastText: "明牌!", speechText: "明牌" };
-    case "passed_reveal": return { bubbleText: "不亮", toastText: "不亮", speechText: "不亮" };
+    case "passed_reveal": return { bubbleText: "不明牌", toastText: "不明牌", speechText: "不明牌" };
     case "doubled": return { bubbleText: "加倍!", toastText: "加倍!", speechText: "加倍" };
     case "passed_double": return { bubbleText: "不加倍", toastText: "不加倍", speechText: "不加倍" };
     case "played_cards": {

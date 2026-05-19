@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -145,6 +146,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, systemPrompt, userPrompt 
 	respBytes, _ := io.ReadAll(resp.Body)
 	duration := int(time.Since(start).Milliseconds())
 
+	log.Printf("[LLM:%s] Complete status=%d bodyLen=%d ct=%s cl=%s te=%s",
+		p.ModelName(), resp.StatusCode, len(respBytes),
+		resp.Header.Get("Content-Type"),
+		resp.Header.Get("Content-Length"),
+		resp.Header.Get("Transfer-Encoding"))
+	log.Printf("[LLM:%s] Complete body=%s",
+		p.ModelName(), truncateForLog(string(respBytes), 800))
+
 	var result struct {
 		Choices []struct {
 			Message struct {
@@ -158,6 +167,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, systemPrompt, userPrompt 
 	}
 
 	if err := json.Unmarshal(respBytes, &result); err != nil {
+		log.Printf("[LLM:%s] Complete PARSE ERROR: %v, body=%s",
+			p.ModelName(), err, truncateForLog(string(respBytes), 1000))
 		return nil, fmt.Errorf("LLM response parse error: %w", err)
 	}
 
@@ -207,6 +218,34 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 	respBytes, _ := io.ReadAll(resp.Body)
 	duration := int(time.Since(start).Milliseconds())
 
+	log.Printf("[LLM:%s] CompleteWithTools status=%d bodyLen=%d ct=%s cl=%s te=%s",
+		p.ModelName(), resp.StatusCode, len(respBytes),
+		resp.Header.Get("Content-Type"),
+		resp.Header.Get("Content-Length"),
+		resp.Header.Get("Transfer-Encoding"))
+	log.Printf("[LLM:%s] CompleteWithTools body=%s",
+		p.ModelName(), truncateForLog(string(respBytes), 800))
+
+	// Retry once on empty body (e.g. context deadline truncated the response)
+	if len(respBytes) == 0 {
+		log.Printf("[LLM:%s] CompleteWithTools empty body, retrying", p.ModelName())
+		retryCtx, retryCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer retryCancel()
+		req, _ := http.NewRequestWithContext(retryCtx, "POST", p.apiURL, bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+		resp2, err2 := p.client.Do(req)
+		if err2 == nil {
+			defer resp2.Body.Close()
+			respBytes, _ = io.ReadAll(resp2.Body)
+			duration = int(time.Since(start).Milliseconds())
+			log.Printf("[LLM:%s] CompleteWithTools retry status=%d bodyLen=%d body=%s",
+				p.ModelName(), resp2.StatusCode, len(respBytes), truncateForLog(string(respBytes), 800))
+		} else {
+			log.Printf("[LLM:%s] CompleteWithTools retry failed: %v", p.ModelName(), err2)
+		}
+	}
+
 	var result struct {
 		Choices []struct {
 			Message struct {
@@ -222,6 +261,8 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 	}
 
 	if err := json.Unmarshal(respBytes, &result); err != nil {
+		log.Printf("[LLM:%s] CompleteWithTools PARSE ERROR: %v, body=%s",
+			p.ModelName(), err, truncateForLog(string(respBytes), 1000))
 		return nil, fmt.Errorf("LLM response parse error: %w", err)
 	}
 
@@ -304,6 +345,14 @@ func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userProm
 	respBytes, _ := io.ReadAll(resp.Body)
 	duration := int(time.Since(start).Milliseconds())
 
+	log.Printf("[LLM:%s] Anthropic Complete status=%d bodyLen=%d ct=%s cl=%s te=%s",
+		p.ModelName(), resp.StatusCode, len(respBytes),
+		resp.Header.Get("Content-Type"),
+		resp.Header.Get("Content-Length"),
+		resp.Header.Get("Transfer-Encoding"))
+	log.Printf("[LLM:%s] Anthropic Complete body=%s",
+		p.ModelName(), truncateForLog(string(respBytes), 800))
+
 	var result struct {
 		Content []struct {
 			Text string `json:"text"`
@@ -315,6 +364,8 @@ func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userProm
 	}
 
 	if err := json.Unmarshal(respBytes, &result); err != nil {
+		log.Printf("[LLM:%s] Anthropic Complete PARSE ERROR: %v, body=%s",
+			p.ModelName(), err, truncateForLog(string(respBytes), 1000))
 		return nil, fmt.Errorf("Anthropic response parse error: %w", err)
 	}
 
@@ -435,6 +486,14 @@ func (p *AnthropicProvider) CompleteWithTools(ctx context.Context, messages []Ch
 	respBytes, _ := io.ReadAll(resp.Body)
 	duration := int(time.Since(start).Milliseconds())
 
+	log.Printf("[LLM:%s] Anthropic CompleteWithTools status=%d bodyLen=%d ct=%s cl=%s te=%s",
+		p.ModelName(), resp.StatusCode, len(respBytes),
+		resp.Header.Get("Content-Type"),
+		resp.Header.Get("Content-Length"),
+		resp.Header.Get("Transfer-Encoding"))
+	log.Printf("[LLM:%s] Anthropic CompleteWithTools body=%s",
+		p.ModelName(), truncateForLog(string(respBytes), 800))
+
 	var result struct {
 		Content []struct {
 			Type  string          `json:"type"`
@@ -450,6 +509,8 @@ func (p *AnthropicProvider) CompleteWithTools(ctx context.Context, messages []Ch
 	}
 
 	if err := json.Unmarshal(respBytes, &result); err != nil {
+		log.Printf("[LLM:%s] Anthropic CompleteWithTools PARSE ERROR: %v, body=%s",
+			p.ModelName(), err, truncateForLog(string(respBytes), 1000))
 		return nil, fmt.Errorf("Anthropic response parse error: %w", err)
 	}
 

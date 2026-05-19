@@ -51,10 +51,6 @@ type BidArgs struct {
 	Chat string `json:"chat,omitempty"`
 }
 
-type SayArgs struct {
-	Message string `json:"message"`
-}
-
 // ExtractToolCall parses an LLM JSON response to extract a tool call.
 // Handles markdown code fences and whitespace.
 func ExtractToolCall(jsonStr string) (*ToolCall, error) {
@@ -70,8 +66,7 @@ func ExtractToolCall(jsonStr string) (*ToolCall, error) {
 }
 
 // GetToolSchemas returns tool definitions appropriate for the given game phase.
-// Bidding phases get bidding tools; playing phase gets play_cards.
-// Info tools (check_my_hand, check_game_status) and say are always available.
+// Info tools (check_my_hand, check_game_status) are always available.
 func GetToolSchemas(phase string) []ToolSchema {
 	infoTools := []ToolSchema{
 		{
@@ -96,22 +91,15 @@ func GetToolSchemas(phase string) []ToolSchema {
 				},
 			},
 		},
-	}
-
-	sayTool := ToolSchema{
-		Type: "function",
-		Function: FuncDef{
-			Name:        "say",
-			Description: "在游戏聊天室说一句话",
-			Parameters: ParamSchema{
-				Type: "object",
-				Properties: map[string]ParamProperty{
-					"message": {
-						Type:        "string",
-						Description: "要说的内容（不超过50字）",
-					},
+		{
+			Type: "function",
+			Function: FuncDef{
+				Name:        "check_playing_records",
+				Description: "查看本轮出牌记录：谁出了什么牌、谁过了牌、出牌的顺序",
+				Parameters: ParamSchema{
+					Type:       "object",
+					Properties: map[string]ParamProperty{},
 				},
-				Required: []string{"message"},
 			},
 		},
 	}
@@ -224,7 +212,7 @@ func GetToolSchemas(phase string) []ToolSchema {
 		},
 	}
 
-	base := append(infoTools, sayTool)
+	base := infoTools
 
 	switch phase {
 	case "calling", "snatching":

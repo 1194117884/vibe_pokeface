@@ -152,8 +152,11 @@ func (e *Engine) IsRoundEnd(state game.GameState) bool {
 	return gs.Phase == PhaseEnded
 }
 
-// CalculateScore computes the scores for each player based on the game result
-// multiplied by the game multiplier (from 抢地主 snatches).
+// CalculateScore computes scores via bilateral settlement between the landlord
+// and each farmer, ensuring a zero-sum result. The game multiplier (from
+// 抢地主/明牌) scales every settlement. Each player's individual 加倍 choice
+// only affects that player's settlement with their counterpart — it does not
+// affect the other farmer's settlement.
 func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error) {
 	gs, ok := state.(*GameState)
 	if !ok {
@@ -163,37 +166,54 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 		return nil, fmt.Errorf("no winner yet")
 	}
 
-	scores := make([]game.PlayerScore, 3)
-	winnerIsLandlord := gs.Players[*gs.WinnerSeat].IsLandlord
-	mult := gs.Multiplier
-	if mult < 1 {
-		mult = 1
+	baseMult := gs.Multiplier
+	if baseMult < 1 {
+		baseMult = 1
 	}
 
+	// Find landlord and farmer seats
+	var landlordSeat int
+	var farmerSeats []int
 	for i, p := range gs.Players {
-		var base int
 		if p.IsLandlord {
-			if winnerIsLandlord {
-				base = 2
-			} else {
-				base = -2
-			}
+			landlordSeat = i
 		} else {
-			if winnerIsLandlord {
-				base = -1
-			} else {
-				base = 1
-			}
-		}
-		score := base * mult
-		if gs.Doubled[p.Seat] {
-			score *= 2
-		}
-		scores[i] = game.PlayerScore{
-			PlayerID: p.UserID,
-			Score:    score,
+			farmerSeats = append(farmerSeats, i)
 		}
 	}
+
+	// Initialize zero scores
+	scores := make([]game.PlayerScore, 3)
+	for i, p := range gs.Players {
+		scores[i] = game.PlayerScore{
+			PlayerID: p.UserID,
+			Score:    0,
+		}
+	}
+
+	winnerIsLandlord := gs.Players[*gs.WinnerSeat].IsLandlord
+
+	// Bilateral settlement: landlord ↔ each farmer
+	for _, farmerSeat := range farmerSeats {
+		bilateralMult := baseMult
+		if gs.Doubled[landlordSeat] {
+			bilateralMult *= 2
+		}
+		if gs.Doubled[farmerSeat] {
+			bilateralMult *= 2
+		}
+
+		amount := 1 * bilateralMult
+
+		if winnerIsLandlord {
+			scores[landlordSeat].Score += amount
+			scores[farmerSeat].Score -= amount
+		} else {
+			scores[landlordSeat].Score -= amount
+			scores[farmerSeat].Score += amount
+		}
+	}
+
 	return scores, nil
 }
 
@@ -256,7 +276,8 @@ func (e *Engine) reDeal(state *GameState) {
 	state.RevealCount = 0
 	state.DoubleCount = 0
 	state.LastPlay = nil
-	state.ConsecutivePasses = 0
+		state.PlayHistory = nil
+		state.ConsecutivePasses = 0
 	state.RoundNum++
 }
 
@@ -405,6 +426,7 @@ func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction
 			return nil, fmt.Errorf("cannot pass: no active play, you must lead")
 		}
 		state.ConsecutivePasses++
+		state.PlayHistory = append(state.PlayHistory, PlayRecord{Seat: seat, Play: Play{Type: PlayInvalid}, Cards: nil})
 		if state.ConsecutivePasses >= 2 {
 			state.LastPlay = nil
 			state.ConsecutivePasses = 0
@@ -439,6 +461,7 @@ func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction
 		Cards: cards,
 	}
 	state.LastPlay = record
+	state.PlayHistory = append(state.PlayHistory, *record)
 	state.ConsecutivePasses = 0
 
 	if len(newHand) == 0 {

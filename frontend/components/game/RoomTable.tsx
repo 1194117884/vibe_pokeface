@@ -73,17 +73,17 @@ export function RoomTable({
         player={
           player
             ? {
-                userId: player.userId,
-                name: player.name,
-                nickname: player.nickname,
-                characterId: player.characterId,
-                isBot: player.isBot,
-                isOwner: player.isOwner,
-                isReady: player.isReady,
-                isCurrentTurn: player.isCurrentTurn,
-                isLandlord: player.isLandlord,
-                cardCount: player.cardCount,
-              }
+              userId: player.userId,
+              name: player.name,
+              nickname: player.nickname,
+              characterId: player.characterId,
+              isBot: player.isBot,
+              isOwner: player.isOwner,
+              isReady: player.isReady,
+              isCurrentTurn: player.isCurrentTurn,
+              isLandlord: player.isLandlord,
+              cardCount: player.cardCount,
+            }
             : null
         }
         isMySeat={isMine}
@@ -104,32 +104,6 @@ export function RoomTable({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 relative w-full">
-      {/* Kitty / Landlord Cards (top center) — only during game phases */}
-      {isGamePhase && (
-        <div className="flex flex-col items-center gap-1 mt-2">
-          <div className="flex gap-1.5">
-            {landlordCards.length > 0
-              ? landlordCards.map((cardId, i) => (
-                  <Card key={i} cardId={cardId} small />
-                ))
-              : Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-11 rounded shadow-md border border-white/10"
-                    style={{
-                      backgroundImage:
-                        "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-                      transform: i === 0 ? "rotate(-4deg)" : i === 2 ? "rotate(4deg)" : "none",
-                    }}
-                  />
-                ))}
-          </div>
-          <span className="text-[8px] font-black text-secondary-fixed/40 uppercase tracking-[0.2em]">
-            底牌
-          </span>
-        </div>
-      )}
-
       {/* Opponents + Timer Row (middle) */}
       {isGamePhase ? (
         <div className="w-full flex justify-between items-center px-4">
@@ -151,34 +125,6 @@ export function RoomTable({
               </div>
             ) : (
               <>
-                {/* Circular timer */}
-                <div className="relative w-16 h-16 flex items-center justify-center">
-                  <svg className="absolute inset-0 w-full h-full -rotate-90">
-                    <circle
-                      cx="32"
-                      cy="32"
-                      r="28"
-                      fill="transparent"
-                      stroke="white"
-                      strokeWidth="2"
-                      className="opacity-10"
-                    />
-                    <circle
-                      cx="32"
-                      cy="32"
-                      r="28"
-                      fill="transparent"
-                      stroke="#ffe16d"
-                      strokeDasharray="176"
-                      strokeDashoffset="0"
-                      strokeLinecap="round"
-                      strokeWidth="3"
-                    />
-                  </svg>
-                  <span className="text-xl font-black text-secondary-fixed font-display-gold">
-                    ∞
-                  </span>
-                </div>
               </>
             )}
           </div>

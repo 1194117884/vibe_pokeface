@@ -323,10 +323,124 @@ func TestEngine_CalculateScore_WithDouble(t *testing.T) {
 		Doubled:    map[int]bool{0: true},
 	}
 	scores, _ := e.CalculateScore(state)
+	// Landlord doubled → each settlement ×2. Landlord +4, farmers -2 each. Zero-sum.
 	for _, s := range scores {
 		if s.PlayerID == 1 && s.Score != 4 {
 			t.Errorf("landlord doubled score = %d, want 4", s.Score)
 		}
+		if s.PlayerID != 1 && s.Score != -2 {
+			t.Errorf("farmer %d score with landlord doubled = %d, want -2", s.PlayerID, s.Score)
+		}
+	}
+}
+
+func TestEngine_CalculateScore_FarmersWinLandlordDoubled(t *testing.T) {
+	e := &Engine{}
+	winnerSeat := 1
+	state := &GameState{
+		Phase:        PhaseEnded,
+		LandlordSeat: 0,
+		Players: []PlayerHand{
+			{UserID: 1, Seat: 0, Hand: []Card{}, IsLandlord: true},
+			{UserID: 2, Seat: 1, Hand: []Card{}},
+			{UserID: 3, Seat: 2, Hand: []Card{}},
+		},
+		WinnerSeat: &winnerSeat,
+		Multiplier: 4,
+		Doubled:    map[int]bool{0: true},
+	}
+	scores, _ := e.CalculateScore(state)
+	// Each farmer settlement: 1×4×(landlord doubled=2) = 8
+	// Landlord pays each farmer 8. Landlord -16, farmers +8 each. Zero-sum.
+	for _, s := range scores {
+		if s.PlayerID == 1 && s.Score != -16 {
+			t.Errorf("landlord score = %d, want -16", s.Score)
+		}
+		if s.PlayerID != 1 && s.Score != 8 {
+			t.Errorf("farmer %d score = %d, want 8", s.PlayerID, s.Score)
+		}
+	}
+	sum := 0
+	for _, s := range scores {
+		sum += s.Score
+	}
+	if sum != 0 {
+		t.Errorf("scores sum = %d, want 0 (zero-sum)", sum)
+	}
+}
+
+func TestEngine_CalculateScore_FarmersWinOneFarmerDoubled(t *testing.T) {
+	e := &Engine{}
+	winnerSeat := 1
+	state := &GameState{
+		Phase:        PhaseEnded,
+		LandlordSeat: 0,
+		Players: []PlayerHand{
+			{UserID: 1, Seat: 0, Hand: []Card{}, IsLandlord: true},
+			{UserID: 2, Seat: 1, Hand: []Card{}},
+			{UserID: 3, Seat: 2, Hand: []Card{}},
+		},
+		WinnerSeat: &winnerSeat,
+		Multiplier: 4,
+		Doubled:    map[int]bool{1: true},
+	}
+	scores, _ := e.CalculateScore(state)
+	// Farmer at seat 1 doubled, farmer at seat 2 didn't.
+	// Settlement seat 1: 1×4×(farmer doubled=2) = 8, landlord pays farmer 8
+	// Settlement seat 2: 1×4 = 4, landlord pays farmer 4
+	// Landlord: -12, Farmer A +8, Farmer B +4. Zero-sum.
+	for _, s := range scores {
+		if s.PlayerID == 1 && s.Score != -12 {
+			t.Errorf("landlord score = %d, want -12", s.Score)
+		}
+		if s.PlayerID == 2 && s.Score != 8 {
+			t.Errorf("doubled farmer score = %d, want 8", s.Score)
+		}
+		if s.PlayerID == 3 && s.Score != 4 {
+			t.Errorf("non-doubled farmer score = %d, want 4", s.Score)
+		}
+	}
+	sum := 0
+	for _, s := range scores {
+		sum += s.Score
+	}
+	if sum != 0 {
+		t.Errorf("scores sum = %d, want 0 (zero-sum)", sum)
+	}
+}
+
+func TestEngine_CalculateScore_LandlordWinsBothFarmersDoubled(t *testing.T) {
+	e := &Engine{}
+	winnerSeat := 0
+	state := &GameState{
+		Phase:        PhaseEnded,
+		LandlordSeat: 0,
+		Players: []PlayerHand{
+			{UserID: 1, Seat: 0, Hand: []Card{}, IsLandlord: true},
+			{UserID: 2, Seat: 1, Hand: []Card{}},
+			{UserID: 3, Seat: 2, Hand: []Card{}},
+		},
+		WinnerSeat: &winnerSeat,
+		Multiplier: 2,
+		Doubled:    map[int]bool{0: true, 1: true, 2: true},
+	}
+	scores, _ := e.CalculateScore(state)
+	// All doubled: each settlement = 1×2×2×2 = 8
+	// Landlord: +16, each farmer: -8. Zero-sum.
+	for _, s := range scores {
+		if s.PlayerID == 1 && s.Score != 16 {
+			t.Errorf("landlord score = %d, want 16", s.Score)
+		}
+		if s.PlayerID != 1 && s.Score != -8 {
+			t.Errorf("farmer %d score = %d, want -8", s.PlayerID, s.Score)
+		}
+	}
+	sum := 0
+	for _, s := range scores {
+		sum += s.Score
+	}
+	if sum != 0 {
+		t.Errorf("scores sum = %d, want 0 (zero-sum)", sum)
 	}
 }
 

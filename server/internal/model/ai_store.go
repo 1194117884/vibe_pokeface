@@ -53,7 +53,24 @@ type LLMCallLog struct {
 	Success          bool      `db:"success" json:"success"`
 	ErrorMessage     *string   `db:"error_message" json:"error_message,omitempty"`
 	CallType         string    `db:"call_type" json:"call_type"`
+	RoomID           string    `db:"room_id" json:"room_id,omitempty"`
+	UserID           string    `db:"user_id" json:"user_id,omitempty"`
+	Seat             int       `db:"seat" json:"seat,omitempty"`
+	Phase            string    `db:"phase" json:"phase,omitempty"`
+	TurnNumber       int       `db:"turn_number" json:"turn_number,omitempty"`
+	RequestJSON      *string   `db:"request_json" json:"request_json,omitempty"`
+	ResponseJSON     *string   `db:"response_json" json:"response_json,omitempty"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+}
+
+type AiToolExecution struct {
+	ID         int64     `db:"id" json:"id"`
+	CallLogID  int64     `db:"call_log_id" json:"call_log_id"`
+	ToolName   string    `db:"tool_name" json:"tool_name"`
+	ToolType   string    `db:"tool_type" json:"tool_type"`
+	ArgsJSON   *string   `db:"args_json" json:"args_json,omitempty"`
+	ResultJSON *string   `db:"result_json" json:"result_json,omitempty"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type AIStore struct {
@@ -179,16 +196,36 @@ func (s *AIStore) GetChatHistory(ctx context.Context, roomID string, limit int) 
 }
 
 // LLM Call Log
-func (s *AIStore) LogLLMCall(ctx context.Context, log *LLMCallLog) error {
+func (s *AIStore) LogLLMCall(ctx context.Context, log *LLMCallLog) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO llm_call_logs (provider, model, prompt_tokens, completion_tokens, duration_ms, success, error_message, call_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		log.Provider, log.Model, log.PromptTokens, log.CompletionTokens, log.DurationMs, log.Success, log.ErrorMessage, log.CallType)
+		`INSERT INTO llm_call_logs
+		 (provider, model, prompt_tokens, completion_tokens, duration_ms, success,
+		  error_message, call_type, room_id, user_id, seat, phase, turn_number,
+		  request_json, response_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		log.Provider, log.Model, log.PromptTokens, log.CompletionTokens,
+		log.DurationMs, log.Success, log.ErrorMessage, log.CallType,
+		log.RoomID, log.UserID, log.Seat, log.Phase, log.TurnNumber,
+		log.RequestJSON, log.ResponseJSON)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	id, _ := result.LastInsertId()
 	log.ID = id
-	return nil
+	return id, nil
+}
+
+func (s *AIStore) LogToolExecution(ctx context.Context, exec *AiToolExecution) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO ai_tool_executions (call_log_id, tool_name, tool_type, args_json, result_json)
+		 VALUES (?, ?, ?, ?, ?)`,
+		exec.CallLogID, exec.ToolName, exec.ToolType, exec.ArgsJSON, exec.ResultJSON)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := result.LastInsertId()
+	exec.ID = id
+	return id, nil
 }
 
 type LLMStatsSummary struct {

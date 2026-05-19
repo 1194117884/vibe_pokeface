@@ -42,6 +42,9 @@ type AIAgent struct {
 	MakeDecisionFunc func(agent *AIAgent, phase string, handCards []int, stateJSON string) string
 
 	aiStore *model.AIStore // for LLM call logging
+	roomID  string         // room context for audit logging
+
+	lastToolExecID int64 // most recent action-tool execution ID for game_actions link
 }
 
 // NewAIAgent creates a new AI agent
@@ -60,6 +63,16 @@ func NewAIAgent(userID string, seat int, character *model.AICharacter, provider 
 // SetAIStore sets the AIStore for LLM call logging.
 func (a *AIAgent) SetAIStore(store *model.AIStore) {
 	a.aiStore = store
+}
+
+// SetRoomID sets the room ID for audit logging.
+func (a *AIAgent) SetRoomID(roomID string) {
+	a.roomID = roomID
+}
+
+// LastToolExecID returns the most recent action-tool execution ID, or 0 if none.
+func (a *AIAgent) LastToolExecID() int64 {
+	return a.lastToolExecID
 }
 
 // Start launches the agent's goroutine
@@ -147,17 +160,31 @@ func (a *AIAgent) makeDecisionWithTools() {
 	tools := GetToolSchemas(phase)
 
 	for turn := 0; turn < 10; turn++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		// Capture request payload BEFORE the LLM call
+		requestJSON := captureRequestJSON(messages, tools)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		result, err := a.Provider.CompleteWithTools(ctx, messages, tools)
 		cancel()
 
-		// Log LLM call to database
+		// Capture response payload AFTER the LLM call
+		responseJSON := captureResponseJSON(result, err)
+
+		// Log LLM call to database with full payloads
+		var callLogID int64
 		if a.aiStore != nil {
 			llmCall := &model.LLMCallLog{
-				Provider: a.Provider.ProviderName(),
-				Model:    a.Provider.ModelName(),
-				CallType: "play_decision",
-				Success:  err == nil,
+				Provider:     a.Provider.ProviderName(),
+				Model:        a.Provider.ModelName(),
+				CallType:     "play_decision",
+				Success:      err == nil,
+				RoomID:       a.roomID,
+				UserID:       a.UserID,
+				Seat:         a.Seat,
+				Phase:        phase,
+				TurnNumber:   turn,
+				RequestJSON:  jsonPtr(requestJSON),
+				ResponseJSON: jsonPtr(responseJSON),
 			}
 			if err == nil {
 				llmCall.PromptTokens = result.PromptTokens
@@ -167,7 +194,9 @@ func (a *AIAgent) makeDecisionWithTools() {
 				errMsg := err.Error()
 				llmCall.ErrorMessage = &errMsg
 			}
-			if logErr := a.aiStore.LogLLMCall(context.Background(), llmCall); logErr != nil {
+			var logErr error
+			callLogID, logErr = a.aiStore.LogLLMCall(context.Background(), llmCall)
+			if logErr != nil {
 				log.Printf("[AI:%s] failed to log LLM call: %v", a.UserID, logErr)
 			}
 		}
@@ -178,10 +207,10 @@ func (a *AIAgent) makeDecisionWithTools() {
 		}
 
 		if len(result.ToolCalls) == 0 {
-			// Try parsing text content as JSON tool call (fallback for models without function calling)
 			if result.Content != "" {
 				if call, parseErr := ExtractToolCall(result.Content); parseErr == nil && a.isActionTool(call.Name) {
 					log.Printf("[AI:%s] extracted tool call from text content: %s", a.UserID, call.Name)
+					a.logToolExecution(callLogID, call.Name, "action", string(call.Args), "")
 					a.executeToolCall(result.Content)
 					return
 				}
@@ -190,7 +219,6 @@ func (a *AIAgent) makeDecisionWithTools() {
 			break
 		}
 
-		// Build assistant message with tool calls
 		assistantMsg := ChatMessage{
 			Role:             "assistant",
 			Content:          result.Content,
@@ -213,8 +241,9 @@ func (a *AIAgent) makeDecisionWithTools() {
 					Name:       tc.Function.Name,
 					Content:    infoResult,
 				})
+				a.logToolExecution(callLogID, tc.Function.Name, "info", tc.Function.Arguments, infoResult)
 			} else {
-				// Action tool (or say) — convert to JSON and execute via existing path
+				a.logToolExecution(callLogID, tc.Function.Name, "action", tc.Function.Arguments, "")
 				raw := toolCallToJSON(tc)
 				a.executeToolCall(raw)
 			}
@@ -229,8 +258,60 @@ func (a *AIAgent) makeDecisionWithTools() {
 	a.ruleBasedAction(phase)
 }
 
+// captureRequestJSON serializes the full LLM request (messages + tools) for audit logging.
+func captureRequestJSON(messages []ChatMessage, tools []ToolSchema) string {
+	data, err := json.Marshal(map[string]interface{}{
+		"messages": messages,
+		"tools":    tools,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// captureResponseJSON serializes the LLM response for audit logging.
+func captureResponseJSON(result *LLMResultWithTools, err error) string {
+	if err != nil || result == nil {
+		return ""
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func jsonPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func (a *AIAgent) logToolExecution(callLogID int64, toolName, toolType, argsJSON, resultJSON string) {
+	if a.aiStore == nil || callLogID == 0 {
+		return
+	}
+	exec := &model.AiToolExecution{
+		CallLogID:  callLogID,
+		ToolName:   toolName,
+		ToolType:   toolType,
+		ArgsJSON:   jsonPtr(argsJSON),
+		ResultJSON: jsonPtr(resultJSON),
+	}
+	id, err := a.aiStore.LogToolExecution(context.Background(), exec)
+	if err != nil {
+		log.Printf("[AI:%s] failed to log tool execution: %v", a.UserID, err)
+		return
+	}
+	if toolType == "action" {
+		a.lastToolExecID = id
+	}
+}
+
 func (a *AIAgent) isInfoTool(name string) bool {
-	return name == "check_my_hand" || name == "check_game_status"
+	return name == "check_my_hand" || name == "check_game_status" || name == "check_playing_records"
 }
 
 func (a *AIAgent) executeInfoTool(name string) string {
@@ -247,9 +328,11 @@ func (a *AIAgent) executeInfoTool(name string) string {
 			LandlordSeat int `json:"landlord_seat"`
 			Multiplier   int `json:"multiplier"`
 			LastPlay     *struct {
-				Seat  int   `json:"seat"`
-				Cards []int `json:"cards"`
-				Play  *struct {
+				Seat  int `json:"seat"`
+				Cards []struct {
+					ID int `json:"id"`
+				} `json:"cards"`
+				Play *struct {
 					Type     int `json:"type"`
 					MainRank int `json:"main_rank"`
 				} `json:"play"`
@@ -278,13 +361,98 @@ func (a *AIAgent) executeInfoTool(name string) string {
 			sb.WriteString(fmt.Sprintf("  座位%d（%s）：%d张\n", p.Seat, role, len(p.Hand)))
 		}
 		if state.LastPlay != nil && len(state.LastPlay.Cards) > 0 {
-			sb.WriteString(fmt.Sprintf("上家(座位%d)出了：%s\n", state.LastPlay.Seat, formatCardsWithIDs(state.LastPlay.Cards)))
+			ids := make([]int, len(state.LastPlay.Cards))
+			for i, c := range state.LastPlay.Cards {
+				ids[i] = c.ID
+			}
+			sb.WriteString(fmt.Sprintf("上家(座位%d)出了：%s\n", state.LastPlay.Seat, formatCardsWithIDs(ids)))
 		} else {
-			sb.WriteString("当前没有上家出牌（你是首家，可以自由出牌）\n")
+			sb.WriteString("轮到你了，可以自由出牌\n")
 		}
 		return sb.String()
+	case "check_playing_records":
+		return a.buildPlayingRecords()
 	}
 	return "unknown tool"
+}
+
+func (a *AIAgent) buildPlayingRecords() string {
+	if a.stateJSON == "" {
+		return "游戏状态不可用"
+	}
+	var state struct {
+		PlayHistory []struct {
+			Seat int `json:"seat"`
+			Play *struct {
+				Type     int `json:"type"`
+				MainRank int `json:"main_rank"`
+				Length   int `json:"length"`
+			} `json:"play"`
+			Cards []struct {
+				ID int `json:"id"`
+			} `json:"cards"`
+		} `json:"play_history"`
+		LastPlay *struct {
+			Seat int `json:"seat"`
+			Play *struct {
+				Type     int `json:"type"`
+				MainRank int `json:"main_rank"`
+				Length   int `json:"length"`
+			} `json:"play"`
+			Cards []struct {
+				ID int `json:"id"`
+			} `json:"cards"`
+		} `json:"last_play"`
+	}
+	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+		return "无法解析游戏状态"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("本轮出牌记录：\n")
+	playTypeNames := []string{"无效", "单张", "对子", "三张", "三带一", "三带二", "顺子", "连对", "飞机", "飞机带翅膀", "四带二", "炸弹", "火箭"}
+
+	seq := 0
+	for _, p := range state.PlayHistory {
+		seq++
+		if p.Play != nil && p.Play.Type > 0 {
+			// Actual card play
+			cardIDs := make([]int, len(p.Cards))
+			for i, c := range p.Cards {
+				cardIDs[i] = c.ID
+			}
+			ptName := "未知"
+			if p.Play.Type < len(playTypeNames) {
+				ptName = playTypeNames[p.Play.Type]
+			}
+			sb.WriteString(fmt.Sprintf("  %d. 座位%d 出了%s %s（主牌等级%d）\n",
+				seq, p.Seat, ptName, formatCardsWithIDs(cardIDs), p.Play.MainRank))
+		} else {
+			// Pass
+			sb.WriteString(fmt.Sprintf("  %d. 座位%d 过牌\n", seq, p.Seat))
+		}
+	}
+
+	// Also show current last play for quick reference
+	if state.LastPlay != nil && len(state.LastPlay.Cards) > 0 {
+		cardIDs := make([]int, len(state.LastPlay.Cards))
+		for i, c := range state.LastPlay.Cards {
+			cardIDs[i] = c.ID
+		}
+		sb.WriteString(fmt.Sprintf("\n当前上家(座位%d)出了：%s", state.LastPlay.Seat, formatCardsWithIDs(cardIDs)))
+		if state.LastPlay.Play != nil {
+			ptName := "未知"
+			if state.LastPlay.Play.Type < len(playTypeNames) {
+				ptName = playTypeNames[state.LastPlay.Play.Type]
+			}
+			sb.WriteString(fmt.Sprintf("（%s，主牌等级%d）", ptName, state.LastPlay.Play.MainRank))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("\n当前无上家出牌，你可以自由出牌\n")
+	}
+
+	return sb.String()
 }
 
 func toolCallToJSON(tc AssistantToolCall) string {
@@ -309,13 +477,52 @@ func (a *AIAgent) buildSystemPrompt(phase string) string {
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("你是斗地主AI玩家「%s」。\n", name))
-	sb.WriteString(fmt.Sprintf("性格：%s。\n\n", personality))
+	sb.WriteString(fmt.Sprintf("你在进行一场斗地主比赛，你是「%s」。\n", name))
+	playStyle := "balanced"
+	if a.Character != nil {
+		playStyle = a.Character.PlayStyle
+	}
+	sb.WriteString(fmt.Sprintf("性格：%s。出牌风格：%s。\n\n", personality, playStyle))
+	sb.WriteString("斗地主分为五阶段：叫地主 -> 抢地主 -> 明牌 -> 加倍 -> 出牌\n")
+
+	sb.WriteString("##叫地主:\n")
+	sb.WriteString("游戏开始，三人轮流叫地主。叫分最高者成为地主，获得3张底牌。\n")
+	sb.WriteString("如果你叫了地主，后续可被他人抢地主；如果你不叫，轮到下家决定。\n\n")
+	sb.WriteString("【重要】你必须调用bid_landlord（叫地主）或pass_bid（不叫）。\n")
+	sb.WriteString("根据手牌强度决定：有炸弹、多张2、有大王时应该叫地主，手牌较弱时选择不叫。\n")
+
+	sb.WriteString("##抢地主:\n")
+	sb.WriteString("有人已叫地主。现在其他玩家可以抢地主，每抢一次倍数翻倍，无人抢则由叫分者成为地主。\n\n")
+	sb.WriteString("【重要】你必须调用bid_landlord（抢地主）或pass_bid（不抢）。\n")
+	sb.WriteString("抢地主会使倍数翻倍，手牌很强时才抢，否则不抢。\n")
+
+	sb.WriteString("##明牌:\n")
+	sb.WriteString("地主决定是否亮出底牌。明牌后所有玩家可见底牌，倍数翻倍。地主获得底牌后手牌增至20张。\n\n")
+	sb.WriteString("【重要】你必须调用reveal_cards（明牌）或pass_reveal（不明牌）。\n")
+	sb.WriteString("手牌非常好（有炸弹、火箭）时可以考虑明牌，否则选择不显示。\n")
+
+	sb.WriteString("##加倍:\n")
+	sb.WriteString("各玩家轮流决定是否加倍。加倍后该玩家的输赢分数翻倍（赢多输多），农民和地主分别独立翻倍。\n\n")
+	sb.WriteString("【重要】你必须调用choose_double（加倍）或choose_no_double（不加倍）。\n")
+	sb.WriteString("手牌很好或你是地主时可以考虑加倍，否则选择不加倍。\n")
+
+	sb.WriteString("##出牌:\n")
+	sb.WriteString("地主先出牌，之后按逆时针轮流。轮到时必须出比上家更大的同牌型，或无牌可出时选择过牌。\n")
+	sb.WriteString("最先出完手牌者获胜。地主赢则农民输，任一农民先出完则地主输。\n\n")
 	sb.WriteString("规则：单张、对子、三张、三带一、三带二、顺子(5张+)、连对(3对+)、飞机、炸弹、火箭。\n")
 	sb.WriteString("必须出比上家更大的牌型，或选择过牌。牌型相同才能比较大小。\n")
 	sb.WriteString("地主目标：尽快出完手牌。农民目标：配合队友阻止地主。\n")
-	sb.WriteString("出牌时使用卡牌ID（整数），不要使用文字描述。\n")
-	sb.WriteString("先使用check_my_hand和check_game_status了解情况，再做出牌决定。\n")
+	sb.WriteString("【重要】你必须调用play_cards来出牌或过牌。\n")
+	sb.WriteString("- 出牌：play_cards cards=[id1,id2,...] chat=\"要说的话\"\n")
+	sb.WriteString("- 过牌：play_cards cards=[]\n")
+	sb.WriteString("chat参数可选，用于在出牌时附带简短聊天（不超过30字）。\n")
+	sb.WriteString("出牌时必须使用卡牌的整数ID（如27），不要使用文字描述（如♣4）。\n")
+
+	sb.WriteString("##牌:\n")
+	sb.WriteString("牌的ID从0到53，分别对应：\n")
+	sb.WriteString("- 0-51：普通牌，按花色和点数排序（0=♣3, 1=♦3, 3=♥3, 4=♠3, ..., 48=♣2, 49=♦2, 50=♥2, 51=♠2）\n")
+	sb.WriteString("- 52：小王\n")
+	sb.WriteString("- 53：大王\n")
 
 	return sb.String()
 }
@@ -344,92 +551,37 @@ func (a *AIAgent) detectPhase() string {
 	}
 }
 
-func (a *AIAgent) buildAgentPrompt(phase string) string {
-	var sb strings.Builder
-	name := "AI玩家"
-	personality := "冷静分析，稳健出牌"
-	playStyle := "balanced"
-
-	if a.Character != nil {
-		if a.Character.Name != "" {
-			name = a.Character.Name
-		}
-		if a.Character.Personality != nil && *a.Character.Personality != "" {
-			personality = *a.Character.Personality
-		}
-		playStyle = a.Character.PlayStyle
-	}
-
-	sb.WriteString(fmt.Sprintf("你是斗地主AI玩家「%s」。\n", name))
-	sb.WriteString(fmt.Sprintf("性格：%s。出牌风格：%s。\n\n", personality, playStyle))
-
-	switch phase {
-	case "calling":
-		sb.WriteString("## 当前阶段：叫地主\n\n")
-		sb.WriteString("根据手牌强度决定是否叫地主。有炸弹、多张2、有大王时应该叫地主。\n")
-		sb.WriteString("手牌较弱时选择不叫。\n\n")
-	case "snatching":
-		sb.WriteString("## 当前阶段：抢地主\n\n")
-		sb.WriteString("有人已经叫地主了。根据手牌强度决定是否抢地主。\n")
-		sb.WriteString("抢地主会使倍数翻倍。手牌很强时抢，否则不抢。\n\n")
-	case "revealing":
-		sb.WriteString("## 当前阶段：明牌\n\n")
-		sb.WriteString("选择是否明牌。明牌会让所有人看到你的手牌，但倍数翻倍。\n")
-		sb.WriteString("手牌非常好（有炸弹、火箭）时可以考虑明牌，否则选择不显示。\n\n")
-	case "doubling":
-		sb.WriteString("## 当前阶段：加倍\n\n")
-		sb.WriteString("选择是否加倍。加倍会让你的得分翻倍（赢多输多）。\n")
-		sb.WriteString("手牌很好或你是地主时可以考虑加倍，否则选择不加倍。\n\n")
-	default:
-		sb.WriteString("## 当前阶段：出牌\n\n")
-		sb.WriteString("规则：单张、对子、三张、三带一、三带二、顺子(5张+)、连对(3对+)、飞机、炸弹、火箭。\n")
-		sb.WriteString("必须出比上家更大的牌，或选择过牌。牌型相同才能比较大小。\n")
-		sb.WriteString("地主目标：尽快出完手牌。农民目标：配合队友阻止地主。\n")
-			sb.WriteString("重要：出牌时必须使用卡牌的整数ID（如27），不要使用文字描述（如♣4）。手牌列表中的格式为ID(显示)。\n\n")
-	}
-
-	sb.WriteString("## 可用工具\n\n")
-	sb.WriteString("所有工具都支持可选的chat参数，用于在操作时发送聊天消息（不超过30字）。\n")
-	sb.WriteString("- say：在聊天室说话，参数message=要说的话\n\n")
-	switch phase {
-	case "calling", "snatching":
-		sb.WriteString("- bid_landlord：叫地主/抢地主，可选参数chat=叫地主时说的话\n")
-		sb.WriteString("- pass_bid：不叫/不抢，可选参数chat=不叫时说的话\n\n")
-	case "revealing":
-		sb.WriteString("- reveal_cards：明牌（亮出手牌）\n")
-		sb.WriteString("- pass_reveal：不明牌\n\n")
-	case "doubling":
-		sb.WriteString("- choose_double：加倍\n")
-		sb.WriteString("- choose_no_double：不加倍\n\n")
-	default:
-		sb.WriteString("- play_cards：出牌，参数cards=要出的牌ID列表（cards=[]表示过牌），可选参数chat=出牌时说的话\n")
-	}
-
-	sb.WriteString("请以JSON格式回复，只包含一个工具调用：\n")
-	sb.WriteString(`{"tool": "工具名", "args": {...}}` + "\n")
-
-	return sb.String()
-}
-
 func (a *AIAgent) buildUserMessage(phase string) string {
 	var sb strings.Builder
 
-	// Show the agent's hand cards clearly
-	sb.WriteString(fmt.Sprintf("你的手牌（%d张）：\n", len(a.HandCards)))
-	sb.WriteString(formatCardsWithIDs(a.HandCards))
-	sb.WriteString("\n（每张牌格式：ID(显示)，使用ID来出牌）\n\n")
+	switch phase {
+	case "calling":
+		sb.WriteString("## 当前阶段：叫地主\n")
+	case "snatching":
+		sb.WriteString("## 当前阶段：抢地主\n")
+	case "revealing":
+		sb.WriteString("## 当前阶段：明牌\n")
+	case "doubling":
+		sb.WriteString("## 当前阶段：加倍\n")
+	default:
+		sb.WriteString("## 当前阶段：出牌\n")
+	}
 
 	// Show game state context
 	if a.stateJSON != "" {
 		var state struct {
-			Phase         int `json:"phase"`
-			CurrentSeat   int `json:"current_seat"`
-			LandlordSeat  int `json:"landlord_seat"`
-			Multiplier    int `json:"multiplier"`
-			LandlordCards []int `json:"landlord_cards"`
-			LastPlay      *struct {
-				Seat  int   `json:"seat"`
-				Cards []int `json:"cards"`
+			Phase         int   `json:"phase"`
+			CurrentSeat   int   `json:"current_seat"`
+			LandlordSeat  int   `json:"landlord_seat"`
+			Multiplier    int   `json:"multiplier"`
+			LandlordCards []struct {
+					ID int `json:"id"`
+				} `json:"landlord_cards"`
+				LastPlay *struct {
+					Seat  int `json:"seat"`
+					Cards []struct {
+						ID int `json:"id"`
+					} `json:"cards"`
 				Play  *struct {
 					Type     int `json:"type"`
 					MainRank int `json:"main_rank"`
@@ -437,9 +589,11 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 				} `json:"play"`
 			} `json:"last_play"`
 			Players []struct {
-				Seat       int   `json:"seat"`
-				IsLandlord bool  `json:"is_landlord"`
-				Hand       []int `json:"hand"`
+				Seat       int  `json:"seat"`
+				IsLandlord bool `json:"is_landlord"`
+				Hand       []struct {
+					ID int `json:"id"`
+				} `json:"hand"`
 			} `json:"players"`
 			BidHistory []struct {
 				Seat   int  `json:"seat"`
@@ -447,6 +601,12 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 			} `json:"bid_history"`
 		}
 		if json.Unmarshal([]byte(a.stateJSON), &state) == nil {
+			// Extract card IDs from struct format for display
+			landlordCardIDs := make([]int, len(state.LandlordCards))
+			for i, c := range state.LandlordCards {
+				landlordCardIDs[i] = c.ID
+			}
+
 			sb.WriteString(fmt.Sprintf("你的座位：%d\n", a.Seat))
 			sb.WriteString(fmt.Sprintf("当前轮到座位：%d\n", state.CurrentSeat))
 			sb.WriteString(fmt.Sprintf("当前倍率：%d\n", state.Multiplier))
@@ -456,13 +616,13 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 				sb.WriteString(fmt.Sprintf("地主座位：%d\n", state.LandlordSeat))
 				if state.LandlordSeat == a.Seat {
 					sb.WriteString("你是地主！\n")
-					if len(state.LandlordCards) > 0 {
-						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCardsWithIDs(state.LandlordCards)))
+					if len(landlordCardIDs) > 0 {
+						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCardsWithIDs(landlordCardIDs)))
 					}
 				} else {
 					sb.WriteString("你是农民，队友也是农民。\n")
-					if len(state.LandlordCards) > 0 {
-						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCardsWithIDs(state.LandlordCards)))
+					if len(landlordCardIDs) > 0 {
+						sb.WriteString(fmt.Sprintf("地主牌（底牌）：%s\n", formatCardsWithIDs(landlordCardIDs)))
 					}
 				}
 			}
@@ -491,8 +651,12 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 
 			// Last play
 			if state.LastPlay != nil && len(state.LastPlay.Cards) > 0 {
+				lastPlayIDs := make([]int, len(state.LastPlay.Cards))
+				for i, c := range state.LastPlay.Cards {
+					lastPlayIDs[i] = c.ID
+				}
 				sb.WriteString(fmt.Sprintf("\n上家(座位%d)出了：%s\n",
-					state.LastPlay.Seat, formatCardsWithIDs(state.LastPlay.Cards)))
+					state.LastPlay.Seat, formatCardsWithIDs(lastPlayIDs)))
 				if state.LastPlay.Play != nil {
 					playTypeNames := []string{"无效", "单张", "对子", "三张", "三带一", "三带二", "顺子", "连对", "飞机", "飞机带翅膀", "四带二", "炸弹", "火箭"}
 					ptName := "未知"
@@ -503,18 +667,18 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 				}
 				sb.WriteString("你需要出更大的牌型，或选择过牌。\n")
 			} else {
-				sb.WriteString("\n你可以自由出牌（你是本轮首家）。\n")
+				sb.WriteString("\n轮到你了，你可以自由出牌。\n")
 			}
 		}
 	}
 
-	sb.WriteString("\n请选择一个工具执行。")
+	sb.WriteString("\n请为了自己阵营的胜利做出决策。")
 	return sb.String()
 }
 
 func (a *AIAgent) isActionTool(name string) bool {
 	switch name {
-	case "play_cards", "bid_landlord", "pass_bid", "say",
+	case "play_cards", "bid_landlord", "pass_bid",
 		"reveal_cards", "pass_reveal", "choose_double", "choose_no_double":
 		return true
 	}
@@ -588,13 +752,6 @@ func (a *AIAgent) executeToolCall(raw string) {
 			a.Executor.ExecuteAction(a.UserID, "no_double", nil)
 		}
 
-	case "say":
-		if a.Executor != nil {
-			var args SayArgs
-			if json.Unmarshal(call.Args, &args) == nil && args.Message != "" {
-				a.Executor.SendChat(a.UserID, args.Message, "text")
-			}
-		}
 	}
 }
 
@@ -800,23 +957,6 @@ func formatCardsWithIDs(cards []int) string {
 			parts[i] = fmt.Sprintf("%d(大王)", id)
 		} else {
 			parts[i] = fmt.Sprintf("%d(%s%s)", id, suits[id/13], ranks[id%13])
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// formatCards converts card IDs to human-readable format like "♠A ♥K ♦7"
-func formatCards(cards []int) string {
-	suits := []string{"♠", "♥", "♣", "♦"}
-	ranks := []string{"3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"}
-	parts := make([]string, len(cards))
-	for i, id := range cards {
-		if id == 52 {
-			parts[i] = "小王"
-		} else if id == 53 {
-			parts[i] = "大王"
-		} else {
-			parts[i] = suits[id/13] + ranks[id%13]
 		}
 	}
 	return strings.Join(parts, " ")

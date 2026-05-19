@@ -29,14 +29,14 @@ func TestExtractToolCall_Bid(t *testing.T) {
 	}
 }
 
-func TestExtractToolCall_Say(t *testing.T) {
-	llmOutput := `{"tool": "say", "args": {"message": "大家好！"}}`
+func TestExtractToolCall_Info(t *testing.T) {
+	llmOutput := `{"tool": "check_my_hand", "args": {}}`
 	call, err := ExtractToolCall(llmOutput)
 	if err != nil {
 		t.Fatalf("extract error: %v", err)
 	}
-	if call.Name != "say" {
-		t.Errorf("name = %s, want say", call.Name)
+	if call.Name != "check_my_hand" {
+		t.Errorf("name = %s, want check_my_hand", call.Name)
 	}
 }
 
@@ -193,15 +193,12 @@ func TestAgent_MultiTurnActionAndChat(t *testing.T) {
 			{
 				ToolCalls: []AssistantToolCall{
 					{ID: "call_1", Type: "function"},
-					{ID: "call_2", Type: "function"},
 				},
 			},
 		},
 	}
-	provider.responses[0].ToolCalls[0].Function.Name = "say"
-	provider.responses[0].ToolCalls[0].Function.Arguments = `{"message":"大家好"}`
-	provider.responses[0].ToolCalls[1].Function.Name = "play_cards"
-	provider.responses[0].ToolCalls[1].Function.Arguments = `{"cards":[]}`
+	provider.responses[0].ToolCalls[0].Function.Name = "play_cards"
+	provider.responses[0].ToolCalls[0].Function.Arguments = `{"cards":[],"chat":"过"}`
 
 	agent := NewAIAgent("ai:bot:1", 0, nil, provider, exec)
 	agent.HandCards = []int{0}
@@ -211,7 +208,7 @@ func TestAgent_MultiTurnActionAndChat(t *testing.T) {
 	if exec.lastAction != "pass" {
 		t.Errorf("expected pass, got %s", exec.lastAction)
 	}
-	if exec.lastChat != "大家好" {
-		t.Errorf("expected chat '大家好', got '%s'", exec.lastChat)
+	if exec.lastChat != "过" {
+		t.Errorf("expected chat '过', got '%s'", exec.lastChat)
 	}
 }

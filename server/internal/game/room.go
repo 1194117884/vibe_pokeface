@@ -875,6 +875,9 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		return
 	}
 
+	executedAction := action
+	executedCards := cards
+
 	gameAction := PlayerAction{
 		PlayerID: player.PlayerID,
 		Action:   action,
@@ -884,19 +887,16 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 	newState, err := r.Engine.ExecuteAction(r.State, gameAction)
 	if err != nil {
 		if player.IsBot {
-			// Bot action was rejected (e.g., LLM returned invalid cards).
-			// Force a pass to keep the game moving. If pass itself is
-			// rejected (no active play to beat), play lowest single.
-			fallback := "pass"
-			fallbackCards := []int(nil)
+			executedAction = "pass"
+			executedCards = []int(nil)
 			if action == "pass" {
-				fallback = "play"
-				fallbackCards = r.botLowestSingle(userID)
+				executedAction = "play"
+				executedCards = r.botLowestSingle(userID)
 			}
 			newState, err = r.Engine.ExecuteAction(r.State, PlayerAction{
 				PlayerID: player.PlayerID,
-				Action:   fallback,
-				Cards:    fallbackCards,
+				Action:   executedAction,
+				Cards:    executedCards,
 			})
 			if err != nil {
 				return
@@ -916,21 +916,22 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 
 	r.State = newState
 
-	// Record the action to the game_records DB
+	// Record the action to the database
 	if r.store != nil && r.currentGameID > 0 {
 		r.actionSeq++
 		var cardsJSON *string
-		if len(cards) > 0 {
-			b, _ := json.Marshal(cards)
+		if len(executedCards) > 0 {
+			b, _ := json.Marshal(executedCards)
 			s := string(b)
 			cardsJSON = &s
 		}
-		stateStr := r.Engine.SerializeForAI(r.State)
+		stateJSON, _ := json.Marshal(r.State)
+		stateJSONStr := string(stateJSON)
 		roundNum := 1
 		var sd struct {
 			RoundNum int `json:"round_num"`
 		}
-		if err := json.Unmarshal([]byte(stateStr), &sd); err == nil {
+		if err := json.Unmarshal(stateJSON, &sd); err == nil {
 			roundNum = sd.RoundNum
 		}
 		var seatIdx int8 = -1
@@ -940,26 +941,34 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 			if p.UserID == userID {
 				seatIdx = int8(p.Seat)
 				isBot = p.IsBot
-				if !p.IsBot {
-					uid, err := strconv.ParseInt(p.UserID, 10, 64)
-					if err == nil {
-						playerDBID = &uid
-					}
-				}
+				uid := parsePlayerID(p.UserID, p.IsBot)
+				playerDBID = &uid
 				break
 			}
 		}
-		r.store.AddGameAction(context.Background(), &model.GameAction{
-			GameID:     r.currentGameID,
-			RoundNum:   roundNum,
-			ActionSeq:  r.actionSeq,
-			PlayerID:   playerDBID,
-			SeatIndex:  seatIdx,
-			IsBot:      isBot,
-			ActionType: action,
-			Cards:      cardsJSON,
-			FullState:  &stateStr,
-		})
+		var toolExecID *int64
+		if isBot {
+			if agent, ok := r.agents[userID]; ok {
+				id := agent.LastToolExecID()
+				if id > 0 {
+					toolExecID = &id
+				}
+			}
+		}
+		if err := r.store.AddGameAction(context.Background(), &model.GameAction{
+			GameID:          r.currentGameID,
+			RoundNum:        roundNum,
+			ActionSeq:       r.actionSeq,
+			PlayerID:        playerDBID,
+			SeatIndex:       seatIdx,
+			IsBot:           isBot,
+			ActionType:      executedAction,
+			Cards:           cardsJSON,
+			FullState:       &stateJSONStr,
+			ToolExecutionID: toolExecID,
+		}); err != nil {
+			log.Printf("failed to record game action: %v", err)
+		}
 	}
 
 	// Check for 报单/报双 (cards left announcement)
@@ -1137,6 +1146,61 @@ func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string
 			Content: content,
 			MsgType: msgType,
 		})
+
+		// Also record as a game action for chronological timeline
+		if r.currentGameID > 0 {
+			r.actionSeq++
+			var seatIdx int8 = -1
+			isBot := false
+			var playerDBID *int64
+			for _, p := range r.Players {
+				if p.UserID == senderID {
+					seatIdx = int8(p.Seat)
+					isBot = p.IsBot
+					uid := parsePlayerID(p.UserID, p.IsBot)
+					playerDBID = &uid
+					break
+				}
+			}
+			chatJSON, _ := json.Marshal(map[string]string{
+				"content": content,
+				"type":    msgType,
+			})
+			chatJSONStr := string(chatJSON)
+			var chatToolExecID *int64
+			if isBot {
+				if agent, ok := r.agents[senderID]; ok {
+					id := agent.LastToolExecID()
+					if id > 0 {
+						chatToolExecID = &id
+					}
+				}
+			}
+			chatRoundNum := 1
+			if r.State != nil {
+				if stateJSON, err := json.Marshal(r.State); err == nil {
+					var sd struct {
+						RoundNum int `json:"round_num"`
+					}
+					if json.Unmarshal(stateJSON, &sd) == nil && sd.RoundNum > 0 {
+						chatRoundNum = sd.RoundNum
+					}
+				}
+			}
+			if err := r.store.AddGameAction(context.Background(), &model.GameAction{
+				GameID:          r.currentGameID,
+				RoundNum:        chatRoundNum,
+				ActionSeq:       r.actionSeq,
+				PlayerID:        playerDBID,
+				SeatIndex:       seatIdx,
+				IsBot:           isBot,
+				ActionType:      "chat",
+				Cards:           &chatJSONStr,
+				ToolExecutionID: chatToolExecID,
+			}); err != nil {
+				log.Printf("failed to record chat action: %v", err)
+			}
+		}
 	}
 
 	r.broadcastMsg("chat", map[string]interface{}{
@@ -1298,4 +1362,22 @@ func checkCardsLeft(state GameState) string {
 		}
 	}
 	return ""
+}
+
+// parsePlayerID converts a user ID string to an int64 identifier suitable for
+// the game_actions.player_id column. Humans get their positive user ID; bots
+// get a negative number parsed from "ai:bot:N" so each bot is distinguishable.
+func parsePlayerID(userID string, isBot bool) int64 {
+	if isBot {
+		var n int64
+		if _, err := fmt.Sscanf(userID, "ai:bot:%d", &n); err == nil {
+			return -n
+		}
+		return -1
+	}
+	uid, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uid
 }

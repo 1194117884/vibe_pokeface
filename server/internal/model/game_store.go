@@ -45,17 +45,18 @@ type GameRecord struct {
 }
 
 type GameAction struct {
-	ID         int64     `db:"id" json:"id"`
-	GameID     int64     `db:"game_id" json:"game_id"`
-	RoundNum   int       `db:"round_num" json:"round_num"`
-	ActionSeq  int       `db:"action_seq" json:"action_seq"`
-	PlayerID   *int64    `db:"player_id" json:"player_id,omitempty"`
-	SeatIndex  int8      `db:"seat_index" json:"seat_index"`
-	IsBot      bool      `db:"is_bot" json:"is_bot"`
-	ActionType string    `db:"action_type" json:"action_type"`
-	Cards      *string   `db:"cards" json:"cards,omitempty"`
-	FullState  *string   `db:"full_state" json:"full_state,omitempty"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	ID               int64     `db:"id" json:"id"`
+	GameID           int64     `db:"game_id" json:"game_id"`
+	RoundNum         int       `db:"round_num" json:"round_num"`
+	ActionSeq        int       `db:"action_seq" json:"action_seq"`
+	PlayerID         *int64    `db:"player_id" json:"player_id,omitempty"`
+	SeatIndex        int8      `db:"seat_index" json:"seat_index"`
+	IsBot            bool      `db:"is_bot" json:"is_bot"`
+	ActionType       string    `db:"action_type" json:"action_type"`
+	Cards            *string   `db:"cards" json:"cards,omitempty"`
+	FullState        *string   `db:"full_state" json:"full_state,omitempty"`
+	ToolExecutionID  *int64    `db:"tool_execution_id" json:"tool_execution_id,omitempty"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 }
 
 type ScoreRecord struct {
@@ -210,9 +211,9 @@ func (s *GameStore) EndGameRecord(ctx context.Context, gameID int64, resultJSON 
 // AddGameAction records a single game action.
 func (s *GameStore) AddGameAction(ctx context.Context, action *GameAction) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO game_actions (game_id, round_num, action_seq, player_id, seat_index, is_bot, action_type, cards, full_state)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO game_actions (game_id, round_num, action_seq, player_id, seat_index, is_bot, action_type, cards, full_state, tool_execution_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		action.GameID, action.RoundNum, action.ActionSeq, action.PlayerID,
-		action.SeatIndex, action.IsBot, action.ActionType, action.Cards, action.FullState)
+		action.SeatIndex, action.IsBot, action.ActionType, action.Cards, action.FullState, action.ToolExecutionID)
 	return err
 }

@@ -180,7 +180,7 @@ export function SeatPosition({
             {landlordCards.map((cardId, i) => (
               <div
                 key={i}
-                className="w-7 h-10 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+                className="w-3 h-5 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
               >
                 <span className={miniCardColor(cardId)}>
                   {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
