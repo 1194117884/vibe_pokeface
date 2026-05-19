@@ -22,7 +22,7 @@ export function RoomThemeProvider({ themeId, children }: RoomThemeProviderProps)
 
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty("--bg-image", `url(${theme.background.image})`);
+    root.style.setProperty("--bg-image", theme.background.image || "none");
     root.style.setProperty("--bg-color", theme.background.color);
     root.style.setProperty("--bg-overlay", theme.background.overlay || "none");
     root.style.setProperty("--felt-color", theme.table.feltColor);

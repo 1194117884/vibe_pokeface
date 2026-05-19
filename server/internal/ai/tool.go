@@ -69,9 +69,11 @@ func ExtractToolCall(jsonStr string) (*ToolCall, error) {
 	return &call, nil
 }
 
-// GetToolSchemas returns all available tool definitions for LLM prompt injection
-func GetToolSchemas() []ToolSchema {
-	return []ToolSchema{
+// GetToolSchemas returns tool definitions appropriate for the given game phase.
+// Bidding phases get bidding tools; playing phase gets play_cards.
+// Info tools (check_my_hand, check_game_status) and say are always available.
+func GetToolSchemas(phase string) []ToolSchema {
+	infoTools := []ToolSchema{
 		{
 			Type: "function",
 			Function: FuncDef{
@@ -94,33 +96,32 @@ func GetToolSchemas() []ToolSchema {
 				},
 			},
 		},
-		{
-			Type: "function",
-			Function: FuncDef{
-				Name:        "play_cards",
-				Description: "出牌。传入要出的牌ID列表（空数组=不出/过牌）。可在chat字段附加聊天消息",
-				Parameters: ParamSchema{
-					Type: "object",
-					Properties: map[string]ParamProperty{
-						"cards": {
-							Type:        "array",
-							Description: "要出的牌的ID数组，空数组表示不出/过牌",
-							Items:       &ItemsSchema{Type: "integer"},
-						},
-						"chat": {
-							Type:        "string",
-							Description: "出牌时说的话（可选，不超过30字）",
-						},
+	}
+
+	sayTool := ToolSchema{
+		Type: "function",
+		Function: FuncDef{
+			Name:        "say",
+			Description: "在游戏聊天室说一句话",
+			Parameters: ParamSchema{
+				Type: "object",
+				Properties: map[string]ParamProperty{
+					"message": {
+						Type:        "string",
+						Description: "要说的内容（不超过50字）",
 					},
-					Required: []string{"cards"},
 				},
+				Required: []string{"message"},
 			},
 		},
+	}
+
+	biddingTools := []ToolSchema{
 		{
 			Type: "function",
 			Function: FuncDef{
 				Name:        "bid_landlord",
-				Description: "叫地主",
+				Description: "叫地主/抢地主",
 				Parameters: ParamSchema{
 					Type: "object",
 					Properties: map[string]ParamProperty{
@@ -136,34 +137,103 @@ func GetToolSchemas() []ToolSchema {
 			Type: "function",
 			Function: FuncDef{
 				Name:        "pass_bid",
-				Description: "不叫地主",
+				Description: "不叫地主/不抢地主",
 				Parameters: ParamSchema{
 					Type: "object",
 					Properties: map[string]ParamProperty{
 						"chat": {
 							Type:        "string",
-							Description: "过牌时说的话（可选，不超过30字）",
+							Description: "不叫时说的话（可选，不超过30字）",
 						},
 					},
+				},
+			},
+		},
+	}
+
+	revealTools := []ToolSchema{
+		{
+			Type: "function",
+			Function: FuncDef{
+				Name:        "reveal_cards",
+				Description: "明牌（亮出自己的手牌，倍数翻倍）",
+				Parameters: ParamSchema{
+					Type:       "object",
+					Properties: map[string]ParamProperty{},
 				},
 			},
 		},
 		{
 			Type: "function",
 			Function: FuncDef{
-				Name:        "say",
-				Description: "在游戏聊天室说一句话",
+				Name:        "pass_reveal",
+				Description: "不明牌",
 				Parameters: ParamSchema{
-					Type: "object",
-					Properties: map[string]ParamProperty{
-						"message": {
-							Type:        "string",
-							Description: "要说的内容（不超过50字）",
-						},
-					},
-					Required: []string{"message"},
+					Type:       "object",
+					Properties: map[string]ParamProperty{},
 				},
 			},
 		},
+	}
+
+	doubleTools := []ToolSchema{
+		{
+			Type: "function",
+			Function: FuncDef{
+				Name:        "choose_double",
+				Description: "加倍（得分翻倍，赢多输也多）",
+				Parameters: ParamSchema{
+					Type:       "object",
+					Properties: map[string]ParamProperty{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FuncDef{
+				Name:        "choose_no_double",
+				Description: "不加倍",
+				Parameters: ParamSchema{
+					Type:       "object",
+					Properties: map[string]ParamProperty{},
+				},
+			},
+		},
+	}
+
+	playTool := ToolSchema{
+		Type: "function",
+		Function: FuncDef{
+			Name:        "play_cards",
+			Description: "出牌。传入要出的牌ID列表（空数组=不出/过牌）。可在chat字段附加聊天消息",
+			Parameters: ParamSchema{
+				Type: "object",
+				Properties: map[string]ParamProperty{
+					"cards": {
+						Type:        "array",
+						Description: "要出的牌的ID数组，空数组表示不出/过牌",
+						Items:       &ItemsSchema{Type: "integer"},
+					},
+					"chat": {
+						Type:        "string",
+						Description: "出牌时说的话（可选，不超过30字）",
+					},
+				},
+				Required: []string{"cards"},
+			},
+		},
+	}
+
+	base := append(infoTools, sayTool)
+
+	switch phase {
+	case "calling", "snatching":
+		return append(base, biddingTools...)
+	case "revealing":
+		return append(base, revealTools...)
+	case "doubling":
+		return append(base, doubleTools...)
+	default:
+		return append(base, playTool)
 	}
 }

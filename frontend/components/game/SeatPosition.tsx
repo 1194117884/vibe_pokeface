@@ -45,7 +45,158 @@ export function SeatPosition({
   action,
   landlordCards,
   compact = false,
+  position,
 }: SeatPositionProps) {
+  // Stitch opponent mode: compact display for left/right opponents during game phases
+  if (position && player) {
+    const charStyle = !player.isBot
+      ? getCharacterStyle(player.characterId || "panda")
+      : undefined;
+
+    return (
+      <div
+        className={clsx(
+          "relative flex flex-col items-center rounded-xl transition-all",
+          compact ? "gap-1 p-2" : "gap-2 p-3",
+          "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
+          player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
+          player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
+        )}
+      >
+        {/* Speech bubble */}
+        {action && (
+          <div
+            key={action}
+            className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 animate-bubble-in"
+          >
+            <div className="bg-black/85 backdrop-blur-sm text-white text-sm font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
+              {action}
+            </div>
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-black/85 rotate-45" />
+          </div>
+        )}
+
+        {/* Owner badge */}
+        {player.isOwner && (
+          <span
+            className="absolute -top-2 -left-1 text-base drop-shadow-md z-10"
+            title="房主"
+            style={{ color: "#e9c400" }}
+          >
+            ⭐
+          </span>
+        )}
+
+        {/* Landlord badge */}
+        {player.isLandlord && (
+          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
+            👑 地主
+          </div>
+        )}
+
+        {/* Current turn badge */}
+        {player.isCurrentTurn && (
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)] z-10">
+            ⚡ 出牌中
+          </div>
+        )}
+
+        {/* Baodan / Baoshuang badges */}
+        {cardsLeft === "baodan" && (
+          <span className="absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse z-10">
+            报单
+          </span>
+        )}
+        {cardsLeft === "baoshuang" && (
+          <span className="absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse z-10">
+            报双
+          </span>
+        )}
+
+        {/* Stacked card backs behind avatar */}
+        <div className="flex flex-col items-center -space-y-5">
+          <div
+            className="w-7 h-10 rounded shadow border border-white/5 opacity-60"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+            }}
+          />
+          <div
+            className="w-7 h-10 rounded shadow border border-white/5 opacity-80"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+            }}
+          />
+          <div
+            className="w-7 h-10 rounded shadow border border-white/5"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+            }}
+          />
+        </div>
+
+        {/* Avatar */}
+        <div className="relative -mt-3">
+          <div
+            className={clsx(
+              "rounded-full border-2 border-surface-container-highest overflow-hidden",
+              compact ? "w-10 h-10" : "w-12 h-12",
+              player.isLandlord && "border-secondary-container/50",
+            )}
+          >
+            {player.isBot ? (
+              <div className="w-full h-full bg-purple-500 flex items-center justify-center text-white font-bold text-lg">
+                AI
+              </div>
+            ) : (
+              <div
+                className="w-full h-full flex items-center justify-center text-2xl"
+                style={{
+                  backgroundColor: charStyle?.backgroundColor ?? "#374151",
+                }}
+              >
+                {charStyle?.emoji ?? "🐼"}
+              </div>
+            )}
+          </div>
+          {player.cardCount > 0 && (
+            <div className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary-container rounded-full w-5 h-5 flex items-center justify-center text-[9px] font-bold border border-black/20">
+              {player.cardCount}
+            </div>
+          )}
+        </div>
+
+        {/* Name */}
+        <p className={clsx("font-player-name text-on-surface text-center truncate", compact ? "text-[10px] max-w-[70px]" : "text-xs max-w-[90px]")}>
+          {player.nickname || player.name}
+        </p>
+
+        {/* Landlord cards (底牌) */}
+        {player.isLandlord && landlordCards && landlordCards.length > 0 && (
+          <div className="flex gap-0.5 mt-1">
+            {landlordCards.map((cardId, i) => (
+              <div
+                key={i}
+                className="w-7 h-10 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+              >
+                <span className={miniCardColor(cardId)}>
+                  {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+                </span>
+                <span className={miniCardColor(cardId)}>
+                  {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Empty seat (waiting phase)
   if (!player) {
     return (
       <div
@@ -77,6 +228,7 @@ export function SeatPosition({
     );
   }
 
+  // Full SeatPosition (waiting phase, no position)
   const charStyle = !player.isBot
     ? getCharacterStyle(player.characterId || "panda")
     : undefined;
@@ -87,9 +239,7 @@ export function SeatPosition({
         "relative flex flex-col items-center rounded-xl transition-all",
         compact ? "gap-1.5 p-2 min-w-[80px]" : "gap-3 p-4 min-w-[120px]",
         "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
-        // Current turn: gold glow
         player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
-        // Landlord: gold border accent
         player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
         isMySeat && "ring-1 ring-primary/30",
       )}

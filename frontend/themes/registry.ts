@@ -11,13 +11,14 @@ const cardStyles: Record<string, CardStyle> = {};
 const DEFAULT_ROOM_THEME: RoomTheme = {
   id: DEFAULT_ROOM_THEME_ID,
   name: "Default",
-  background: { image: "", color: "#1a1a2e" },
+  background: { image: "", color: "#f2f0eb" },
   table: {
-    feltColor: "#1B5E20",
-    borderColor: "#8B4513",
-    borderWidth: "8px",
+    feltColor: "#1E3932",
+    borderColor: "#8B6914",
+    borderWidth: "12px",
     decoration: "",
-    shadow: "0 20px 60px rgba(0,0,0,0.5)",
+    shadow:
+      "0 0 6px rgba(0,0,0,0.24), 0 8px 12px rgba(0,0,0,0.14), 0 20px 60px rgba(0,0,0,0.3)",
   },
   ambient: { enabled: false },
   cardStyleId: DEFAULT_CARD_STYLE_ID,

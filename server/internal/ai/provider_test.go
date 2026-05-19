@@ -155,7 +155,7 @@ func TestOpenAICompleteWithTools_BodyFormat(t *testing.T) {
 		{Role: "system", Content: "You are a card game AI"},
 		{Role: "user", Content: "Your hand: 0(♠3) 1(♥3)"},
 	}
-	tools := GetToolSchemas()
+	tools := GetToolSchemas("playing")
 
 	body := map[string]interface{}{
 		"model":       "test-model",

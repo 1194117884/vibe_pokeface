@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 import { listAICharacters, type AICharacterInfo } from "@/lib/api-rooms";
-import { Button } from "@/components/ui/Button";
 
 interface AICharacterPickerProps {
   open: boolean;
@@ -15,6 +15,13 @@ const playStyleLabels: Record<string, string> = {
   conservative: "保守",
   balanced: "稳健",
   unpredictable: "随机",
+};
+
+const playStyleColors: Record<string, string> = {
+  aggressive: "bg-error-container text-error",
+  conservative: "bg-primary-container text-primary",
+  balanced: "bg-surface-container-high text-on-surface-variant",
+  unpredictable: "bg-tertiary-container text-tertiary",
 };
 
 export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPickerProps) {
@@ -31,16 +38,16 @@ export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPicker
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-frap p-6 max-w-md w-full mx-4 max-h-[80vh] flex flex-col">
-        <h2 className="text-xl font-bold text-text-black-strong mb-4 text-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-surface-container-high rounded-2xl shadow-frap p-6 max-w-md w-full mx-4 max-h-[80vh] flex flex-col border border-outline-variant">
+        <h2 className="text-xl font-bold text-on-surface mb-4 text-center">
           选择AI角色
         </h2>
 
         {loading ? (
-          <p className="text-text-black-soft text-center py-8">加载中...</p>
+          <p className="text-on-surface-variant text-center py-8">加载中...</p>
         ) : characters.length === 0 ? (
-          <p className="text-text-black-soft text-center py-8">
+          <p className="text-on-surface-variant text-center py-8">
             暂无可用AI角色，请先在管理后台创建
           </p>
         ) : (
@@ -49,22 +56,25 @@ export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPicker
               <button
                 key={char.id}
                 onClick={() => onSelect(char.id)}
-                className="w-full text-left p-4 rounded-xl border border-ceramic hover:border-green-accent/50 hover:bg-cream transition-colors"
+                className="w-full text-left p-4 rounded-xl border border-outline-variant hover:border-primary/50 hover:bg-surface-container transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-accent/10 text-green-accent flex items-center justify-center font-bold text-sm shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-primary-container text-primary flex items-center justify-center font-bold text-sm shrink-0">
                     {char.name.charAt(0)}
                   </div>
                   <div className="min-w-0">
-                    <div className="font-semibold text-text-black truncate">
+                    <div className="font-semibold text-on-surface truncate">
                       {char.name}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-cream text-text-black-soft">
+                      <span className={clsx(
+                        "text-xs px-2 py-0.5 rounded-full",
+                        playStyleColors[char.play_style] || "bg-surface-container text-on-surface-variant"
+                      )}>
                         {playStyleLabels[char.play_style] || char.play_style}
                       </span>
                       {char.personality && (
-                        <span className="text-xs text-text-black-soft truncate">
+                        <span className="text-xs text-on-surface-variant truncate">
                           {char.personality}
                         </span>
                       )}
@@ -76,12 +86,16 @@ export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPicker
           </div>
         )}
 
-        <div className="mt-4 pt-3 border-t border-ceramic">
-          <Button variant="outlined" fullWidth onClick={onClose}>
+        <div className="mt-4 pt-3 border-t border-outline-variant">
+          <button
+            onClick={onClose}
+            className="w-full px-6 py-2.5 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all"
+          >
             取消
-          </Button>
+          </button>
         </div>
       </div>
     </div>
   );
 }
+

@@ -144,7 +144,7 @@ func (a *AIAgent) makeDecisionWithTools() {
 		{Role: "user", Content: a.buildUserMessage(phase)},
 	}
 
-	tools := GetToolSchemas()
+	tools := GetToolSchemas(phase)
 
 	for turn := 0; turn < 10; turn++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -192,9 +192,10 @@ func (a *AIAgent) makeDecisionWithTools() {
 
 		// Build assistant message with tool calls
 		assistantMsg := ChatMessage{
-			Role:      "assistant",
-			Content:   result.Content,
-			ToolCalls: result.ToolCalls,
+			Role:             "assistant",
+			Content:          result.Content,
+			ReasoningContent: result.ReasoningContent,
+			ToolCalls:        result.ToolCalls,
 		}
 		messages = append(messages, assistantMsg)
 

@@ -49,23 +49,32 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
     <div
       onClick={onClick}
       className={clsx(
-        "bg-white rounded-xl flex flex-col p-2 select-none",
+        "rounded-xl flex flex-col p-2 select-none relative overflow-hidden",
         "transition-all duration-300",
         small
           ? "w-12 h-16"
           : medium
-            ? "w-16 h-24 shadow-lg"
-            : "w-24 h-36 shadow-2xl transform hover:-translate-y-8 cursor-pointer",
-        // Inner shadow for premium card feel
-        "shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)]",
-        small && "shadow-md",
-        // Selected state
+            ? "w-16 h-24"
+            : "w-24 h-36 transform hover:-translate-y-2.5 cursor-pointer",
+        "shadow-[0_2px_4px_rgba(0,0,0,0.2),inset_0_2px_4px_rgba(0,0,0,0.05)]",
+        small && "shadow-[0_1px_2px_rgba(0,0,0,0.15)]",
         selected
-          ? "border-2 border-primary ring-4 ring-primary/20 -translate-y-4"
+          ? "border-2 border-primary ring-4 ring-primary/20 -translate-y-2.5"
           : "border border-gray-200",
-        onClick && !small && "hover:-translate-y-8",
+        onClick && !small && "hover:-translate-y-2.5",
       )}
+      style={{
+        background: "linear-gradient(135deg, #fff 0%, #f3f3f3 100%)",
+      }}
     >
+      {/* Linen texture overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.35) 2px, rgba(0,0,0,0.35) 3px), repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0,0,0,0.25) 2px, rgba(0,0,0,0.25) 3px)",
+        }}
+      />
       {isJoker ? (
         <div
           className={clsx(

@@ -32,8 +32,9 @@ type LLMResult struct {
 // ChatMessage represents a message in a tool-use conversation
 type ChatMessage struct {
 	Role       string              `json:"role"`
-	Content    string              `json:"content,omitempty"`
-	ToolCalls  []AssistantToolCall `json:"tool_calls,omitempty"`
+	Content          string              `json:"content,omitempty"`
+	ReasoningContent string              `json:"reasoning_content,omitempty"`
+	ToolCalls        []AssistantToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string              `json:"tool_call_id,omitempty"`
 	Name       string              `json:"name,omitempty"`
 }
@@ -51,7 +52,8 @@ type AssistantToolCall struct {
 // LLMResultWithTools extends LLMResult with tool calls
 type LLMResultWithTools struct {
 	LLMResult
-	ToolCalls []AssistantToolCall
+	ReasoningContent string
+	ToolCalls        []AssistantToolCall
 }
 
 type LLMProvider interface {
@@ -208,8 +210,9 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content   string              `json:"content"`
-				ToolCalls []AssistantToolCall `json:"tool_calls"`
+				Content          string              `json:"content"`
+				ReasoningContent string              `json:"reasoning_content"`
+				ToolCalls        []AssistantToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -233,8 +236,9 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 			CompletionTokens: result.Usage.CompletionTokens,
 			DurationMs:       duration,
 		},
-		ToolCalls: result.Choices[0].Message.ToolCalls,
-	}, nil
+		ReasoningContent: result.Choices[0].Message.ReasoningContent,
+			ToolCalls:        result.Choices[0].Message.ToolCalls,
+		}, nil
 }
 
 type AnthropicProvider struct {

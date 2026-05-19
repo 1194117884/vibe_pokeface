@@ -14,6 +14,7 @@ import { LiveKitClient } from "@/lib/livekit-client";
 import { AICharacterPicker } from "@/components/game/AICharacterPicker";
 import { useGameAudio } from "@/hooks/useGameAudio";
 import { GameNotifications, ToastItem } from "@/components/game/GameNotifications";
+import { RoomThemeProvider } from "@/themes";
 
 interface ChatMessage {
   userId: string;
@@ -269,6 +270,7 @@ export default function RoomPage() {
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [mySeat, setMySeat] = useState<number | null>(null);
   const mySeatRef = useRef<number | null>(null);
+  const playersRef = useRef<TablePlayer[]>([]);
   const setMySeatWithRef = (seat: number | null) => {
     mySeatRef.current = seat;
     setMySeat(seat);
@@ -288,6 +290,9 @@ export default function RoomPage() {
   const [cardsLeftMessage, setCardsLeftMessage] = useState<string | null>(null);
   const [gameType, setGameType] = useState("doudizhu");
   const [showAIPicker, setShowAIPicker] = useState(false);
+  const [multiplier, setMultiplier] = useState(1);
+  const [roomScores, setRoomScores] = useState<Record<string, number>>({});
+  const [showSettings, setShowSettings] = useState(false);
   const gameConfig = GAME_CONFIG[gameType] || GAME_CONFIG.doudizhu;
   const [speechBubbles, setSpeechBubbles] = useState<Record<number, string>>({});
   const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
@@ -409,6 +414,7 @@ export default function RoomPage() {
       } else {
         setLastPlay(null);
       }
+      if (data?.multiplier !== undefined) setMultiplier(data.multiplier);
       setCardsLeftMessage(null);
       setConnected(true);
     });
@@ -462,6 +468,19 @@ export default function RoomPage() {
       const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
       if (data?.scores) {
         setRoundResult({ scores: data.scores });
+        // Map seat-based player_id to actual userId
+        const seatToUser: Record<string, string> = {};
+        for (const p of playersRef.current) {
+          seatToUser[String(p.seat)] = p.userId;
+        }
+        setRoomScores((prev) => {
+          const next = { ...prev };
+          for (const s of data.scores!) {
+            const key = seatToUser[String(s.player_id)] || String(s.player_id);
+            next[key] = (next[key] || 0) + s.score;
+          }
+          return next;
+        });
       }
     });
 
@@ -516,6 +535,10 @@ export default function RoomPage() {
   }, [roomId, router]);
 
   useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
+
+  useEffect(() => {
     const check = () => {
       setCompactUI(window.innerWidth > window.innerHeight && window.innerHeight < 500);
     };
@@ -525,12 +548,13 @@ export default function RoomPage() {
   }, []);
 
   const myUserId = getUserIdFromToken();
-  const myPlayer = players.find((p) => p.seat === mySeatRef.current);
+  const myPlayer = players.find((p) => p.seat === mySeat);
   const amIOwner = players.some((p) => p.userId === myUserId && p.isOwner);
   const amIReady = myPlayer?.isReady ?? false;
   const allReady = players.length >= 2 && players.every((p) => p.isReady);
   const canStart = players.length >= gameConfig.maxPlayers && allReady;
   const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
+  const myCumulativeScore = roomScores[String(mySeat ?? -1)] ?? 0;
   const displayPlayers = players.map((p) => ({
     ...p,
     isCurrentTurn: p.seat === currentSeat,
@@ -635,88 +659,133 @@ export default function RoomPage() {
     <div className="min-h-screen bg-background text-on-background flex flex-col overflow-hidden">
       {/* Toast notifications */}
       <GameNotifications toasts={toastQueue} />
-      {/* Top Navigation */}
-      <nav className={clsx(
-        "fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-gradient-to-b from-black/60 to-transparent",
+      {/* Top Navigation — Stitch compact header */}
+      <header className={clsx(
+        "fixed top-0 left-0 w-full z-50 flex items-center justify-between px-4 h-10 bg-gradient-to-b from-black/40 to-transparent",
         compactUI && "landscape-nav"
       )}>
-        <div className="flex items-center gap-4">
-          <h1 className="text-display-gold font-display-gold text-secondary-container drop-shadow-md text-[24px]">
-            房间 {roomId.slice(0, 6)}
-          </h1>
-          <span className="text-xs bg-primary-container text-on-primary-container px-2 py-0.5 rounded-full">
-            斗地主
+        <div className="flex items-center gap-3">
+          <span className="text-secondary-fixed text-sm font-black tracking-tight uppercase">
+            房间 {roomId.slice(0, 4)}
           </span>
+          <div className="flex items-center bg-black/30 rounded-full px-3 py-0.5 border border-outline-variant/30">
+            <span className="text-secondary-fixed text-xs font-bold mr-1">$</span>
+            <span className={clsx(
+              "text-xs font-bold",
+              myCumulativeScore >= 0 ? "text-secondary-fixed" : "text-error"
+            )}>
+              {myCumulativeScore >= 0 ? "+" : ""}{myCumulativeScore}
+            </span>
+          </div>
+          <div className="bg-black/30 px-2 py-0.5 rounded border border-outline-variant/30 flex items-center gap-2">
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase">倍数</span>
+            <span className="text-secondary-fixed text-xs font-bold">x{multiplier}</span>
+          </div>
         </div>
-        <div className="flex gap-2 items-center">
-          <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+        <div className="relative">
           <button
-            onClick={() => {
-              const next = !audioMuted;
-              setAudioMuted(next);
-              localStorage.setItem("audio_muted", String(next));
-            }}
-            className="text-on-surface-variant hover:text-primary transition-colors text-lg"
-            title={audioMuted ? "取消静音" : "静音"}
-            aria-label={audioMuted ? "取消静音" : "静音"}
+            onClick={() => setShowSettings(!showSettings)}
+            className="text-on-surface-variant hover:text-secondary-fixed transition-colors text-xl leading-none"
+            aria-label="Settings"
           >
-            {audioMuted ? "🔇" : "🔊"}
+            ⚙
           </button>
-          <button
-            onClick={() => router.push("/lobby")}
-            className="text-on-surface-variant hover:text-primary transition-colors text-label-md"
-          >
-            ← 退出
-          </button>
+          {showSettings && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)} />
+              <div className="absolute right-0 top-8 z-50 bg-surface-container-high rounded-xl border border-outline-variant shadow-frap p-1.5 min-w-[140px] flex flex-col">
+                <button
+                  onClick={() => { handleVoiceToggle(!micEnabled); }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-sm transition-colors w-full text-left"
+                  style={{ color: micEnabled ? "#8ed5af" : undefined }}
+                >
+                  <span className="text-base">{micEnabled ? "🎤" : "🤐"}</span>
+                  <span className="text-on-surface">麦克风</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const next = !audioMuted;
+                    setAudioMuted(next);
+                    localStorage.setItem("audio_muted", String(next));
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-sm transition-colors w-full text-left"
+                  style={{ color: audioMuted ? undefined : "#8ed5af" }}
+                >
+                  <span className="text-base">{audioMuted ? "🔇" : "🔊"}</span>
+                  <span className="text-on-surface">音效</span>
+                </button>
+                <hr className="border-outline-variant my-0.5" />
+                <button
+                  onClick={() => { setShowSettings(false); setChatOpen(true); }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-sm transition-colors w-full text-left"
+                >
+                  <span className="text-base">💬</span>
+                  聊天
+                </button>
+                <hr className="border-outline-variant my-0.5" />
+                <button
+                  onClick={() => router.push("/lobby")}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-error-container text-error text-sm transition-colors w-full text-left"
+                >
+                  <span className="text-base">🚪</span>
+                  退出
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      </nav>
+      </header>
 
-      {/* Main Game Canvas — Stitch dark green table */}
-      <main className={clsx("flex-grow flex flex-col items-center justify-center pt-16 relative", compactUI && "landscape-main")}
-        style={{
-          background: "radial-gradient(circle, #226a4b 0%, #003824 100%)",
-        }}
-      >
-        {players.length === 0 ? (
-          <div className="text-center text-on-surface-variant text-lg">房间是空的</div>
-        ) : (
-          <>
-            <div className={clsx("w-full pb-8", compactUI && "landscape-table")}>
-              <RoomTable
-                players={displayPlayers}
-                mySeat={mySeat ?? 0}
-                phase={phase}
-                onSitDown={handleSitDown}
-                onAddBot={handleAddBot}
-                landlordCards={landlordCards}
-                landlordSeat={landlordSeat}
-                lastPlay={lastPlay}
-                cardsLeftMessage={cardsLeftMessage}
-                maxPlayers={gameConfig.maxPlayers}
-                tableSize={gameConfig.tableSize}
-                speechBubbles={speechBubbles}
-                compact={compactUI}
-              />
-            </div>
+      {/* Main Game Canvas — Imperial Emerald table */}
+      <RoomThemeProvider themeId={roomTheme || "imperial-emerald"}>
+        <main className={clsx("flex-grow flex flex-col items-center justify-center pt-10 relative", compactUI && "landscape-main")}
+          style={{
+            background: "radial-gradient(circle, #1a7452 0%, #063a27 100%)",
+          }}
+        >
+          {/* Lattice pattern overlay */}
+          <div className="absolute inset-0 pointer-events-none lattice-overlay" />
+          {players.length === 0 ? (
+            <div className="text-center text-on-surface-variant text-lg">房间是空的</div>
+          ) : (
+            <>
+              <div className={clsx("w-full flex-1 flex flex-col", compactUI && "landscape-table")}>
+                <RoomTable
+                  players={displayPlayers}
+                  mySeat={mySeat ?? 0}
+                  phase={phase}
+                  onSitDown={handleSitDown}
+                  onAddBot={handleAddBot}
+                  landlordCards={landlordCards}
+                  landlordSeat={landlordSeat}
+                  lastPlay={lastPlay}
+                  cardsLeftMessage={cardsLeftMessage}
+                  maxPlayers={gameConfig.maxPlayers}
+                  tableSize={gameConfig.tableSize}
+                  speechBubbles={speechBubbles}
+                  compact={compactUI}
+                />
+              </div>
 
-            {/* Waiting phase: Ready/Start controls */}
-            {phase === "waiting" && (
-              <ReadyBar
-                amIOwner={amIOwner}
-                isReady={amIReady}
-                allReady={allReady}
-                playerCount={players.length}
-                maxPlayers={gameConfig.maxPlayers}
-                canStart={canStart}
-                onReady={handleReady}
-                onStartGame={handleStartGame}
-                onAddBot={handleAddBot}
-              />
-            )}
+              {/* Waiting phase: Ready/Start controls */}
+              {phase === "waiting" && (
+                <ReadyBar
+                  amIOwner={amIOwner}
+                  isReady={amIReady}
+                  allReady={allReady}
+                  playerCount={players.length}
+                  maxPlayers={gameConfig.maxPlayers}
+                  canStart={canStart}
+                  onReady={handleReady}
+                  onStartGame={handleStartGame}
+                  onAddBot={handleAddBot}
+                />
+              )}
 
-          </>
-        )}
-      </main>
+            </>
+          )}
+        </main>
+      </RoomThemeProvider>
 
       {/* Bottom area: bidding controls + hand cards */}
       {(phase !== "waiting" && phase !== "ended") && (
@@ -762,46 +831,26 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* Desktop Chat Sidebar */}
-      <aside className="fixed right-0 top-0 h-full z-40 hidden lg:flex flex-col py-24 w-64 bg-surface-container-high border-l border-outline-variant shadow-xl rounded-l-xl">
-        <div className="flex-1 min-h-0 px-2">
-          <ChatPanel
-            messages={chatMessages}
-            onSendMessage={handleSendChat}
-            disabled={!connected}
-          />
-        </div>
-      </aside>
-
-      {/* Mobile Chat FAB */}
-      <button
-        onClick={() => setChatOpen(true)}
-        className="fixed bottom-24 right-6 lg:hidden z-30 w-14 h-14 rounded-full bg-primary text-on-primary text-2xl shadow-frap flex items-center justify-center active:scale-[0.95] transition-transform"
-        aria-label="Open Chat"
-      >
-        💬
-      </button>
-
-      {/* Mobile Chat Sheet */}
+      {/* Chat Sheet */}
       {chatOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex flex-col">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setChatOpen(false)} />
-          <div className="absolute bottom-0 left-0 right-0 bg-surface-container-high rounded-t-xl shadow-frap flex flex-col max-h-[70vh] pb-[var(--safe-area-bottom,0px)]">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
+        <div className="fixed inset-0 z-50 flex flex-col">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setChatOpen(false)} />
+          <div className="absolute bottom-0 left-0 right-0 bg-surface-container-high rounded-t-2xl shadow-frap flex flex-col max-h-[70vh] pb-[var(--safe-area-bottom,0px)] border-t border-outline-variant">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/50">
               <div className="flex items-center gap-2">
-                <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
-                <span className="text-sm text-on-surface-variant">
-                  {micEnabled ? "Mic on" : "Mic off"}
-                </span>
+                <span className="text-sm font-semibold text-on-surface">聊天</span>
               </div>
-              <button
-                onClick={() => setChatOpen(false)}
-                className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1">
+                <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
+                <button
+                  onClick={() => setChatOpen(false)}
+                  className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <div className="flex-1 min-h-0 p-4">
+            <div className="flex-1 min-h-0">
               <ChatPanel messages={chatMessages} onSendMessage={handleSendChat} disabled={!connected} />
             </div>
           </div>
@@ -822,7 +871,7 @@ export default function RoomPage() {
             <h2 className="text-2xl font-bold text-on-surface mb-2">🎉 本局结束</h2>
             <div className="space-y-3 my-6">
               {players.map((p) => {
-                const score = roundResult.scores.find((s) => String(s.player_id) === p.userId);
+                const score = roundResult.scores.find((s) => s.player_id === p.seat);
                 const isPositive = score && score.score > 0;
                 return (
                   <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-surface-container rounded-xl">
@@ -846,13 +895,13 @@ export default function RoomPage() {
                   setCurrentSeat(undefined);
                   handleReady();
                 }}
-                className="px-6 py-2 rounded-full bg-gradient-to-b from-secondary-container to-on-secondary-container text-on-secondary-fixed font-bold hover:brightness-110 active:scale-95 transition-all shadow-[inset_0_2px_0_rgba(255,255,255,0.4),0_4px_6px_rgba(0,0,0,0.2)]"
+                className="px-6 py-2 rounded-full gold-button font-bold hover:brightness-110 active:scale-95 transition-all"
               >
                 再来一局
               </button>
               <button
                 onClick={() => router.push("/lobby")}
-                className="px-6 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/20 text-on-surface font-bold hover:bg-white/10 active:scale-95 transition-all"
+                className="px-6 py-2 rounded-full emerald-button font-bold hover:brightness-110 active:scale-95 transition-all"
               >
                 返回大厅
               </button>

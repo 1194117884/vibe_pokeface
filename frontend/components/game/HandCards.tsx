@@ -59,14 +59,14 @@ export function HandCards({ cards, onPlayCards, disabled, compact = false }: Han
           <button
             onClick={handlePlay}
             disabled={disabled || selected.size === 0}
-            className="px-10 py-3 rounded-full bg-gradient-to-b from-secondary-container to-on-secondary-container text-on-secondary-fixed text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40 shadow-[inset_0_2px_0_rgba(255,255,255,0.4),0_4px_6px_rgba(0,0,0,0.2)]"
+            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             出牌
           </button>
           <button
             onClick={handlePass}
             disabled={disabled}
-            className="px-10 py-3 rounded-full bg-white/5 backdrop-blur-md border border-white/20 text-on-surface text-button-text font-button-text hover:bg-white/10 active:scale-95 transition-all disabled:opacity-40"
+            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             不出
           </button>

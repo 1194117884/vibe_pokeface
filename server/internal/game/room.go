@@ -1005,14 +1005,9 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		r.Status = "waiting"
 		r.State = nil
 		for _, p := range r.Players {
-			p.Ready = false
+			p.Ready = p.IsBot // bots auto-ready for next round
 		}
 
-		// Clean up all AI agents on round end
-		for id, agent := range r.agents {
-			agent.Stop()
-			delete(r.agents, id)
-		}
 	} else {
 		r.sendStateToAll("state_update")
 

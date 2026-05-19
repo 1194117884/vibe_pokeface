@@ -32,35 +32,6 @@ interface RoomTableProps {
   speechBubbles?: Record<number, string>;
 }
 
-interface SeatLayout {
-  seatNum: number;
-  left: string;
-  top: string;
-}
-
-const TABLE_SIZES: Record<string, string> = {
-  sm: "max-w-lg",
-  lg: "max-w-5xl",
-};
-
-const SEAT_RADIUS: Record<string, number> = {
-  sm: 32,
-  lg: 36,
-};
-
-function calcSeatPositions(numSeats: number, mySeat: number, radius: number): SeatLayout[] {
-  return Array.from({ length: numSeats }, (_, i) => {
-    const seatNum = (mySeat + i) % numSeats;
-    const angleDeg = 90 + (i / numSeats) * 360;
-    const angleRad = (angleDeg * Math.PI) / 180;
-    return {
-      seatNum,
-      left: `${50 + radius * Math.cos(angleRad)}%`,
-      top: `${50 + radius * Math.sin(angleRad)}%`,
-    };
-  });
-}
-
 export function RoomTable({
   players,
   mySeat,
@@ -72,17 +43,13 @@ export function RoomTable({
   lastPlay = null,
   cardsLeftMessage = null,
   maxPlayers = 3,
-  tableSize = "lg",
   speechBubbles = {},
   compact = false,
 }: RoomTableProps & { compact?: boolean }) {
   const seatMap = new Map<number, TablePlayer>();
   players.forEach((p) => seatMap.set(p.seat, p));
 
-  const radius = compact ? 24 : SEAT_RADIUS[tableSize];
-  const seatLayouts = calcSeatPositions(maxPlayers, mySeat, radius);
-
-  const centerText = phase === "playing" ? "游戏中" : phase === "ended" ? "已结束" : "等待中";
+  const isGamePhase = phase !== "waiting" && phase !== "ended";
 
   const cardsLeftInfo = (() => {
     if (!cardsLeftMessage) return null;
@@ -91,64 +58,11 @@ export function RoomTable({
     return { seat: parseInt(match[1]), type: match[2] as "baodan" | "baoshuang" };
   })();
 
-  return (
-    <div className={`room-table relative w-full ${TABLE_SIZES[tableSize]} mx-auto aspect-[4/3]`}>
-      {/* Stitch-style dark green poker table */}
-      <div
-        className="absolute inset-0 rounded-[48px]"
-        style={{
-          background: "radial-gradient(circle, #226a4b 0%, #003824 100%)",
-          boxShadow:
-            "0 0 6px rgba(0,0,0,0.24), 0 8px 12px rgba(0,0,0,0.14), 0 20px 60px rgba(0,0,0,0.5)",
-          borderWidth: "12px",
-          borderStyle: "solid",
-          borderColor: "#1a1a1a",
-        }}
-      >
-        {/* Inner felt rim */}
-        <div
-          className="absolute inset-4 rounded-[36px]"
-          style={{ backgroundColor: "#003824", opacity: 0.4 }}
-        />
-      </div>
+  // During game phases: left opponent = next seat, right opponent = seat after that
+  const leftSeat = (mySeat + 1) % maxPlayers;
+  const rightSeat = (mySeat + 2) % maxPlayers;
 
-      {/* Center: The Kitty (landlord cards) or last play */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center z-10">
-        {lastPlay && phase === "playing" ? (
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-on-surface-variant text-xs font-medium opacity-60">
-              {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
-            </span>
-            <div className="flex gap-1">
-              {lastPlay.cards.map((cardId, i) => (
-                <Card key={i} cardId={cardId} medium />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <>
-            <span className="text-4xl select-none drop-shadow-lg opacity-50">🃏</span>
-            <p className="text-white/40 text-sm font-medium mt-1">{centerText}</p>
-          </>
-        )}
-      </div>
-
-      {/* Seats positioned around the table */}
-      {seatLayouts.map(({ seatNum, left, top }) => (
-        <div
-          key={seatNum}
-          className="absolute z-10 pointer-events-none"
-          style={{ left, top, transform: "translate(-50%, -50%)" }}
-        >
-          <div className="pointer-events-auto">
-            {renderSeat(seatNum)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  function renderSeat(seatNum: number) {
+  function renderSeat(seatNum: number, position?: "left" | "right") {
     const player = seatMap.get(seatNum);
     const isMine = seatNum === mySeat;
     const isLandlord = player?.isLandlord ?? false;
@@ -173,6 +87,7 @@ export function RoomTable({
             : null
         }
         isMySeat={isMine}
+        position={position}
         cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
         action={speechBubbles[seatNum] ?? null}
         landlordCards={isLandlord && landlordSeat === seatNum ? landlordCards : undefined}
@@ -186,4 +101,109 @@ export function RoomTable({
       />
     );
   }
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 relative w-full">
+      {/* Kitty / Landlord Cards (top center) — only during game phases */}
+      {isGamePhase && (
+        <div className="flex flex-col items-center gap-1 mt-2">
+          <div className="flex gap-1.5">
+            {landlordCards.length > 0
+              ? landlordCards.map((cardId, i) => (
+                  <Card key={i} cardId={cardId} small />
+                ))
+              : Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-8 h-11 rounded shadow-md border border-white/10"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+                      transform: i === 0 ? "rotate(-4deg)" : i === 2 ? "rotate(4deg)" : "none",
+                    }}
+                  />
+                ))}
+          </div>
+          <span className="text-[8px] font-black text-secondary-fixed/40 uppercase tracking-[0.2em]">
+            底牌
+          </span>
+        </div>
+      )}
+
+      {/* Opponents + Timer Row (middle) */}
+      {isGamePhase ? (
+        <div className="w-full flex justify-between items-center px-4">
+          {/* Left opponent */}
+          {renderSeat(leftSeat, "left")}
+
+          {/* Center: Timer or last play */}
+          <div className="flex flex-col items-center gap-2">
+            {lastPlay && phase === "playing" ? (
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-on-surface-variant text-xs font-medium opacity-60">
+                  {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+                </span>
+                <div className="flex gap-1">
+                  {lastPlay.cards.map((cardId, i) => (
+                    <Card key={i} cardId={cardId} medium />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Circular timer */}
+                <div className="relative w-16 h-16 flex items-center justify-center">
+                  <svg className="absolute inset-0 w-full h-full -rotate-90">
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      fill="transparent"
+                      stroke="white"
+                      strokeWidth="2"
+                      className="opacity-10"
+                    />
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      fill="transparent"
+                      stroke="#ffe16d"
+                      strokeDasharray="176"
+                      strokeDashoffset="0"
+                      strokeLinecap="round"
+                      strokeWidth="3"
+                    />
+                  </svg>
+                  <span className="text-xl font-black text-secondary-fixed font-display-gold">
+                    ∞
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right opponent */}
+          {renderSeat(rightSeat, "right")}
+        </div>
+      ) : (
+        /* Waiting phase: show all seats in a row */
+        <div className="w-full flex justify-center gap-6 items-center">
+          {Array.from({ length: maxPlayers }, (_, i) => (
+            <div key={i}>{renderSeat(i)}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Center status during waiting phase */}
+      {!isGamePhase && (
+        <div className="text-center mb-4">
+          <span className="text-4xl select-none drop-shadow-lg opacity-50">🃏</span>
+          <p className="text-white/40 text-sm font-medium mt-1">
+            {phase === "ended" ? "已结束" : "等待中"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }

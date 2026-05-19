@@ -195,6 +195,26 @@ body {
   animation: bubble-out 0.2s ease-in both;
 }
 
+@utility gold-button {
+  background: linear-gradient(to bottom, #ffe16d 0%, #e9c400 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  border: 1px solid #544600;
+  color: #3a3000;
+}
+
+@utility emerald-button {
+  background: rgba(13, 92, 62, 0.4);
+  border: 1.5px solid #8ed5af;
+  backdrop-filter: blur(4px);
+  color: #8ed5af;
+}
+
+@utility lattice-overlay {
+  background-image: radial-gradient(#002113 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  opacity: 0.15;
+}
+
 /* Landscape mobile optimization */
 @media (orientation: landscape) and (max-height: 500px) {
   /* Reduce nav padding */
@@ -206,14 +226,8 @@ body {
   }
   /* Constrain table wrapper height */
   .landscape-table {
-    max-height: 45vh !important;
+    max-height: 50vh !important;
     padding-bottom: 0 !important;
-  }
-  /* Override table aspect ratio for mobile landscape */
-  .landscape-table .room-table {
-    aspect-ratio: auto !important;
-    height: 35vh !important;
-    max-height: 130px !important;
   }
   /* Prevent overlap with fixed bottom bar */
   .landscape-main {

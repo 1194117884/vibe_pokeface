@@ -8,5 +8,6 @@ export { CharacterProvider, useCharacterStyle } from "./CharacterProvider";
 import "./room/classic-poker";
 import "./room/teahouse";
 import "./room/modern-lounge";
+import "./room/imperial-emerald";
 import "./character/avatars";
 import "./card/classic";
