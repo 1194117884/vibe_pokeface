@@ -30,11 +30,39 @@ type PlayerScore struct {
 // GameState is a marker interface for game-specific state types.
 type GameState interface{}
 
+// GameErrorCode identifies the category of a game rule violation.
+type GameErrorCode string
+
+const (
+	ErrPhaseMismatch GameErrorCode = "PHASE_MISMATCH"
+	ErrNotYourTurn   GameErrorCode = "NOT_YOUR_TURN"
+	ErrInvalidAction GameErrorCode = "INVALID_ACTION"
+	ErrInvalidCards  GameErrorCode = "INVALID_CARDS"
+	ErrCannotPass    GameErrorCode = "CANNOT_PASS"
+	ErrCannotBeat    GameErrorCode = "CANNOT_BEAT"
+)
+
+// GameError is a structured error returned when a game rule is violated.
+// It carries enough context for consumers (WS, AI, frontend) to produce
+// localized messages.
+type GameError struct {
+	Code   GameErrorCode `json:"code"`
+	Phase  string        `json:"phase,omitempty"`
+	Action string        `json:"action,omitempty"`
+}
+
+func (e *GameError) Error() string {
+	if e.Phase != "" && e.Action != "" {
+		return string(e.Code) + ":" + e.Phase + ":" + e.Action
+	}
+	return string(e.Code)
+}
+
 // GameEngine is the interface that all card game engines must implement.
 type GameEngine interface {
 	Init(players []PlayerInfo) (GameState, error)
 	ExecuteAction(state GameState, action PlayerAction) (GameState, error)
-	ValidateAction(state GameState, action PlayerAction) bool
+	ValidateAction(state GameState, action PlayerAction) error
 	IsRoundEnd(state GameState) bool
 	CalculateScore(state GameState) ([]PlayerScore, error)
 	SerializeForAI(state GameState) string

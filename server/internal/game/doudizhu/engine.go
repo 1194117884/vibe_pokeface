@@ -3,6 +3,7 @@ package doudizhu
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 
 	"github.com/yongkl/vibe-pokeface/internal/game"
@@ -10,6 +11,15 @@ import (
 
 // Engine implements the Dou Di Zhu game logic.
 type Engine struct{}
+
+// phaseActions maps each game phase to the list of allowed action strings.
+var phaseActions = map[GamePhase][]string{
+	PhaseCalling:   {"bid_call", "bid_pass"},
+	PhaseSnatching: {"bid_call", "bid_pass"},
+	PhaseRevealing: {"reveal_all", "pass"},
+	PhaseDoubling:  {"double", "no_double"},
+	PhasePlaying:   {"play", "pass"},
+}
 
 // Init creates a new game state by shuffling and dealing a 54-card deck
 // to the 3 players. Returns an error if not exactly 3 players are provided.
@@ -73,7 +83,16 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 		}
 	}
 	if seat == -1 || seat != gs.CurrentSeat {
-		return nil, fmt.Errorf("not your turn")
+		return nil, &game.GameError{Code: game.ErrNotYourTurn}
+	}
+
+	// Phase-action whitelist check — reject actions that don't belong to this phase.
+	if allowed, ok := phaseActions[gs.Phase]; ok && !slices.Contains(allowed, action.Action) {
+		return nil, &game.GameError{
+			Code:   game.ErrPhaseMismatch,
+			Phase:  gs.Phase.String(),
+			Action: action.Action,
+		}
 	}
 
 	switch gs.Phase {
@@ -88,15 +107,15 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 	case PhasePlaying:
 		return e.handlePlay(gs, seat, action)
 	default:
-		return nil, fmt.Errorf("game already ended")
+		return nil, &game.GameError{Code: game.ErrInvalidAction}
 	}
 }
 
 // ValidateAction checks whether a player action is valid without mutating state.
-func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) bool {
+func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) error {
 	gs, ok := state.(*GameState)
 	if !ok {
-		return false
+		return &game.GameError{Code: game.ErrInvalidAction}
 	}
 	seat := -1
 	for i, p := range gs.Players {
@@ -106,23 +125,24 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 		}
 	}
 	if seat == -1 || seat != gs.CurrentSeat {
-		return false
+		return &game.GameError{Code: game.ErrNotYourTurn}
 	}
-	if gs.Phase == PhaseCalling || gs.Phase == PhaseSnatching {
-		return action.Action == "bid_call" || action.Action == "bid_pass"
+
+	// Phase-action whitelist check
+	if allowed, ok := phaseActions[gs.Phase]; ok && !slices.Contains(allowed, action.Action) {
+		return &game.GameError{
+			Code:   game.ErrPhaseMismatch,
+			Phase:  gs.Phase.String(),
+			Action: action.Action,
+		}
 	}
-	if gs.Phase == PhaseRevealing {
-		return action.Action == "reveal_all" || action.Action == "pass"
-	}
-	if gs.Phase == PhaseDoubling {
-		return action.Action == "double" || action.Action == "no_double"
-	}
+
 	if gs.Phase == PhasePlaying {
 		if action.Action == "pass" {
-			return gs.LastPlay != nil && gs.LastPlay.Seat != seat
-		}
-		if action.Action != "play" {
-			return false
+			if gs.LastPlay == nil || gs.LastPlay.Seat == seat {
+				return &game.GameError{Code: game.ErrCannotPass}
+			}
+			return nil
 		}
 		cards := make([]Card, len(action.Cards))
 		for i, id := range action.Cards {
@@ -130,17 +150,16 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 		}
 		play := ParsePlay(cards)
 		if play.Type == PlayInvalid && len(cards) > 0 {
-			return false
+			return &game.GameError{Code: game.ErrInvalidCards}
 		}
 		if !cardsInHand(gs.Players[seat].Hand, cards) {
-			return false
+			return &game.GameError{Code: game.ErrInvalidCards}
 		}
 		if gs.LastPlay != nil && !CanBeat(play, gs.LastPlay.Play) {
-			return false
+			return &game.GameError{Code: game.ErrCannotBeat}
 		}
-		return true
 	}
-	return false
+	return nil
 }
 
 // IsRoundEnd returns true if the game has ended.
@@ -288,7 +307,7 @@ func (e *Engine) reDeal(state *GameState) {
 // If all 3 pass, the round ends with no winner.
 func (e *Engine) handleCallBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "bid_call" && action.Action != "bid_pass" {
-		return nil, fmt.Errorf("invalid bid action: %s", action.Action)
+		return nil, &game.GameError{Code: game.ErrInvalidAction, Phase: state.Phase.String(), Action: action.Action}
 	}
 
 	state.BidHistory = append(state.BidHistory, BidRecord{
@@ -327,7 +346,7 @@ func (e *Engine) handleCallBid(state *GameState, seat int, action game.PlayerAct
 // After all 3 players have had their turn, the final nominee becomes landlord.
 func (e *Engine) handleSnatchBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "bid_call" && action.Action != "bid_pass" {
-		return nil, fmt.Errorf("invalid snatch action: %s", action.Action)
+		return nil, &game.GameError{Code: game.ErrInvalidAction, Phase: state.Phase.String(), Action: action.Action}
 	}
 
 	// Auto-skip players who passed during 叫地主
@@ -376,7 +395,7 @@ func (e *Engine) handleSnatchBid(state *GameState, seat int, action game.PlayerA
 // decide, proceed to PhaseDoubling.
 func (e *Engine) handleRevealBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "reveal_all" && action.Action != "pass" {
-		return nil, fmt.Errorf("invalid reveal action: %s", action.Action)
+		return nil, &game.GameError{Code: game.ErrInvalidAction, Phase: state.Phase.String(), Action: action.Action}
 	}
 
 	if action.Action == "reveal_all" {
@@ -401,7 +420,7 @@ func (e *Engine) handleRevealBid(state *GameState, seat int, action game.PlayerA
 // and affects scoring in CalculateScore. After all 3, proceed to PhasePlaying.
 func (e *Engine) handleDoubleBid(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action != "double" && action.Action != "no_double" {
-		return nil, fmt.Errorf("invalid double action: %s", action.Action)
+		return nil, &game.GameError{Code: game.ErrInvalidAction, Phase: state.Phase.String(), Action: action.Action}
 	}
 
 	if action.Action == "double" {
@@ -423,7 +442,7 @@ func (e *Engine) handleDoubleBid(state *GameState, seat int, action game.PlayerA
 func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action == "pass" {
 		if state.LastPlay == nil {
-			return nil, fmt.Errorf("cannot pass: no active play, you must lead")
+			return nil, &game.GameError{Code: game.ErrCannotPass}
 		}
 		state.ConsecutivePasses++
 		state.PlayHistory = append(state.PlayHistory, PlayRecord{Seat: seat, Play: Play{Type: PlayInvalid}, Cards: nil})
@@ -442,13 +461,13 @@ func (e *Engine) handlePlay(state *GameState, seat int, action game.PlayerAction
 
 	play := ParsePlay(cards)
 	if play.Type == PlayInvalid {
-		return nil, fmt.Errorf("invalid card combination")
+		return nil, &game.GameError{Code: game.ErrInvalidCards}
 	}
 
 	lastPlay := state.LastPlay
 	if lastPlay != nil {
 		if !CanBeat(play, lastPlay.Play) {
-			return nil, fmt.Errorf("cannot beat last play")
+			return nil, &game.GameError{Code: game.ErrCannotBeat}
 		}
 	}
 

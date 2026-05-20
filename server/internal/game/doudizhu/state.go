@@ -14,6 +14,23 @@ const (
 	PhaseEnded                       // 结束
 )
 
+var phaseNames = map[GamePhase]string{
+	PhaseCalling:   "calling",
+	PhaseSnatching: "snatching",
+	PhaseRevealing: "revealing",
+	PhaseDoubling:  "doubling",
+	PhasePlaying:   "playing",
+	PhaseEnded:     "ended",
+}
+
+// String returns the English key for the phase (e.g. "calling", "snatching").
+func (p GamePhase) String() string {
+	if name, ok := phaseNames[p]; ok {
+		return name
+	}
+	return "unknown"
+}
+
 // PlayerHand represents a player's hand and metadata during a game.
 type PlayerHand struct {
 	UserID     int64  `json:"user_id"`

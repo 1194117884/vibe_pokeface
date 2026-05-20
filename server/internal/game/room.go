@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -887,24 +888,38 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 	newState, err := r.Engine.ExecuteAction(r.State, gameAction)
 	if err != nil {
 		if player.IsBot {
-			executedAction = "pass"
-			executedCards = []int(nil)
-			if action == "pass" {
-				executedAction = "play"
-				executedCards = r.botLowestSingle(userID)
+			// Report error to AI agent so it can retry with context
+			if agent, ok := r.agents[userID]; ok {
+				var gameErr *GameError
+				if errors.As(err, &gameErr) {
+					agent.ReportError(&ai.GameError{
+						Code:   string(gameErr.Code),
+						Phase:  gameErr.Phase,
+						Action: gameErr.Action,
+					})
+				} else {
+					agent.ReportError(&ai.GameError{Code: string(ErrInvalidAction)})
+				}
 			}
-			newState, err = r.Engine.ExecuteAction(r.State, PlayerAction{
-				PlayerID: player.PlayerID,
-				Action:   executedAction,
-				Cards:    executedCards,
-			})
-			if err != nil {
-				return
-			}
+			return
 		} else {
+			// Send structured error to human player's WebSocket
+			errData := map[string]interface{}{
+				"code":  "UNKNOWN",
+			}
+			var gameErr *GameError
+			if errors.As(err, &gameErr) {
+				errData["code"] = gameErr.Code
+				if gameErr.Phase != "" {
+					errData["phase"] = gameErr.Phase
+				}
+				if gameErr.Action != "" {
+					errData["action"] = gameErr.Action
+				}
+			}
 			errMsg, _ := json.Marshal(map[string]interface{}{
 				"type": "error",
-				"data": err.Error(),
+				"data": errData,
 			})
 			select {
 			case player.Conn <- errMsg:

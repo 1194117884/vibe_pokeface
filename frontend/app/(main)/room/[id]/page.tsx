@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import clsx from "clsx";
-import { WSGameClient } from "@/lib/ws-game";
+import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
 import { HandCards } from "@/components/game/HandCards";
@@ -287,6 +287,7 @@ export default function RoomPage() {
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [cardsLeftMessage, setCardsLeftMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [gameType, setGameType] = useState("doudizhu");
   const [showAIPicker, setShowAIPicker] = useState(false);
   const [multiplier, setMultiplier] = useState(1);
@@ -496,14 +497,23 @@ export default function RoomPage() {
     });
 
     client.on("error", (msg) => {
-      const errMsg = msg.data as string | undefined ?? msg.error ?? "";
-      console.error("GAME ERROR RAW:", JSON.stringify(msg));
+      // Handle structured error data from server
+      const data = msg.data;
+      if (typeof data === "object" && data !== null && "code" in data) {
+        const errData = data as ErrorData;
+        const formatted = formatError(errData);
+        setErrorMessage(formatted);
+        // Auto-dismiss after 4 seconds
+        setTimeout(() => setErrorMessage(null), 4000);
+        return;
+      }
+
+      // Legacy string error handling
+      const errMsg = (msg.data as string) ?? msg.error ?? "";
       if (errMsg.indexOf("room is full") !== -1 || errMsg.indexOf("room is closed") !== -1) {
-        console.error("REDIRECTING TO LOBBY");
         window.location.replace("/lobby");
         return;
       }
-      console.error("SETTING CONNECTED, errMsg:", errMsg);
       setConnected(true);
     });
 
@@ -761,7 +771,12 @@ export default function RoomPage() {
               </div>
 
               {/* Waiting phase: Ready/Start controls */}
-              {phase === "waiting" && (
+              {phase === "waiting" && (<>
+              {errorMessage && (
+                <div className="w-full max-w-lg px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
+                  {errorMessage}
+                </div>
+              )}
                 <ReadyBar
                   amIOwner={amIOwner}
                   isReady={amIReady}
@@ -773,7 +788,7 @@ export default function RoomPage() {
                   onStartGame={handleStartGame}
                   onAddBot={handleAddBot}
                 />
-              )}
+              </>)}
 
             </>
           )}
@@ -786,6 +801,11 @@ export default function RoomPage() {
           {/* Bidding action buttons — above the hand cards */}
           {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
             <div className="w-full max-w-3xl space-y-2 mb-2">
+              {errorMessage && (
+                <div className="px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
+                  {errorMessage}
+                </div>
+              )}
               <ActionBar
                 phase={phase}
                 isMyTurn={isMyTurn}

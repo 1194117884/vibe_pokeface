@@ -35,6 +35,52 @@ export interface RoomAction {
   cards?: number[];
 }
 
+const phaseNames: Record<string, string> = {
+  calling: "叫地主阶段",
+  snatching: "抢地主阶段",
+  revealing: "明牌阶段",
+  doubling: "加倍阶段",
+  playing: "出牌阶段",
+};
+
+const actionNames: Record<string, string> = {
+  play: "出牌",
+  pass: "不出",
+  bid_call: "叫地主",
+  bid_pass: "不叫",
+  reveal_all: "明牌",
+  double: "加倍",
+  no_double: "不加倍",
+};
+
+export interface ErrorData {
+  code: string;
+  phase?: string;
+  action?: string;
+}
+
+export function formatError(data: ErrorData): string {
+  switch (data.code) {
+    case "PHASE_MISMATCH": {
+      const p = phaseNames[data.phase ?? ""] ?? data.phase ?? "未知阶段";
+      const a = actionNames[data.action ?? ""] ?? data.action ?? "未知动作";
+      return `此阶段是"${p}"，不能"${a}"`;
+    }
+    case "NOT_YOUR_TURN":
+      return "不是你的回合";
+    case "INVALID_ACTION":
+      return "无效操作";
+    case "INVALID_CARDS":
+      return "无效牌型";
+    case "CANNOT_PASS":
+      return "当前必须出牌，不能不出";
+    case "CANNOT_BEAT":
+      return "打不过上家的牌";
+    default:
+      return `未知错误: ${data.code}`;
+  }
+}
+
 export class WSGameClient {
   private ws: WebSocket | null = null;
   private url: string;

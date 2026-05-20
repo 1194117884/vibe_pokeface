@@ -198,8 +198,8 @@ func TestEngine_ValidateAction_WrongPlayer(t *testing.T) {
 	gs := state.(*GameState)
 
 	wrongSeat := (gs.CurrentSeat + 1) % 3
-	valid := e.ValidateAction(state, game.PlayerAction{PlayerID: players[wrongSeat].ID, Action: "bid_call"})
-	if valid {
+	err := e.ValidateAction(state, game.PlayerAction{PlayerID: players[wrongSeat].ID, Action: "bid_call"})
+	if err == nil {
 		t.Error("expected invalid: not their turn")
 	}
 }
@@ -215,10 +215,10 @@ func TestEngine_ValidateAction_ValidBid(t *testing.T) {
 	gs := state.(*GameState)
 
 	cur := gs.CurrentSeat
-	if !e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_call"}) {
+	if e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_call"}) != nil {
 		t.Error("expected valid: current player can bid call")
 	}
-	if !e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_pass"}) {
+	if e.ValidateAction(state, game.PlayerAction{PlayerID: players[cur].ID, Action: "bid_pass"}) != nil {
 		t.Error("expected valid: current player can bid pass")
 	}
 }

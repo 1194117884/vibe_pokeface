@@ -45,6 +45,41 @@ type AIAgent struct {
 	roomID  string         // room context for audit logging
 
 	lastToolExecID int64 // most recent action-tool execution ID for game_actions link
+
+	lastError  *GameError // last action error for retry context
+	retryCount int        // number of retries after errors
+}
+
+// GameError mirrors game.GameError so the ai package can accept errors
+// without importing the game package (avoiding a potential cycle).
+type GameError struct {
+	Code   string `json:"code"`
+	Phase  string `json:"phase,omitempty"`
+	Action string `json:"action,omitempty"`
+}
+
+func (e *GameError) Error() string {
+	return e.Code + ":" + e.Phase + ":" + e.Action
+}
+
+// ReportError stores an action error and re-triggers the decision loop so
+// the LLM can retry with context. After 2 retries the agent gives up and
+// falls back to a rule-based default.
+func (a *AIAgent) ReportError(err *GameError) {
+	if a.retryCount >= 2 {
+		log.Printf("[AI:%s] retry limit exceeded, falling back to rule-based action", a.UserID)
+		a.ruleBasedAction(a.detectPhase())
+		return
+	}
+	a.lastError = err
+	a.retryCount++
+	a.Trigger()
+}
+
+// ResetError clears the error state (called on successful action or new turn).
+func (a *AIAgent) ResetError() {
+	a.lastError = nil
+	a.retryCount = 0
 }
 
 // NewAIAgent creates a new AI agent
@@ -88,8 +123,12 @@ func (a *AIAgent) Stop() {
 	}
 }
 
-// Trigger tells the agent it's its turn to act
+// Trigger tells the agent it's its turn to act.
+// If this is a fresh turn (no pending error), reset the retry counter.
 func (a *AIAgent) Trigger() {
+	if a.lastError == nil {
+		a.retryCount = 0
+	}
 	select {
 	case a.triggerChan <- struct{}{}:
 	default:
@@ -155,6 +194,20 @@ func (a *AIAgent) makeDecisionWithTools() {
 	messages := []ChatMessage{
 		{Role: "system", Content: a.buildSystemPrompt(phase)},
 		{Role: "user", Content: a.buildUserMessage(phase)},
+	}
+
+	// Inject error context from previous failed action so the LLM can correct itself.
+	if a.lastError != nil {
+		retryMsg := fmt.Sprintf("你上一次操作失败了，错误码：%s", a.lastError.Code)
+		if a.lastError.Phase != "" {
+			retryMsg += fmt.Sprintf("，当前阶段是：%s", a.lastError.Phase)
+		}
+		if a.lastError.Action != "" {
+			retryMsg += fmt.Sprintf("，你尝试的动作是：%s", a.lastError.Action)
+		}
+		retryMsg += "。请根据当前阶段选择正确的操作工具。"
+		messages = append(messages, ChatMessage{Role: "user", Content: retryMsg})
+		a.lastError = nil // consumed
 	}
 
 	tools := GetToolSchemas(phase)

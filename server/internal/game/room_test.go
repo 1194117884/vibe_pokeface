@@ -24,8 +24,8 @@ func (m *mockEngine) ExecuteAction(state GameState, action PlayerAction) (GameSt
 	return state, nil
 }
 
-func (m *mockEngine) ValidateAction(state GameState, action PlayerAction) bool {
-	return true
+func (m *mockEngine) ValidateAction(state GameState, action PlayerAction) error {
+	return nil
 }
 
 func (m *mockEngine) IsRoundEnd(state GameState) bool {
