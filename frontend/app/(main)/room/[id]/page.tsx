@@ -13,7 +13,6 @@ import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
 import { AICharacterPicker } from "@/components/game/AICharacterPicker";
 import { useGameAudio } from "@/hooks/useGameAudio";
-import { GameNotifications, ToastItem } from "@/components/game/GameNotifications";
 import { RoomThemeProvider } from "@/themes";
 
 interface ChatMessage {
@@ -295,14 +294,12 @@ export default function RoomPage() {
   const [showSettings, setShowSettings] = useState(false);
   const gameConfig = GAME_CONFIG[gameType] || GAME_CONFIG.doudizhu;
   const [speechBubbles, setSpeechBubbles] = useState<Record<number, string>>({});
-  const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
   const [audioMuted, setAudioMuted] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("audio_muted") === "true";
   });
   const [compactUI, setCompactUI] = useState(false);
   const prevDataRef = useRef<ServerData | null>(null);
-  const toastIdRef = useRef(0);
   const bubbleTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const { speak } = useGameAudio(audioMuted);
 
@@ -321,14 +318,6 @@ export default function RoomPage() {
         return next;
       });
       delete bubbleTimersRef.current[seat];
-    }, 3000);
-  }, []);
-
-  const addToast = useCallback((text: string) => {
-    const id = ++toastIdRef.current;
-    setToastQueue((prev) => [...prev, { id, text, seat: -1 }]);
-    setTimeout(() => {
-      setToastQueue((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   }, []);
 
@@ -380,7 +369,6 @@ export default function RoomPage() {
       const action = detectAction(prev, data);
       if (action) {
         showSpeechBubble(action.seat, action.bubbleText);
-        addToast(action.toastText);
         speak(action.speechText);
       }
       prevDataRef.current = data;
@@ -497,6 +485,13 @@ export default function RoomPage() {
             timestamp: data.timestamp ?? Date.now(),
           },
         ]);
+
+        // Show chat as speech bubble near sender's seat
+        const senderId = String(data.user_id ?? "");
+        const sender = playersRef.current.find(p => p.userId === senderId);
+        if (sender) {
+          showSpeechBubble(sender.seat, data.content);
+        }
       }
     });
 
@@ -657,8 +652,6 @@ export default function RoomPage() {
 
   return (
     <div className="min-h-screen bg-background text-on-background flex flex-col overflow-hidden">
-      {/* Toast notifications */}
-      <GameNotifications toasts={toastQueue} />
       {/* Top Navigation — Stitch compact header */}
       <header className={clsx(
         "fixed top-0 left-0 w-full z-50 flex items-center justify-between px-4 h-10 bg-gradient-to-b from-black/40 to-transparent",

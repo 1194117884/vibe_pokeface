@@ -19,3 +19,4 @@ run.sh
 .playwright-cli
 logs/
 server.pid
+package-lock.json

@@ -63,16 +63,24 @@ export function SeatPosition({
           player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
         )}
       >
-        {/* Speech bubble */}
+        {/* Speech bubble — positioned toward table center */}
         {action && (
           <div
             key={action}
-            className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 animate-bubble-in"
+            className={clsx(
+              "absolute z-20 animate-bubble-in",
+              position === "left" && "right-0 translate-x-[calc(100%+8px)]",
+              position === "right" && "left-0 -translate-x-[calc(100%+8px)]",
+            )}
           >
             <div className="bg-black/85 backdrop-blur-sm text-white text-sm font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
               {action}
             </div>
-            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-black/85 rotate-45" />
+            <div className={clsx(
+              "absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-black/85 rotate-45",
+              position === "left" && "-left-1.5",
+              position === "right" && "-right-1.5",
+            )} />
           </div>
         )}
 
