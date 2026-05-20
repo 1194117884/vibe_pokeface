@@ -611,10 +611,11 @@ func (r *GameRoom) sendStateTo(p *PlayerSession) {
 	}
 
 	// If a game is in progress, send the current state too
-	if r.State != nil {
+	if r.State != nil && r.Engine != nil {
+		filtered := r.Engine.FilterForPlayer(r.State, p.Seat)
 		stateMsg, err := json.Marshal(map[string]interface{}{
 			"type": "state_update",
-			"data": r.State,
+			"data": filtered,
 		})
 		if err != nil {
 			return

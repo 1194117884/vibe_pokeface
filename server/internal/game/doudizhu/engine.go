@@ -522,7 +522,7 @@ func (e *Engine) FilterForPlayer(state game.GameState, seat int) game.GameState 
 	clone.Players = make([]PlayerHand, len(gs.Players))
 	for i, p := range gs.Players {
 		clone.Players[i] = p
-		if p.Seat != seat && !gs.Revealed[p.Seat] {
+		if p.Seat != seat && !(gs.Revealed[p.Seat] && gs.Phase >= PhasePlaying) {
 			clone.Players[i].Hand = nil
 		}
 	}

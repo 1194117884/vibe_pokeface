@@ -7,7 +7,7 @@ const SUITS = ["♠", "♥", "♣", "♦"] as const;
 const RANKS = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"] as const;
 
 function miniCardColor(cardId: number): string {
-  if (cardId >= 52) return cardId === 52 ? "text-green-700" : "text-[#c82014]";
+  if (cardId >= 52) return cardId === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
   const suit = Math.floor(cardId / 13);
   return suit === 1 || suit === 3 ? "text-[#c82014]" : "text-[#1a1a1a]";
 }
@@ -25,6 +25,7 @@ interface SeatPositionProps {
     isCurrentTurn?: boolean;
     isLandlord?: boolean;
     cardCount: number;
+    hand?: number[];
   } | null;
   position?: "top" | "bottom" | "left" | "right";
   isMySeat?: boolean;
@@ -121,30 +122,48 @@ export function SeatPosition({
           </span>
         )}
 
-        {/* Stacked card backs behind avatar */}
-        <div className="flex flex-col items-center -space-y-5">
-          <div
-            className="w-7 h-10 rounded shadow border border-white/5 opacity-60"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-            }}
-          />
-          <div
-            className="w-7 h-10 rounded shadow border border-white/5 opacity-80"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-            }}
-          />
-          <div
-            className="w-7 h-10 rounded shadow border border-white/5"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-            }}
-          />
-        </div>
+        {/* Card backs or revealed hand behind avatar */}
+        {player.hand && player.hand.length > 0 ? (
+          <div className="flex flex-wrap justify-center gap-0.5 max-w-[100px] mb-0.5">
+            {player.hand.map((cardId, i) => (
+              <div
+                key={i}
+                className="w-3.5 h-5.5 bg-white rounded-[2px] flex flex-col items-center justify-center text-[7px] leading-none shadow-sm border border-black/10"
+              >
+                <span className={miniCardColor(cardId)}>
+                  {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+                </span>
+                <span className={miniCardColor(cardId)}>
+                  {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center -space-y-5">
+            <div
+              className="w-7 h-10 rounded shadow border border-white/5 opacity-60"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+              }}
+            />
+            <div
+              className="w-7 h-10 rounded shadow border border-white/5 opacity-80"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+              }}
+            />
+            <div
+              className="w-7 h-10 rounded shadow border border-white/5"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
+              }}
+            />
+          </div>
+        )}
 
         {/* Avatar */}
         <div className="relative -mt-3">

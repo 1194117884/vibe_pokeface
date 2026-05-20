@@ -43,7 +43,7 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
 
   const isJoker = cardId >= 52;
   const suit = isJoker ? "" : SUITS[Math.floor(cardId / 13)];
-  const rank = isJoker ? (cardId === 52 ? "🃏" : "👑") : RANKS[cardId % 13];
+  const rank = isJoker ? "J" : RANKS[cardId % 13];
 
   return (
     <div
@@ -76,17 +76,26 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
         }}
       />
       {isJoker ? (
-        <div
-          className={clsx(
-            "flex flex-col",
-            cardId === 52 ? "text-secondary-container" : "text-[#c82014]"
-          )}
-        >
-          <span className="material-symbols-outlined text-[24px]">
-            workspace_premium
+        <>
+          <span
+            className={clsx(
+              "leading-none self-start",
+              small ? "text-[11px]" : medium ? "text-[15px]" : "text-card-number",
+              cardId === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
+            )}
+          >
+            {cardId === 53 ? "大" : "小"}
           </span>
-          <span className="text-[12px] font-black uppercase">Joker</span>
-        </div>
+          <span
+            className={clsx(
+              "leading-none self-start",
+              small ? "text-[7px]" : medium ? "text-[11px]" : "text-[20px]",
+              cardId === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
+            )}
+          >
+            王
+          </span>
+        </>
       ) : (
         <>
           <span

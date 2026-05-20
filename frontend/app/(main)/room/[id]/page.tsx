@@ -221,6 +221,7 @@ function toTablePlayer(p: ServerPlayer): TablePlayer {
     isReady: p.ready ?? p.isReady ?? false,
     isLandlord: p.is_landlord ?? false,
     cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
+    hand: Array.isArray(p.hand) ? p.hand.map((c) => (typeof c === "number" ? c : c.id)) : undefined,
   };
 }
 

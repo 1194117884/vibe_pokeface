@@ -15,6 +15,7 @@ export interface TablePlayer {
   isCurrentTurn?: boolean;
   isLandlord?: boolean;
   cardCount: number;
+  hand?: number[];
 }
 
 interface RoomTableProps {
@@ -83,6 +84,7 @@ export function RoomTable({
               isCurrentTurn: player.isCurrentTurn,
               isLandlord: player.isLandlord,
               cardCount: player.cardCount,
+              hand: player.hand,
             }
             : null
         }
