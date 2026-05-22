@@ -122,10 +122,10 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
     const label = face === 52 ? "小" : "大";
     const color = face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
-      <>
-        <span className={clsx(small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
-        <span className={clsx(small ? "text-[8px]" : "text-[10px]", color)}>王</span>
-      </>
+      <div className="absolute top-0.5 left-1 flex flex-col items-center">
+        <span className={clsx(small ? "text-[11px]" : "text-xs", color, "font-bold leading-none")}>{label}</span>
+        <span className={clsx(small ? "text-[7px]" : "text-[10px]", color, "leading-none")}>王</span>
+      </div>
     );
   }
 
@@ -136,12 +136,14 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
 
   return (
     <>
-      <span className={clsx("absolute top-0.5 left-1", small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
-        {rankChars[rank]}
-      </span>
-      <span className={clsx("absolute bottom-0.5 left-1", small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
-        {suitChars[suit]}
-      </span>
+      <div className={clsx("absolute top-0.5 left-1 flex flex-col items-center", small ? "gap-[-1px]" : "gap-0")}>
+        <span className={clsx(small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
+          {rankChars[rank]}
+        </span>
+        <span className={clsx(small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
+          {suitChars[suit]}
+        </span>
+      </div>
     </>
   );
 }
