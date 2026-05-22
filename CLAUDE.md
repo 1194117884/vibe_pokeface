@@ -4,7 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Multiplayer **Dou Di Zhu (斗地主)** card game platform with AI opponents, real-time WebSocket gameplay, and LiveKit voice/video. Starbucks-inspired design system. Admin panel for user/room/AI management.
+Multiplayer **Poker(扑克)** card game platform with AI opponents, real-time WebSocket gameplay, and LiveKit voice/video. Starbucks-inspired design system. Admin panel for user/room/AI management.
+
+## Engineering Principles
+
+When facing ambiguity, prioritize in this order:
+
+1. **Game correctness above all** — Card game logic must be bug-free. A broken game is worse than a slow UI. Validate all rule edge cases (bomb patterns, joker interactions, consecutive straights).
+2. **Stability over novelty** — Prefer boring, proven patterns over clever abstractions. The existing architecture (`GameEngine` interface, WebSocket hub pattern, chi middleware chain) works — extend it, don't replace it.
+3. **Type safety everywhere** — No `any` types in TypeScript. All Go interfaces must be explicit. The type system is your first line of defense against bugs.
+4. **Simple over clever** — Three readable lines are better than one clever one-liner. Future AI sessions and human readers must understand the code without deep context.
+5. **Respect existing patterns** — Look at how things are already done before making new things. New code should feel like it belongs: same error handling style, same file organization, same naming conventions.
+6. **Test game logic thoroughly** — Game rule validation, hand evaluation, and play comparison must have tests. UI and wiring code can rely on type-checking.
+7. **Consistent user experience** — UI changes must match the Starbucks-inspired design system. Don't introduce new visual patterns without checking `docs/DESIGN.md`.
 
 ## Architecture
 
@@ -12,45 +24,13 @@ Multiplayer **Dou Di Zhu (斗地主)** card game platform with AI opponents, rea
 
 **Frontend** (`frontend/`) — Next.js 16, React 19, Tailwind CSS v4, TypeScript
 
-### Server Package Layout
-
-| Package | Purpose |
-|---|---|
-| `cmd/server/` | Entry point — wires config → DB → stores → hub → handlers → HTTP server |
-| `internal/config/` | Env-based config via godotenv |
-| `internal/model/` | MySQL stores (UserStore, GameStore, AIStore) + DB connection |
-| `internal/auth/` | JWT token generation/validation + bcrypt password hashing |
-| `internal/api/` | HTTP handlers — auth (register/login/guest), health, LiveKit token |
-| `internal/api/middleware/` | Logging, CORS, JWT auth middleware, rate limiter |
-| `internal/api/ws/` | WebSocket hub — room-based channels, read/write pumps, game message routing |
-| `internal/api/admin/` | Admin REST endpoints — users, rooms, AI characters, LLM configs, scores |
-| `internal/game/` | `GameEngine` interface + `RoomManager` for game lifecycle |
-| `internal/game/doudizhu/` | Dou Di Zhu engine — cards (54-card deck), hand evaluation, bidding, play validation |
-| `internal/ai/` | AI player with LLM provider abstraction (OpenAI-compatible) |
-
-### Frontend Structure
-
-| Path | Purpose |
-|---|---|
-| `app/auth/login/` + `register/` | Auth pages |
-| `app/(main)/lobby/` | Game lobby |
-| `app/(main)/room/[id]/` | Game room |
-| `app/admin/` | Admin pages (layout with sidebar) — dashboard, users, rooms, ai-characters, llm-config, stats, scores |
-| `components/game/` | Card rendering, hand display, game table, play area, action bar, player info |
-| `components/chat/` | Chat panel, emoji picker, voice button |
-| `components/ui/` | Reusable Button, Card, Input, AdminSidebar |
-| `lib/api-client.ts` | REST API client (register, login) with JWT token management |
-| `lib/ws-game.ts` | WebSocket game client — room join/leave, actions, chat, auto-reconnect |
-| `lib/livekit-client.ts` | WebRTC voice/video via LiveKit |
-
 ### Game Flow
 
 1. User logs in → gets JWT token
 2. Joins/creates room via WebSocket (`join_room`)
-3. Room auto-fills empty seats with AI bots
-4. When 3 players ready → game starts (`game_start`)
-5. Players send actions (`room_action`), server broadcasts `state_update`
-6. Round end → scores calculated, room resets to `waiting`
+3. When all players ready → game starts (`game_start`)
+4. Players send actions (`room_action`), server broadcasts `state_update`
+5. Round end → scores calculated, room resets to `waiting`
 
 ### Key Infrastructure
 
@@ -144,6 +124,24 @@ See `.env.example` for required variables:
 4. **No scope creep** — Stick to the stated task. If you discover related issues, flag them but do not fix unless explicitly instructed.
 5. **Ask when unsure** — If a requirement is ambiguous, ask before proceeding.
 
+## Context Rules (MANDATORY)
+
+Before starting work, read the relevant context files for the task type:
+
+| Task Type | Must Read Before Starting |
+|---|---|
+| **Game logic** (rules, hand eval, play validation) | `docs/architecture/overview.md`, `docs/decisions/README.md` (ADR-002), `internal/game/doudizhu/` |
+| **API / WebSocket** (handlers, hub, message routing) | `docs/architecture/api-rules.md`, `docs/architecture/overview.md` |
+| **Frontend UI** (pages, components) | `docs/DESIGN.md`, `rules/frontend.md`, `docs/architecture/overview.md` |
+| **AI / LLM** (AI players, prompts, provider) | `docs/decisions/README.md` (ADR-003), `internal/ai/` |
+| **Auth / Security** | `rules/security.md`, `docs/architecture/api-rules.md` |
+| **Admin panel** | `docs/architecture/api-rules.md`, `rules/frontend.md` |
+| **Database / Model** (stores, queries, migrations) | `docs/decisions/README.md` (ADR-001), `docs/architecture/overview.md` |
+
+**When you learn something new about the codebase** — a hidden constraint, a non-obvious pattern, a recurring bug — record it in `.ai/memory.md` under the appropriate section.
+
+**When you make an architectural decision** — write an ADR in `docs/decisions/` following the existing format.
+
 ## Coding Rules
 
 - **No `any` types** — Use proper TypeScript types / Go interfaces everywhere.
@@ -163,13 +161,26 @@ After any code change, run ALL applicable checks and show their output verbatim:
 
 Do not claim success — show the actual output. If checks fail, fix before proceeding.
 
+## Harness Structure
+
+Additional project infrastructure beyond source code:
+
+| Directory | Purpose |
+|---|---|
+| `rules/` | Domain constraints — coding standards, frontend rules, security requirements |
+| `scripts/` | Automated verification gates — `verify.sh`, `ci-local.sh` |
+| `prompts/` | Reusable AI prompt templates — code review, refactoring, debugging |
+| `docs/` | Long-term memory — architecture (overview, API rules), ADRs, business docs, known issues |
+| `tasks/` | Current work tracking — backlog, doing, review, done |
+| `.ai/` | Cross-session memory — persistent decisions, conventions, session logs |
+
 ## Scope Constraints
 
 **Allowed to modify:**
 - `server/internal/` — any Go source (handlers, middleware, stores, game logic, AI)
 - `frontend/` — any TypeScript/TSX/Tailwind source (pages, components, lib)
 - Migrations that are already applied (only additive changes)
-- `CLAUDE.md` itself
+- `CLAUDE.md`, `rules/`, `scripts/`, `prompts/`, `docs/`, `tasks/`, `.ai/`
 
 **Forbidden to modify without explicit instruction:**
 - `server/migrations/` — creating new migration files (requires separate review)
