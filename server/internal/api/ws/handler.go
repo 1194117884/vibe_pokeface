@@ -13,7 +13,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/yongkl/vibe-pokeface/internal/ai"
 	"github.com/yongkl/vibe-pokeface/internal/game"
-	"github.com/yongkl/vibe-pokeface/internal/game/doudizhu"
+	_ "github.com/yongkl/vibe-pokeface/internal/game/dashengji"
+	_ "github.com/yongkl/vibe-pokeface/internal/game/doudizhu"
 	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
@@ -167,7 +168,16 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	if room == nil {
 		// Room doesn't exist yet — check if we should create it
 		// or if it was closed and deleted
-		room = h.RoomManager.GetOrCreateRoom(roomID, gameType, &doudizhu.Engine{})
+		engine, err := game.NewEngine(gameType)
+		if err != nil {
+			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: fmt.Sprintf("unsupported game type: %s", gameType)})
+			select {
+			case client.Send <- errMsg:
+			default:
+			}
+			return
+		}
+		room = h.RoomManager.GetOrCreateRoom(roomID, gameType, engine)
 	}
 	if room == nil || room.Closed {
 		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "room is closed"})

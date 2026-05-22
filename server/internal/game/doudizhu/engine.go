@@ -9,6 +9,10 @@ import (
 	"github.com/yongkl/vibe-pokeface/internal/game"
 )
 
+func init() {
+	game.RegisterEngine("doudizhu", func() game.GameEngine { return &Engine{} })
+}
+
 // Engine implements the Dou Di Zhu game logic.
 type Engine struct{}
 

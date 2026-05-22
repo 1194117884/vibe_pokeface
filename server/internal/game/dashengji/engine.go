@@ -7,6 +7,10 @@ import (
 	"github.com/yongkl/vibe-pokeface/internal/game"
 )
 
+func init() {
+	game.RegisterEngine("dashengji", func() game.GameEngine { return &Engine{} })
+}
+
 // Engine implements the Dashengji (打升级) game logic.
 type Engine struct{}
 
