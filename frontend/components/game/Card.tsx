@@ -56,13 +56,12 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
           ? "w-12 h-16"
           : medium
             ? "w-16 h-24"
-            : "w-24 h-36 transform hover:-translate-y-2.5 cursor-pointer",
+            : "w-24 h-36 cursor-pointer",
         "shadow-[0_2px_4px_rgba(0,0,0,0.2),inset_0_2px_4px_rgba(0,0,0,0.05)]",
         small && "shadow-[0_1px_2px_rgba(0,0,0,0.15)]",
         selected
           ? "border-2 border-primary ring-4 ring-primary/20"
           : "border border-gray-200",
-        onClick && !small && "hover:-translate-y-2.5",
       )}
       style={{
         background: "linear-gradient(135deg, #fff 0%, #f3f3f3 100%)",
@@ -82,16 +81,16 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
             className={clsx(
               "leading-none self-start",
               small ? "text-[11px]" : medium ? "text-[15px]" : "text-card-number",
-              cardId === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
+              face === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
             )}
           >
-            {cardId === 53 ? "大" : "小"}
+            {face === 53 ? "大" : "小"}
           </span>
           <span
             className={clsx(
               "leading-none self-start",
               small ? "text-[7px]" : medium ? "text-[11px]" : "text-[20px]",
-              cardId === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
+              face === 53 ? "text-[#c82014]" : "text-[#1a1a1a]"
             )}
           >
             王
