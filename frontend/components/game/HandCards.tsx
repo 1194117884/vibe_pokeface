@@ -79,8 +79,9 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
                   ? "w-12 h-16 p-0.5 text-[11px] leading-none"
                   : "w-24 h-36 text-card-number",
                 selected.has(cardId)
-                  ? "ring-2 ring-blue-400"
+                  ? "ring-2 ring-blue-400 -translate-y-1"
                   : !isSmall && !disabled && "cursor-pointer",
+                "transition-transform duration-150 ease-out",
               )}
             >
               <MiniCardFace cardId={cardId} small={isSmall} />
