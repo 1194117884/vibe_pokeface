@@ -59,11 +59,12 @@ export function RoomTable({
     return { seat: parseInt(match[1]), type: match[2] as "baodan" | "baoshuang" };
   })();
 
-  // During game phases: left opponent = next seat, right opponent = seat after that
+  // During game phases: seat positions depend on player count
   const leftSeat = (mySeat + 1) % maxPlayers;
-  const rightSeat = (mySeat + 2) % maxPlayers;
+  const rightSeat = maxPlayers === 4 ? (mySeat + 3) % maxPlayers : (mySeat + 2) % maxPlayers;
+  const partnerSeat = maxPlayers === 4 ? (mySeat + 2) % maxPlayers : -1;
 
-  function renderSeat(seatNum: number, position?: "left" | "right") {
+  function renderSeat(seatNum: number, position?: "left" | "right" | "top") {
     const player = seatMap.get(seatNum);
     const isMine = seatNum === mySeat;
     const isLandlord = player?.isLandlord ?? false;
@@ -108,31 +109,35 @@ export function RoomTable({
     <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 relative w-full">
       {/* Opponents + Timer Row (middle) */}
       {isGamePhase ? (
-        <div className="w-full flex justify-between items-center px-4">
-          {/* Left opponent */}
-          {renderSeat(leftSeat, "left")}
+        <div className="w-full flex flex-col items-center gap-2">
+          {/* Partner at top (4-player only) */}
+          {partnerSeat >= 0 && renderSeat(partnerSeat, "top")}
 
-          {/* Center: Timer or last play */}
-          <div className="flex flex-col items-center gap-2">
-            {lastPlay && phase === "playing" ? (
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-on-surface-variant text-xs font-medium opacity-60">
-                  {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
-                </span>
-                <div className="flex gap-1">
-                  {lastPlay.cards.map((cardId, i) => (
-                    <Card key={i} cardId={cardId} medium />
-                  ))}
+          <div className="w-full flex justify-between items-center px-4">
+            {/* Left opponent */}
+            {renderSeat(leftSeat, "left")}
+
+            {/* Center: Timer or last play */}
+            <div className="flex flex-col items-center gap-2">
+              {lastPlay && phase === "playing" ? (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-on-surface-variant text-xs font-medium opacity-60">
+                    {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+                  </span>
+                  <div className="flex gap-1">
+                    {lastPlay.cards.map((cardId, i) => (
+                      <Card key={i} cardId={cardId} medium />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <>
-              </>
-            )}
-          </div>
+              ) : (
+                <>{/* empty center */}</>
+              )}
+            </div>
 
-          {/* Right opponent */}
-          {renderSeat(rightSeat, "right")}
+            {/* Right opponent */}
+            {renderSeat(rightSeat, "right")}
+          </div>
         </div>
       ) : (
         /* Waiting phase: show all seats in a row */

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import clsx from "clsx";
 import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
-import { HandCards } from "@/components/game/HandCards";
+import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
-import { DashengjiTable, DashengjiPlayer } from "@/components/game/dashengji/DashengjiTable";
+import { HandCards } from "@/components/game/HandCards";
 import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionBar";
 import { ScoreBoard } from "@/components/game/dashengji/ScoreBoard";
 
@@ -73,17 +74,19 @@ function extractHandCards(p: ServerPlayer): number[] {
   return p.hand.map((c) => (typeof c === "number" ? c : c.id));
 }
 
-function toDashengjiPlayer(p: ServerPlayer, currentSeat: number | undefined, dealerSeats: [number, number]): DashengjiPlayer {
+function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined): TablePlayer {
   return {
     userId: String(p.user_id ?? p.userId ?? ""),
-    seat: p.seat ?? 0,
+    name: p.nickname ?? String(p.user_id ?? ""),
     nickname: p.nickname ?? String(p.user_id ?? "").replace(/^ai:bot:/, "AI "),
-    cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
+    characterId: p.character_id ?? p.characterId ?? "",
+    seat: p.seat ?? 0,
     isBot: p.is_bot ?? p.isBot ?? false,
     isOwner: p.is_owner ?? p.isOwner ?? false,
-    characterId: p.character_id ?? p.characterId,
+    isReady: p.ready ?? p.isReady ?? false,
     isCurrentTurn: p.seat === currentSeat,
-    isDealerTeam: dealerSeats.includes(p.seat ?? 0),
+    cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
+    hand: extractHandCards(p).length > 0 ? extractHandCards(p) : undefined,
   };
 }
 
@@ -97,7 +100,7 @@ export default function DashengjiRoomPage() {
   const router = useRouter();
   const roomId = params.id as string;
 
-  const [players, setPlayers] = useState<DashengjiPlayer[]>([]);
+  const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [mySeat, setMySeat] = useState<number | null>(null);
   const mySeatRef = useRef<number | null>(null);
   const setMySeatWithRef = (seat: number | null) => {
@@ -113,7 +116,6 @@ export default function DashengjiRoomPage() {
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
   const [roundPoints, setRoundPoints] = useState(0);
   const [roundResult, setRoundResult] = useState<{ scores: Array<{ player_id: number; score: number }> } | null>(null);
-  const [dealerSeats, setDealerSeats] = useState<[number, number]>([0, 2]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const wsRef = useRef<WSGameClient | null>(null);
@@ -141,9 +143,16 @@ export default function DashengjiRoomPage() {
     client.on("player_joined", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toDashengjiPlayer(p, undefined, dealerSeats)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, undefined)));
       }
       if (data?.seat !== undefined && String(data.user_id) === uid) setMySeatWithRef(data.seat);
+    });
+
+    client.on("player_ready", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.players) {
+        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat)));
+      }
     });
 
     client.on("state_update", (msg) => {
@@ -155,15 +164,13 @@ export default function DashengjiRoomPage() {
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
-      if (data?.dealer_seats) setDealerSeats(data.dealer_seats);
       if (data?.bottom_cards) setBottomCards(extractCards(data.bottom_cards));
       if (data?.round_points !== undefined) setRoundPoints(data.round_points);
       if (data?.last_play) {
         setLastPlay({ seat: data.last_play.seat, cards: extractCards(data.last_play.cards) });
       }
       if (data?.players) {
-        const ds = data.dealer_seats || dealerSeats;
-        setPlayers(data.players.map((p) => toDashengjiPlayer(p, data.current_seat, ds)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat)));
       }
       if (mySeatRef.current !== null && data?.players) {
         const me = data.players.find(
@@ -173,17 +180,10 @@ export default function DashengjiRoomPage() {
       }
     });
 
-    client.on("player_ready", (msg) => {
-      const data = msg.data as ServerData;
-      if (data?.players) {
-        setPlayers(data.players.map((p) => toDashengjiPlayer(p, currentSeat, dealerSeats)));
-      }
-    });
-
     client.on("game_start", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toDashengjiPlayer(p, data.current_seat, data.dealer_seats || dealerSeats)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat)));
         if (mySeatRef.current !== null) {
           const me = data.players.find(
             (p) => (p.seat ?? 0) === mySeatRef.current,
@@ -196,7 +196,6 @@ export default function DashengjiRoomPage() {
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
-      if (data?.dealer_seats) setDealerSeats(data.dealer_seats);
     });
 
     client.on("round_end", (msg) => {
@@ -228,7 +227,7 @@ export default function DashengjiRoomPage() {
     client.on("player_left", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toDashengjiPlayer(p, currentSeat, dealerSeats)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat)));
       }
     });
 
@@ -258,23 +257,40 @@ export default function DashengjiRoomPage() {
   }, []);
 
   const handleAddBot = useCallback(() => {
-    // For now, add bot without character selection
     wsRef.current?.addBot();
   }, []);
 
-  const myUserId = getUserIdFromToken();
-  const amIOwner = players.some((p) => p.userId === myUserId && p.isOwner);
-  const amIReady = false; // Will be updated when ready_state is available from server
-  const allReady = players.length >= 2; // Simplified for now
-  const canStart = players.length >= GAME_CONFIG.maxPlayers && allReady;
-  const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
+  const handleSitDown = useCallback((seat: number) => {
+    wsRef.current?.changeSeat(seat);
+  }, []);
 
+  const myUserId = getUserIdFromToken();
+  const myPlayer = players.find((p) => p.userId === myUserId);
+  const amIOwner = myPlayer?.isOwner ?? false;
+  const amIReady = myPlayer?.isReady ?? false;
+  const allReady = players.length >= 2 && players.every((p) => p.isReady);
+  const canStart = amIOwner && players.length >= GAME_CONFIG.maxPlayers && allReady;
+  const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
   const showPhaseActions = phase !== "waiting" && phase !== "ended";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-950 relative overflow-hidden">
-      <DashengjiTable players={players} mySeat={mySeat ?? 0} trumpSuit={trumpSuit} bottomCards={bottomCards} lastPlay={lastPlay} />
+      <RoomTable
+        players={players}
+        mySeat={mySeat ?? 0}
+        phase={phase}
+        onSitDown={handleSitDown}
+        onAddBot={handleAddBot}
+        lastPlay={lastPlay}
+        maxPlayers={GAME_CONFIG.maxPlayers}
+      />
       <ScoreBoard roundPoints={roundPoints} dealerLevel={currentLevel} />
+
+      {trumpSuit >= 0 && (
+        <div className="fixed top-4 left-4 bg-black/60 backdrop-blur rounded-xl p-3 text-white z-40">
+          <div className="text-lg">{["♠", "♥", "♣", "♦"][trumpSuit]} 主花色</div>
+        </div>
+      )}
 
       {errorMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
