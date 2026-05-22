@@ -60,7 +60,7 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
         "shadow-[0_2px_4px_rgba(0,0,0,0.2),inset_0_2px_4px_rgba(0,0,0,0.05)]",
         small && "shadow-[0_1px_2px_rgba(0,0,0,0.15)]",
         selected
-          ? "border-2 border-primary ring-4 ring-primary/20 -translate-y-2.5"
+          ? "border-2 border-primary ring-4 ring-primary/20"
           : "border border-gray-200",
         onClick && !small && "hover:-translate-y-2.5",
       )}
