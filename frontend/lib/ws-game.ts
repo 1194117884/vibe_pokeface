@@ -89,15 +89,17 @@ export class WSGameClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private roomId: string | null = null;
   private autoJoinRoomId: string | null = null;
+  private gameType: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private destroyed = false;
 
-  constructor(userId: number, token: string, autoJoinRoomId?: string) {
+  constructor(userId: number, token: string, autoJoinRoomId?: string, gameType?: string) {
     const baseUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
     this.url = `${baseUrl}/ws?user_id=${userId}`;
     this.token = token;
     this.autoJoinRoomId = autoJoinRoomId || null;
+    this.gameType = gameType || "doudizhu";
   }
 
   connect() {
@@ -109,11 +111,11 @@ export class WSGameClient {
       this.reconnectAttempts = 0;
       // Auto-join room if specified in constructor
       if (this.autoJoinRoomId) {
-        this.joinRoom(this.autoJoinRoomId);
+        this.joinRoom(this.autoJoinRoomId, this.gameType);
       }
       // Re-join room if reconnecting
       if (this.roomId && this.roomId !== this.autoJoinRoomId) {
-        this.send("join_room", this.roomId);
+        this.joinRoom(this.roomId, this.gameType);
       }
     };
 
@@ -171,9 +173,9 @@ export class WSGameClient {
     this.ws.send(JSON.stringify(msg));
   }
 
-  joinRoom(roomId: string) {
+  joinRoom(roomId: string, gameType?: string) {
     this.roomId = roomId;
-    this.send("join_room", roomId);
+    this.send("join_room", roomId, { game_type: gameType || "doudizhu" });
   }
 
   leaveRoom() {

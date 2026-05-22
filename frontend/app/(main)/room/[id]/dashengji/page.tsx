@@ -136,7 +136,7 @@ export default function DashengjiRoomPage() {
       return;
     }
 
-    const client = new WSGameClient(Number(userIdStr), token, roomId);
+    const client = new WSGameClient(Number(userIdStr), token, roomId, "dashengji");
     wsRef.current = client;
     const uid = userIdStr;
 
