@@ -141,8 +141,8 @@ export function SeatPosition({
           </span>
         )}
 
-        {/* Card backs or revealed hand behind avatar */}
-        {player.hand && player.hand.length > 0 ? (
+        {/* Revealed hand (only when cards are exposed) */}
+        {player.hand && player.hand.length > 0 && (
           <div className="flex flex-wrap justify-center gap-0.5 max-w-[100px] mb-0.5">
             {player.hand.map((cardId, i) => (
               <div
@@ -157,30 +157,6 @@ export function SeatPosition({
                 </span>
               </div>
             ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center -space-y-5">
-            <div
-              className="w-7 h-10 rounded shadow border border-white/5 opacity-60"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-              }}
-            />
-            <div
-              className="w-7 h-10 rounded shadow border border-white/5 opacity-80"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-              }}
-            />
-            <div
-              className="w-7 h-10 rounded shadow border border-white/5"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, #1d2021, #1d2021 3px, #323536 3px, #323536 6px)",
-              }}
-            />
           </div>
         )}
 
