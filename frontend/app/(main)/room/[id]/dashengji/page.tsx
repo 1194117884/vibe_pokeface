@@ -86,7 +86,7 @@ function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined, dealerS
     isOwner: p.is_owner ?? p.isOwner ?? false,
     isReady: p.ready ?? p.isReady ?? false,
     isCurrentTurn: p.seat === currentSeat,
-    isDealerTeam: dealerSeats ? dealerSeats.includes(seat) : undefined,
+    isDealerTeam: false, // only set after game_start reveals actual dealer seats
     cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
     hand: extractHandCards(p).length > 0 ? extractHandCards(p) : undefined,
   };
@@ -182,13 +182,17 @@ export default function DashengjiRoomPage() {
         const ds = data.dealer_seats || dealerSeatsRef.current;
         setPlayers((prev) => {
           const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat, ds));
-          // Merge with previous to preserve known nicknames
+          // Merge with previous to preserve known nicknames and apply dealer team
           return newPlayers.map((np) => {
             const existing = prev.find((pp) => pp.seat === np.seat);
+            const merged = { ...np };
             if (existing && existing.nickname && existing.nickname !== String(existing.seat)) {
-              return { ...np, nickname: existing.nickname, name: existing.nickname, characterId: existing.characterId || np.characterId };
+              merged.nickname = existing.nickname;
+              merged.name = existing.nickname;
+              merged.characterId = existing.characterId || np.characterId;
             }
-            return np;
+            merged.isDealerTeam = ds.includes(np.seat);
+            return merged;
           });
         });
       }
@@ -227,6 +231,10 @@ export default function DashengjiRoomPage() {
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
+      // Mark dealer team players after dealer_seats is known
+      if (ds) {
+        setPlayers((prev) => prev.map((p) => ({ ...p, isDealerTeam: ds.includes(p.seat) })));
+      }
     });
 
     client.on("round_end", (msg) => {
