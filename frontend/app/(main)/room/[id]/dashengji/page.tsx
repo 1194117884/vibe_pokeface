@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
@@ -8,6 +8,27 @@ import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
 import { HandCards } from "@/components/game/HandCards";
 import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionBar";
+
+const SUIT_SYMBOLS = ["♠", "♥", "♣", "♦"];
+
+/** Sort hand for Dashengji display: group by suit, within suit by rank desc. */
+function sortDashengjiHand(cardIds: number[]): number[] {
+  return [...cardIds].sort((a, b) => {
+    const fa = a % 54, fb = b % 54;
+    // Jokers always first (big before small)
+    if (fa === 53 && fb !== 53) return -1;
+    if (fb === 53 && fa !== 53) return 1;
+    if (fa === 52 && fb !== 52 && fb !== 53) return -1;
+    if (fb === 52 && fa !== 52 && fa !== 53) return 1;
+    if (fa >= 52 && fb >= 52) return fb - fa;
+    // Group by suit
+    const sa = Math.floor(fa / 13);
+    const sb = Math.floor(fb / 13);
+    if (sa !== sb) return sa - sb;
+    // Within same suit: higher rank first (2 is rank 12 in 0-based)
+    return (fb % 13) - (fa % 13);
+  });
+}
 import { ScoreBoard } from "@/components/game/dashengji/ScoreBoard";
 
 interface ServerPlayer {
@@ -311,6 +332,7 @@ export default function DashengjiRoomPage() {
   const canStart = amIOwner && players.length >= GAME_CONFIG.maxPlayers && allReady;
   const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
   const showPhaseActions = phase !== "waiting" && phase !== "ended";
+  const sortedHand = useMemo(() => sortDashengjiHand(hand), [hand]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-950 relative overflow-hidden">
@@ -341,10 +363,10 @@ export default function DashengjiRoomPage() {
         <DashengjiActionBar phase={phase} isMyTurn={isMyTurn} onAction={handleAction} />
       )}
 
-      {showPhaseActions && hand.length > 0 && (
+      {showPhaseActions && sortedHand.length > 0 && (
         <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
           <HandCards
-            cards={hand}
+            cards={sortedHand}
             onPlayCards={handlePlayCards}
             disabled={!isMyTurn}
           />
