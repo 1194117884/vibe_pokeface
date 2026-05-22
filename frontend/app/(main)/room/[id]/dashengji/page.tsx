@@ -74,17 +74,19 @@ function extractHandCards(p: ServerPlayer): number[] {
   return p.hand.map((c) => (typeof c === "number" ? c : c.id));
 }
 
-function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined): TablePlayer {
+function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined, dealerSeats?: [number, number]): TablePlayer {
+  const seat = p.seat ?? 0;
   return {
     userId: String(p.user_id ?? p.userId ?? ""),
     name: p.nickname ?? String(p.user_id ?? ""),
     nickname: p.nickname ?? String(p.user_id ?? "").replace(/^ai:bot:/, "AI "),
     characterId: p.character_id ?? p.characterId ?? "",
-    seat: p.seat ?? 0,
+    seat,
     isBot: p.is_bot ?? p.isBot ?? false,
     isOwner: p.is_owner ?? p.isOwner ?? false,
     isReady: p.ready ?? p.isReady ?? false,
     isCurrentTurn: p.seat === currentSeat,
+    isDealerTeam: dealerSeats ? dealerSeats.includes(seat) : undefined,
     cardCount: Array.isArray(p.hand) ? p.hand.length : (p.card_count ?? p.cardCount ?? 0),
     hand: extractHandCards(p).length > 0 ? extractHandCards(p) : undefined,
   };
@@ -117,6 +119,12 @@ export default function DashengjiRoomPage() {
   const [roundPoints, setRoundPoints] = useState(0);
   const [roundResult, setRoundResult] = useState<{ scores: Array<{ player_id: number; score: number }> } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [dealerSeats, setDealerSeats] = useState<[number, number]>([0, 2]);
+  const dealerSeatsRef = useRef<[number, number]>([0, 2]);
+  const setDealerSeatsWithRef = (seats: [number, number]) => {
+    dealerSeatsRef.current = seats;
+    setDealerSeats(seats);
+  };
 
   const wsRef = useRef<WSGameClient | null>(null);
 
@@ -143,7 +151,7 @@ export default function DashengjiRoomPage() {
     client.on("player_joined", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, undefined)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, undefined, undefined)));
       }
       if (data?.seat !== undefined && String(data.user_id) === uid) setMySeatWithRef(data.seat);
     });
@@ -151,7 +159,7 @@ export default function DashengjiRoomPage() {
     client.on("player_ready", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat, dealerSeatsRef.current)));
       }
     });
 
@@ -164,13 +172,15 @@ export default function DashengjiRoomPage() {
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
+      if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
       if (data?.bottom_cards) setBottomCards(extractCards(data.bottom_cards));
       if (data?.round_points !== undefined) setRoundPoints(data.round_points);
       if (data?.last_play) {
         setLastPlay({ seat: data.last_play.seat, cards: extractCards(data.last_play.cards) });
       }
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat)));
+        const ds = data.dealer_seats || dealerSeatsRef.current;
+        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat, ds)));
       }
       if (mySeatRef.current !== null && data?.players) {
         const me = data.players.find(
@@ -182,8 +192,10 @@ export default function DashengjiRoomPage() {
 
     client.on("game_start", (msg) => {
       const data = msg.data as ServerData;
+      if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
+      const ds = data.dealer_seats || dealerSeatsRef.current;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat, ds)));
         if (mySeatRef.current !== null) {
           const me = data.players.find(
             (p) => (p.seat ?? 0) === mySeatRef.current,
@@ -227,7 +239,7 @@ export default function DashengjiRoomPage() {
     client.on("player_left", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat)));
+        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat, dealerSeatsRef.current)));
       }
     });
 

@@ -14,6 +14,7 @@ export interface TablePlayer {
   isReady: boolean;
   isCurrentTurn?: boolean;
   isLandlord?: boolean;
+  isDealerTeam?: boolean;
   cardCount: number;
   hand?: number[];
 }
@@ -84,6 +85,7 @@ export function RoomTable({
               isReady: player.isReady,
               isCurrentTurn: player.isCurrentTurn,
               isLandlord: player.isLandlord,
+              isDealerTeam: player.isDealerTeam,
               cardCount: player.cardCount,
               hand: player.hand,
             }

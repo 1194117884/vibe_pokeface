@@ -24,6 +24,7 @@ interface SeatPositionProps {
     isReady: boolean;
     isCurrentTurn?: boolean;
     isLandlord?: boolean;
+    isDealerTeam?: boolean;
     cardCount: number;
     hand?: number[];
   } | null;
@@ -62,6 +63,7 @@ export function SeatPosition({
           "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
           player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
           player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
+          player.isDealerTeam && "!border-amber-500/60 ring-1 ring-amber-500/30 bg-amber-500/10",
         )}
       >
         {/* Speech bubble — positioned toward table center */}
@@ -100,6 +102,13 @@ export function SeatPosition({
         {player.isLandlord && (
           <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
             👑 地主
+          </div>
+        )}
+
+        {/* Dealer team badge */}
+        {player.isDealerTeam && (
+          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
+            🏠 庄
           </div>
         )}
 
@@ -172,6 +181,7 @@ export function SeatPosition({
               "rounded-full border-2 border-surface-container-highest overflow-hidden",
               compact ? "w-10 h-10" : "w-12 h-12",
               player.isLandlord && "border-secondary-container/50",
+              player.isDealerTeam && "!border-amber-500",
             )}
           >
             {player.isBot ? (
@@ -268,6 +278,7 @@ export function SeatPosition({
         "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
         player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
         player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
+        player.isDealerTeam && "!border-amber-500/60 ring-1 ring-amber-500/30 bg-amber-500/10",
         isMySeat && "ring-1 ring-primary/30",
       )}
     >
@@ -301,6 +312,13 @@ export function SeatPosition({
         </div>
       )}
 
+      {/* Dealer team badge */}
+      {player.isDealerTeam && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md">
+          🏠 庄
+        </div>
+      )}
+
       {/* Current turn badge */}
       {player.isCurrentTurn && (
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)]">
@@ -315,6 +333,7 @@ export function SeatPosition({
             "rounded-full border-surface-container-highest overflow-hidden",
             compact ? "w-10 h-10 border-2" : "w-16 h-16 border-4",
             player.isLandlord && "border-secondary-container/50",
+            player.isDealerTeam && "!border-amber-500",
           )}
         >
           {player.isBot ? (
