@@ -12,7 +12,7 @@ interface RoomCardProps {
 
 function RoomCard({ room }: RoomCardProps) {
   return (
-    <Link href={`/room/${room.id}`}>
+    <Link href={`/room/${room.id}/${room.gameType || "doudizhu"}`}>
       <div className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow border border-ceramic/30 cursor-pointer">
         <div className="flex items-start justify-between mb-3">
           <div>

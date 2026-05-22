@@ -55,7 +55,8 @@ export default function CreateRoomPage() {
               onChange={(e) => setGameType(e.target.value)}
               className="w-full rounded-lg border border-ceramic px-3 py-2.5 text-sm focus:outline-none focus:border-green-accent"
             >
-              <option value="doudizhu">斗地主</option>
+              <option value="doudizhu">斗地主 (3人)</option>
+              <option value="dashengji">打升级 (4人)</option>
             </select>
           </div>
 
