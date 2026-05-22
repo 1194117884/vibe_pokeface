@@ -110,6 +110,46 @@ func TestValidateAction_WrongTurn(t *testing.T) {
 	}
 }
 
+func TestFollowSuit_MustMatchType(t *testing.T) {
+	ledPlay := Play{Type: PlayPair, MainRank: 5, Length: 1}
+	ledCards := []Card{{ID: 2}, {ID: 56}}
+
+	followCards := []Card{{ID: 0}}
+	hand := []Card{{ID: 0}, {ID: 2}, {ID: 56}}
+
+	err := validateFollow(followCards, hand, ledPlay, ledCards, 0, 6)
+	if err == nil {
+		t.Error("single should not follow a pair lead")
+	}
+}
+
+func TestFollowSuit_MustMatchSuit(t *testing.T) {
+	ledPlay := Play{Type: PlaySingle, MainRank: 5, Length: 1}
+	ledCards := []Card{{ID: 2}} // suits 0
+
+	followCards := []Card{{ID: 15}} // suit 1
+	hand := []Card{{ID: 0}, {ID: 15}} // suits 0, 1
+
+	err := validateFollow(followCards, hand, ledPlay, ledCards, 0, 6)
+	if err == nil {
+		t.Error("should not allow off-suit follow when same-suit cards available")
+	}
+}
+
+func TestFollowSuit_CanTrumpWhenNoSuitCards(t *testing.T) {
+	ledPlay := Play{Type: PlaySingle, MainRank: 5, Length: 1}
+	ledCards := []Card{{ID: 2}} // suit 0, side card when trumpSuit=1
+	trumpSuit := 1              // hearts is trump
+
+	followCards := []Card{{ID: 13}} // hearts (trump suit)
+	hand := []Card{{ID: 13}, {ID: 14}} // only hearts cards
+
+	err := validateFollow(followCards, hand, ledPlay, ledCards, trumpSuit, 6)
+	if err != nil {
+		t.Errorf("should allow trump follow when no led-suit cards: %v", err)
+	}
+}
+
 func TestValidateAction_WrongPhase(t *testing.T) {
 	eng := &Engine{}
 	state, _ := eng.Init(makePlayers())

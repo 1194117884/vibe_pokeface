@@ -282,6 +282,11 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 	}
 
 	if gs.LastPlay != nil && gs.LastPlay.Seat != seat {
+		if err := validateFollow(cards, gs.Players[playerIdx].Hand, gs.LastPlay.Play,
+			gs.LastPlay.Cards, gs.TrumpSuit, gs.LevelRank); err != nil {
+			return nil, err
+		}
+
 		if !CanBeat(play, gs.LastPlay.Play) {
 			return nil, &game.GameError{Code: game.ErrCannotBeat}
 		}
@@ -453,6 +458,59 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 		}
 	}
 	return scores, nil
+}
+
+// hasSuit checks if the player has any cards matching the led suit in hand.
+func hasSuit(hand []Card, ledSuit int) bool {
+	for _, c := range hand {
+		if c.IsSmallJoker() || c.IsBigJoker() {
+			continue
+		}
+		if c.Suit() == ledSuit {
+			return true
+		}
+	}
+	return false
+}
+
+// validateFollow checks that played cards follow the led suit+type+category rules.
+func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
+	trumpSuit int, levelRank int) error {
+
+	if len(cards) == 0 {
+		return &game.GameError{Code: game.ErrInvalidCards}
+	}
+
+	play := ParsePlayWithContext(cards, trumpSuit, levelRank)
+	if play.Type == PlayInvalid {
+		return &game.GameError{Code: game.ErrInvalidCards}
+	}
+
+	if play.Type != ledPlay.Type {
+		return &game.GameError{Code: game.ErrInvalidCards}
+	}
+	if ledPlay.Type == PlayTractor && play.Length != ledPlay.Length {
+		return &game.GameError{Code: game.ErrInvalidCards}
+	}
+
+	ledSuit := ledCards[0].Suit()
+	ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
+	playCat := ClassifyCard(cards[0], trumpSuit, levelRank)
+	playSuit := cards[0].Suit()
+
+	// Same suit and same category = valid follow
+	if playSuit == ledSuit && playCat == ledCat {
+		return nil
+	}
+
+	// If no cards of led suit in hand, can trump (枪毙) with main cards
+	if !hasSuit(hand, ledSuit) {
+		if playCat == CatTrump || playCat == CatNativeMain || playCat == CatJoker {
+			return nil
+		}
+	}
+
+	return &game.GameError{Code: game.ErrInvalidCards}
 }
 
 // SerializeForAI returns JSON for AI consumption.
