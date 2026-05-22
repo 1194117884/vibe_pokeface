@@ -47,7 +47,7 @@ func suitColor(suit int) string {
 }
 
 // findTwoSuit finds the suit of a 2 (rank 15) in the cards. Returns -1 if not found.
-func findTwoSuit(cards []Card, levelRank int) int {
+func findTwoSuit(cards []Card) int {
 	for _, c := range cards {
 		if c.BaseRank() == 15 {
 			return c.Suit()
@@ -81,7 +81,7 @@ func CheckSetTrump(cards []Card, levelRank int, isDealerTeam bool) bool {
 		return false
 	}
 
-	twoSuit := findTwoSuit(cards, levelRank)
+	twoSuit := findTwoSuit(cards)
 	if twoSuit == -1 {
 		return false
 	}
@@ -105,7 +105,7 @@ func CheckSetTrump(cards []Card, levelRank int, isDealerTeam bool) bool {
 
 // GetTrumpSuit extracts the trump suit from a valid set-trump card selection.
 func GetTrumpSuit(cards []Card, levelRank int) int {
-	return findTwoSuit(cards, levelRank)
+	return findTwoSuit(cards)
 }
 
 // CheckCounterTrump validates whether the given cards can counter-trump (反主).
@@ -129,7 +129,7 @@ func CheckCounterTrump(cards []Card, levelRank int) bool {
 		return false
 	}
 
-	twoSuit := findTwoSuit(cards, levelRank)
+	twoSuit := findTwoSuit(cards)
 	if twoSuit == -1 {
 		return false
 	}
@@ -152,7 +152,7 @@ func CheckCounterTrump(cards []Card, levelRank int) bool {
 
 // IsDeadTrump checks if the set-trump is 定死 (dead/final, cannot be countered).
 func IsDeadTrump(cards []Card, levelRank int) bool {
-	twoSuit := findTwoSuit(cards, levelRank)
+	twoSuit := findTwoSuit(cards)
 	if twoSuit == -1 {
 		return false
 	}

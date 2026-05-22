@@ -121,3 +121,11 @@ func TestClassifyCard(t *testing.T) {
 		}
 	}
 }
+
+func TestGetTrumpSuit(t *testing.T) {
+	cards := []Card{{ID: 53}, {ID: 25}, {ID: 16}} // 大王, ♥2, ♥6
+	suit := GetTrumpSuit(cards, 6)
+	if suit != 1 {
+		t.Errorf("expected trump suit 1 (♥), got %d", suit)
+	}
+}
