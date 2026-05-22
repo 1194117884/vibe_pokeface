@@ -6,10 +6,16 @@ import { getCharacterStyle } from "@/themes";
 const SUITS = ["♠", "♥", "♣", "♦"] as const;
 const RANKS = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"] as const;
 
+function miniCardFace(cardId: number): number { return cardId % 54; }
 function miniCardColor(cardId: number): string {
-  if (cardId >= 52) return cardId === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
-  const suit = Math.floor(cardId / 13);
+  const face = cardId % 54;
+  if (face >= 52) return face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
+  const suit = Math.floor(face / 13);
   return suit === 1 || suit === 3 ? "text-[#c82014]" : "text-[#1a1a1a]";
+}
+function miniCardSuit(cardId: number): number {
+  const face = cardId % 54;
+  return face >= 52 ? 4 : Math.floor(face / 13);
 }
 
 interface SeatPositionProps {
@@ -140,10 +146,10 @@ export function SeatPosition({
                 className="w-3.5 h-5.5 bg-white rounded-[2px] flex flex-col items-center justify-center text-[7px] leading-none shadow-sm border border-black/10"
               >
                 <span className={miniCardColor(cardId)}>
-                  {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+                  {cardId % 54 >= 52 ? (cardId % 54 === 52 ? "小" : "大") : RANKS[cardId % 54 % 13]}
                 </span>
                 <span className={miniCardColor(cardId)}>
-                  {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+                  {cardId % 54 >= 52 ? "王" : SUITS[Math.floor((cardId % 54) / 13)]}
                 </span>
               </div>
             ))}
@@ -220,10 +226,10 @@ export function SeatPosition({
                 className="w-3 h-5 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
               >
                 <span className={miniCardColor(cardId)}>
-                  {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+                  {cardId % 54 >= 52 ? (cardId % 54 === 52 ? "小" : "大") : RANKS[cardId % 54 % 13]}
                 </span>
                 <span className={miniCardColor(cardId)}>
-                  {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+                  {cardId % 54 >= 52 ? "王" : SUITS[Math.floor((cardId % 54) / 13)]}
                 </span>
               </div>
             ))}

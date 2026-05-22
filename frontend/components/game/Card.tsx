@@ -41,9 +41,10 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
     );
   }
 
-  const isJoker = cardId >= 52;
-  const suit = isJoker ? "" : SUITS[Math.floor(cardId / 13)];
-  const rank = isJoker ? "J" : RANKS[cardId % 13];
+  const face = cardId % 54;
+  const isJoker = face >= 52;
+  const suit = isJoker ? "" : SUITS[Math.floor(face / 13)];
+  const rank = isJoker ? "J" : RANKS[face % 13];
 
   return (
     <div

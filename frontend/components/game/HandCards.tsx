@@ -115,9 +115,12 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
   const suitChars = ["♠", "♥", "♣", "♦"];
   const rankChars = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
 
-  if (cardId >= 52) {
-    const label = cardId === 52 ? "小" : "大";
-    const color = cardId === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
+  // Use face (0-53) to identify the card, since dashengji uses 3-deck IDs 0-161
+  const face = cardId % 54;
+
+  if (face >= 52) {
+    const label = face === 52 ? "小" : "大";
+    const color = face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
       <>
         <span className={clsx(small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
@@ -126,7 +129,6 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
     );
   }
 
-  const face = cardId % 54;
   const suit = Math.floor(face / 13);
   const rank = face % 13;
   const isRed = suit === 1 || suit === 3;
@@ -134,10 +136,10 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
 
   return (
     <>
-      <span className={clsx(small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
+      <span className={clsx("absolute top-0.5 left-1", small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
         {rankChars[rank]}
       </span>
-      <span className={clsx(small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
+      <span className={clsx("absolute bottom-0.5 left-1", small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
         {suitChars[suit]}
       </span>
     </>
