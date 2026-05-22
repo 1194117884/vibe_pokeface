@@ -12,7 +12,7 @@ export interface CreateRoomParams {
 export interface RoomInfo {
   id: string;
   name: string;
-  gameType: string;
+  game_type: string;
   status: string;
   maxPlayers: number;
   playerCount: number;

@@ -12,7 +12,7 @@ interface RoomCardProps {
 
 function RoomCard({ room }: RoomCardProps) {
   return (
-    <Link href={`/room/${room.id}/${room.gameType || "doudizhu"}`}>
+    <Link href={`/room/${room.id}/${room.game_type || "doudizhu"}`}>
       <div className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow border border-ceramic/30 cursor-pointer">
         <div className="flex items-start justify-between mb-3">
           <div>
@@ -20,7 +20,7 @@ function RoomCard({ room }: RoomCardProps) {
               {room.name || `Room ${room.id.slice(0, 4)}`}
             </h3>
             <p className="text-sm text-text-black-soft">
-              {room.gameType === "doudizhu" ? "斗地主" : room.gameType}
+              {room.game_type === "doudizhu" ? "斗地主" : room.game_type}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
