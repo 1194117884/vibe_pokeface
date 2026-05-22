@@ -64,7 +64,11 @@ export function SeatPosition({
     return (
       <div
         className={clsx(
-          "relative flex flex-col items-center rounded-xl transition-all",
+          "relative flex rounded-xl transition-all",
+          position === "top"
+            ? "flex-row items-center gap-2 p-1.5"
+            : compact ? "flex-col items-center gap-1 p-2"
+            : "flex-col items-center gap-2 p-3",
           compact ? "gap-1 p-2" : "gap-2 p-3",
           "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
           player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
