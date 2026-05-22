@@ -66,7 +66,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
           className={clsx(
             "flex justify-center px-8 overflow-visible items-end relative",
             overlap,
-            ri === 0 && "z-10",
+            ri > 0 && "z-10",
             ri > 0 && isSmall && "-mt-10",
             ri > 0 && !isSmall && "-mt-24",
             isSmall ? "min-h-[70px] pb-0" : "min-h-[144px] pb-2",
