@@ -260,7 +260,7 @@ func (rm *RoomManager) FillEmptySeats(roomID string) int {
 	}
 
 	added := 0
-	for len(room.Players) < 3 {
+	for len(room.Players) < room.maxSeats() {
 		seat, err := room.nextAvailableSeat()
 		if err != nil {
 			break
@@ -311,14 +311,24 @@ func (r *GameRoom) nextBotNumberLocked() int {
 	return n
 }
 
-// nextAvailableSeat returns the first unoccupied seat number (0..2).
+// maxSeats returns the maximum number of seats for this room based on game type.
+func (r *GameRoom) maxSeats() int {
+	switch r.GameType {
+	case "dashengji":
+		return 4
+	default:
+		return 3
+	}
+}
+
+// nextAvailableSeat returns the first unoccupied seat number (0..maxSeats-1).
 // The caller must hold r.mu.
 func (r *GameRoom) nextAvailableSeat() (int, error) {
 	occupied := map[int]bool{}
 	for _, p := range r.Players {
 		occupied[p.Seat] = true
 	}
-	for seat := 0; seat < 3; seat++ {
+	for seat := 0; seat < r.maxSeats(); seat++ {
 		if !occupied[seat] {
 			return seat, nil
 		}
@@ -334,7 +344,7 @@ func (r *GameRoom) ChangeSeat(userID string, newSeat int) error {
 	if r.Status != "waiting" {
 		return fmt.Errorf("cannot change seat after game started")
 	}
-	if newSeat < 0 || newSeat >= 3 {
+	if newSeat < 0 || newSeat >= r.maxSeats() {
 		return fmt.Errorf("invalid seat number")
 	}
 
@@ -414,7 +424,7 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 		}
 	}
 
-	if len(r.Players) >= 3 {
+	if len(r.Players) >= r.maxSeats() {
 		return fmt.Errorf("room is full")
 	}
 
@@ -432,7 +442,7 @@ func (r *GameRoom) AddPlayer(userID string, nickname string, characterID string,
 
 	// Pick a random empty seat from 0..2
 	available := make([]int, 0)
-	for seat := 0; seat < 3; seat++ {
+	for seat := 0; seat < r.maxSeats(); seat++ {
 		if !occupied[seat] {
 			available = append(available, seat)
 		}
@@ -632,7 +642,7 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if len(r.Players) >= 3 {
+	if len(r.Players) >= r.maxSeats() {
 		return fmt.Errorf("room is full")
 	}
 
@@ -696,7 +706,7 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 		}
 		return fmt.Errorf("game already started")
 	}
-	if len(r.Players) >= 3 {
+	if len(r.Players) >= r.maxSeats() {
 		return fmt.Errorf("room is full")
 	}
 
@@ -789,8 +799,8 @@ func (r *GameRoom) StartGame(ownerID string) error {
 	if ownerID != r.OwnerID() {
 		return fmt.Errorf("only the room owner can start the game")
 	}
-	if len(r.Players) < 3 {
-		return fmt.Errorf("need 3 players to start")
+	if len(r.Players) < r.maxSeats() {
+		return fmt.Errorf("need %d players to start", r.maxSeats())
 	}
 	for _, p := range r.Players {
 		if !p.Ready {
