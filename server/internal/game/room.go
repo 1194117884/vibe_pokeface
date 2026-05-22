@@ -1248,9 +1248,10 @@ func (r *GameRoom) sendStateToAll(msgType string) {
 			continue
 		}
 		filtered := r.Engine.FilterForPlayer(r.State, p.Seat)
+		enriched := r.enrichState(filtered)
 		msg, err := json.Marshal(map[string]interface{}{
 			"type": msgType,
-			"data": filtered,
+			"data": enriched,
 		})
 		if err != nil {
 			continue
@@ -1260,6 +1261,42 @@ func (r *GameRoom) sendStateToAll(msgType string) {
 		default:
 		}
 	}
+}
+
+// enrichState adds player metadata (nickname, ready, is_bot, is_owner, character_id)
+// to the game state's players array, since GameState.Players only carries user_id/seat/hand.
+func (r *GameRoom) enrichState(state GameState) map[string]interface{} {
+	// Marshal to generic map
+	raw, _ := json.Marshal(state)
+	var m map[string]interface{}
+	json.Unmarshal(raw, &m)
+
+	// Build metadata lookup by seat
+	metaBySeat := map[int]*PlayerSession{}
+	for _, p := range r.Players {
+		metaBySeat[p.Seat] = p
+	}
+
+	// Enrich players array
+	players, ok := m["players"].([]interface{})
+	if ok {
+		for i, pi := range players {
+			pm, _ := pi.(map[string]interface{})
+			seat, _ := pm["seat"].(float64)
+			if meta, exists := metaBySeat[int(seat)]; exists {
+				pm["nickname"] = meta.Nickname
+				pm["ready"] = meta.Ready
+				pm["is_bot"] = meta.IsBot
+				pm["is_owner"] = meta.UserID == r.OwnerID()
+				if meta.CharacterID != "" {
+					pm["character_id"] = meta.CharacterID
+				}
+			}
+			players[i] = pm
+		}
+		m["players"] = players
+	}
+	return m
 }
 
 // broadcastMsg sends a JSON message with the given type and data to all players.
