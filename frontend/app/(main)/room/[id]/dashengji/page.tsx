@@ -180,7 +180,17 @@ export default function DashengjiRoomPage() {
       }
       if (data?.players) {
         const ds = data.dealer_seats || dealerSeatsRef.current;
-        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat, ds)));
+        setPlayers((prev) => {
+          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat, ds));
+          // Merge with previous to preserve known nicknames
+          return newPlayers.map((np) => {
+            const existing = prev.find((pp) => pp.seat === np.seat);
+            if (existing && existing.nickname && existing.nickname !== String(existing.seat)) {
+              return { ...np, nickname: existing.nickname, name: existing.nickname, characterId: existing.characterId || np.characterId };
+            }
+            return np;
+          });
+        });
       }
       if (mySeatRef.current !== null && data?.players) {
         const me = data.players.find(
@@ -195,7 +205,16 @@ export default function DashengjiRoomPage() {
       if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
       const ds = data.dealer_seats || dealerSeatsRef.current;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, data.current_seat, ds)));
+        setPlayers((prev) => {
+          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat, ds));
+          return newPlayers.map((np) => {
+            const existing = prev.find((pp) => pp.seat === np.seat);
+            if (existing && existing.nickname && existing.nickname !== String(existing.seat)) {
+              return { ...np, nickname: existing.nickname, name: existing.nickname, characterId: existing.characterId || np.characterId };
+            }
+            return np;
+          });
+        });
         if (mySeatRef.current !== null) {
           const me = data.players.find(
             (p) => (p.seat ?? 0) === mySeatRef.current,
@@ -314,7 +333,7 @@ export default function DashengjiRoomPage() {
         <DashengjiActionBar phase={phase} isMyTurn={isMyTurn} onAction={handleAction} />
       )}
 
-      {phase === "playing" && hand.length > 0 && (
+      {showPhaseActions && hand.length > 0 && (
         <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
           <HandCards
             cards={hand}
