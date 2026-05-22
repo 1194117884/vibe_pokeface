@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react";
 import clsx from "clsx";
-import { Card } from "./Card";
 
 interface HandCardsProps {
   cards: number[];
@@ -14,14 +13,26 @@ interface HandCardsProps {
 export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
-  // Dynamic sizing based on card count
-  const { cardSize, overlap } = useMemo(() => {
+  // Split into rows for large hands (>24 cards = 2 rows)
+  const rows = useMemo(() => {
     const n = cards.length;
-    if (compact || n > 30) return { cardSize: "wide" as const, overlap: "-space-x-6" };
-    if (n > 20) return { cardSize: "wide" as const, overlap: "-space-x-4" };
-    if (n > 12) return { cardSize: "small" as const, overlap: "-space-x-8" };
-    return { cardSize: "default" as const, overlap: "-space-x-12" };
-  }, [cards.length, compact]);
+    if (n > 24) {
+      const mid = Math.ceil(n / 2);
+      return [cards.slice(0, mid), cards.slice(mid)];
+    }
+    return [cards];
+  }, [cards]);
+
+  const cardSize = useMemo(() => {
+    const n = cards.length;
+    if (n > 24) return "small" as const;     // 2 rows, small cards
+    if (n > 12) return "small" as const;      // 1 row, small cards
+    return "default" as const;                 // ≤12, full size
+  }, [cards.length]);
+
+  const overlap = cardSize === "small" ? "-space-x-8" : "-space-x-12";
+  const isSmall = cardSize === "small";
+  const isMultiRow = rows.length > 1;
 
   const toggleCard = (cardId: number) => {
     if (disabled) return;
@@ -46,42 +57,40 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
     setSelected(new Set());
   };
 
-  const isWide = cardSize === "wide";
-  const isSmall = cardSize === "small";
-
   return (
-    <div className="space-y-3">
-      {/* Hand cards with dynamic overlap */}
-      <div className={clsx(
-        "flex justify-center px-8 overflow-visible items-end pb-1",
-        overlap,
-        isWide ? "min-h-[80px]" : isSmall ? "min-h-[100px]" : "min-h-[144px]"
-      )}>
-        {cards.map((cardId) => (
-          <div
-            key={cardId}
-            onClick={() => toggleCard(cardId)}
-            className={clsx(
-              "relative rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
-              isWide
-                ? "w-9 h-14 text-[10px] leading-none"
-                : isSmall
-                ? "w-12 h-16 text-xs"
-                : "w-24 h-36 text-card-number",
-              isWide && "p-0.5",
-              isSmall && "p-0.5",
-              selected.has(cardId)
-                ? "ring-2 ring-blue-400 -translate-y-1.5"
-                : !isWide && !disabled && "hover:-translate-y-2.5 cursor-pointer",
-            )}
-          >
-            <MiniCardFace cardId={cardId} wide={isWide} small={isSmall} />
-          </div>
-        ))}
-      </div>
+    <div className="space-y-2">
+      {/* Hand cards — single or multi-row */}
+      {rows.map((row, ri) => (
+        <div
+          key={ri}
+          className={clsx(
+            "flex justify-center px-8 overflow-visible items-end",
+            overlap,
+            isSmall ? "min-h-[70px] pb-0" : "min-h-[144px] pb-2",
+          )}
+        >
+          {row.map((cardId) => (
+            <div
+              key={cardId}
+              onClick={() => toggleCard(cardId)}
+              className={clsx(
+                "relative rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
+                isSmall
+                  ? "w-12 h-16 p-0.5 text-[11px] leading-none"
+                  : "w-24 h-36 text-card-number",
+                selected.has(cardId)
+                  ? "ring-2 ring-blue-400 -translate-y-1.5 z-10"
+                  : !isSmall && !disabled && "hover:-translate-y-2.5 cursor-pointer",
+              )}
+            >
+              <MiniCardFace cardId={cardId} small={isSmall} />
+            </div>
+          ))}
+        </div>
+      ))}
 
       {onPlayCards && (
-        <div className="flex justify-center gap-6">
+        <div className={clsx("flex justify-center gap-6", isMultiRow && "pt-1")}>
           <button
             onClick={handlePlay}
             disabled={disabled || selected.size === 0}
@@ -102,29 +111,17 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
   );
 }
 
-function MiniCardFace({ cardId, wide, small }: { cardId: number; wide: boolean; small: boolean }) {
+function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
   const suitChars = ["♠", "♥", "♣", "♦"];
   const rankChars = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
-
-  if (cardId < 0) {
-    // Face-down card (not used here but kept for compatibility)
-    return (
-      <div
-        className="w-full h-full rounded"
-        style={{
-          backgroundImage: "repeating-linear-gradient(45deg, #1d2021, #1d2021 2px, #323536 2px, #323536 4px)",
-        }}
-      />
-    );
-  }
 
   if (cardId >= 52) {
     const label = cardId === 52 ? "小" : "大";
     const color = cardId === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
       <>
-        <span className={clsx(wide ? "text-[9px]" : small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
-        <span className={clsx(wide ? "text-[7px]" : small ? "text-[8px]" : "text-[10px]", color)}>王</span>
+        <span className={clsx(small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
+        <span className={clsx(small ? "text-[8px]" : "text-[10px]", color)}>王</span>
       </>
     );
   }
@@ -137,10 +134,10 @@ function MiniCardFace({ cardId, wide, small }: { cardId: number; wide: boolean; 
 
   return (
     <>
-      <span className={clsx(wide ? "text-[9px]" : small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
+      <span className={clsx(small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
         {rankChars[rank]}
       </span>
-      <span className={clsx(wide ? "text-[7px]" : small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
+      <span className={clsx(small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
         {suitChars[suit]}
       </span>
     </>
