@@ -111,45 +111,38 @@ export function RoomTable({
     <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 relative w-full">
       {/* Opponents + Timer Row (middle) */}
       {isGamePhase ? (
-        <div className="w-full flex justify-between items-center px-4">
-          {/* Left opponent */}
-          {renderSeat(leftSeat, "left")}
-
-          {/* Partner at top center (4-player only) */}
-          {partnerSeat >= 0 ? renderSeat(partnerSeat, "top") : (
-            /* Center: Timer or last play */
-            <div className="flex flex-col items-center gap-2">
-              {lastPlay && phase === "playing" ? (
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-on-surface-variant text-xs font-medium opacity-60">
-                    {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
-                  </span>
-                  <div className="flex gap-1">
-                    {lastPlay.cards.map((cardId, i) => (
-                      <Card key={i} cardId={cardId} medium />
-                    ))}
+        <>
+          <div className="w-full flex justify-between items-center px-4">
+            {renderSeat(leftSeat, "left")}
+            {partnerSeat >= 0
+              ? renderSeat(partnerSeat, "top")
+              : (lastPlay && phase === "playing" && (
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-on-surface-variant text-xs font-medium opacity-60">
+                      {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+                    </span>
+                    <div className="flex gap-1">
+                      {lastPlay.cards.map((cardId, i) => (
+                        <Card key={i} cardId={cardId} medium />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ))}
+            {renderSeat(rightSeat, "right")}
+          </div>
+          {partnerSeat >= 0 && lastPlay && phase === "playing" && (
+            <div className="flex flex-col items-center gap-1 mt-2">
+              <span className="text-on-surface-variant text-xs font-medium opacity-60">
+                {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
+              </span>
+              <div className="flex gap-1">
+                {lastPlay.cards.map((cardId, i) => (
+                  <Card key={i} cardId={cardId} medium />
+                ))}
+              </div>
             </div>
           )}
-
-          {/* Right opponent */}
-          {renderSeat(rightSeat, "right")}
-        </div>
-        {/* Last play below row (4-player) */}
-        {partnerSeat >= 0 && lastPlay && phase === "playing" && (
-          <div className="flex flex-col items-center gap-1 mt-2">
-            <span className="text-on-surface-variant text-xs font-medium opacity-60">
-              {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
-            </span>
-            <div className="flex gap-1">
-              {lastPlay.cards.map((cardId, i) => (
-                <Card key={i} cardId={cardId} medium />
-              ))}
-            </div>
-          </div>
-        )}
+        </>
       ) : (
         /* Waiting phase: show all seats in a row */
         <div className="w-full flex justify-center gap-6 items-center">
