@@ -17,8 +17,8 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
   // Dynamic sizing based on card count
   const { cardSize, overlap } = useMemo(() => {
     const n = cards.length;
-    if (compact || n > 30) return { cardSize: "tiny" as const, overlap: "-space-x-5" };
-    if (n > 20) return { cardSize: "tiny" as const, overlap: "-space-x-3" };
+    if (compact || n > 30) return { cardSize: "wide" as const, overlap: "-space-x-6" };
+    if (n > 20) return { cardSize: "wide" as const, overlap: "-space-x-4" };
     if (n > 12) return { cardSize: "small" as const, overlap: "-space-x-8" };
     return { cardSize: "default" as const, overlap: "-space-x-12" };
   }, [cards.length, compact]);
@@ -46,7 +46,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
     setSelected(new Set());
   };
 
-  const isTiny = cardSize === "tiny";
+  const isWide = cardSize === "wide";
   const isSmall = cardSize === "small";
 
   return (
@@ -55,7 +55,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
       <div className={clsx(
         "flex justify-center px-8 overflow-visible items-end pb-1",
         overlap,
-        isTiny ? "min-h-[70px]" : isSmall ? "min-h-[100px]" : "min-h-[144px]"
+        isWide ? "min-h-[80px]" : isSmall ? "min-h-[100px]" : "min-h-[144px]"
       )}>
         {cards.map((cardId) => (
           <div
@@ -63,19 +63,19 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
             onClick={() => toggleCard(cardId)}
             className={clsx(
               "relative rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
-              isTiny
-                ? "w-7 h-10 text-[8px] leading-none"
+              isWide
+                ? "w-9 h-14 text-[10px] leading-none"
                 : isSmall
                 ? "w-12 h-16 text-xs"
                 : "w-24 h-36 text-card-number",
-              isTiny && "p-[1px]",
+              isWide && "p-0.5",
               isSmall && "p-0.5",
               selected.has(cardId)
                 ? "ring-2 ring-blue-400 -translate-y-1.5"
-                : !isTiny && !disabled && "hover:-translate-y-2.5 cursor-pointer",
+                : !isWide && !disabled && "hover:-translate-y-2.5 cursor-pointer",
             )}
           >
-            <MiniCardFace cardId={cardId} tiny={isTiny} small={isSmall} />
+            <MiniCardFace cardId={cardId} wide={isWide} small={isSmall} />
           </div>
         ))}
       </div>
@@ -102,7 +102,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
   );
 }
 
-function MiniCardFace({ cardId, tiny, small }: { cardId: number; tiny: boolean; small: boolean }) {
+function MiniCardFace({ cardId, wide, small }: { cardId: number; wide: boolean; small: boolean }) {
   const suitChars = ["♠", "♥", "♣", "♦"];
   const rankChars = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
 
@@ -123,8 +123,8 @@ function MiniCardFace({ cardId, tiny, small }: { cardId: number; tiny: boolean; 
     const color = cardId === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
       <>
-        <span className={clsx(tiny ? "text-[7px]" : small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
-        <span className={clsx(tiny ? "text-[5px]" : small ? "text-[8px]" : "text-[10px]", color)}>王</span>
+        <span className={clsx(wide ? "text-[9px]" : small ? "text-[11px]" : "text-xs", color, "font-bold")}>{label}</span>
+        <span className={clsx(wide ? "text-[7px]" : small ? "text-[8px]" : "text-[10px]", color)}>王</span>
       </>
     );
   }
@@ -137,10 +137,10 @@ function MiniCardFace({ cardId, tiny, small }: { cardId: number; tiny: boolean; 
 
   return (
     <>
-      <span className={clsx(tiny ? "text-[7px]" : small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
+      <span className={clsx(wide ? "text-[9px]" : small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
         {rankChars[rank]}
       </span>
-      <span className={clsx(tiny ? "text-[5px]" : small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
+      <span className={clsx(wide ? "text-[7px]" : small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
         {suitChars[suit]}
       </span>
     </>
