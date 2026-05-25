@@ -34,9 +34,9 @@ func (p GamePhase) String() string {
 var phaseActions = map[GamePhase][]string{
 	PhaseSetTrump:      {"set_trump", "pass_trump"},
 	PhaseCounterTrump:  {"counter_trump", "pass_counter"},
-	PhaseTakeBottom:    {"take_bottom"},
+	PhaseTakeBottom:    {"take_bottom", "pass_take_bottom"},
 	PhaseDiscardBottom: {"discard_bottom"},
-	PhasePlaying:       {"play", "pass"},
+	PhasePlaying:       {"play"},
 }
 
 // AllowedActions returns the list of valid action strings for a phase.
@@ -102,6 +102,8 @@ type GameState struct {
 	PlayHistory       []PlayRecord `json:"play_history"`
 	ConsecutivePasses int          `json:"consecutive_passes"`
 	WinnerSeat        *int         `json:"winner_seat,omitempty"`
+	RoundPlays        []PlayRecord `json:"round_plays"` // plays in current round (0-4)
+	RoundLeader       int          `json:"round_leader"` // seat that started the current round
 
 	// Pass tracking
 	HasPassedTrump   map[int]bool `json:"has_passed_trump"`

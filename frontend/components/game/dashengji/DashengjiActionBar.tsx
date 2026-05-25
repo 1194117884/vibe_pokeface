@@ -3,17 +3,23 @@
 interface DashengjiActionBarProps {
   phase: string;
   isMyTurn: boolean;
+  isDealerTeam: boolean;
+  selectedCards?: number[];
+  mySeat?: number | null;
+  takeBottomSeat?: number;
   onAction: (action: string, cards?: number[]) => void;
 }
 
-export function DashengjiActionBar({ phase, isMyTurn, onAction }: DashengjiActionBarProps) {
+export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCards, mySeat, takeBottomSeat, onAction }: DashengjiActionBarProps) {
   const disabled = !isMyTurn;
 
   switch (phase) {
     case "set_trump":
+      // Only dealer team can set trump
+      if (!isDealerTeam) return null;
       return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-4 z-30">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("set_trump")}>
+        <div className="flex justify-center gap-4 pt-2">
+          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("set_trump", selectedCards)}>
             定主
           </button>
           <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_trump")}>
@@ -22,9 +28,11 @@ export function DashengjiActionBar({ phase, isMyTurn, onAction }: DashengjiActio
         </div>
       );
     case "counter_trump":
+      // Only non-dealer team (闲家) can counter trump
+      if (isDealerTeam) return null;
       return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-4 z-30">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("counter_trump")}>
+        <div className="flex justify-center gap-4 pt-2">
+          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("counter_trump", selectedCards)}>
             反主
           </button>
           <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_counter")}>
@@ -33,32 +41,31 @@ export function DashengjiActionBar({ phase, isMyTurn, onAction }: DashengjiActio
         </div>
       );
     case "take_bottom":
+      // Only dealer team can take bottom cards
+      if (!isDealerTeam) return null;
       return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-4 z-30">
+        <div className="flex justify-center gap-4 pt-2">
           <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("take_bottom")}>
             起底
+          </button>
+          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_take_bottom")}>
+            队友起底
           </button>
         </div>
       );
     case "discard_bottom":
+      // Only the player who took bottom cards can discard
+      if (mySeat == null || mySeat !== takeBottomSeat) return null;
       return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-4 z-30">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("discard_bottom")}>
+        <div className="flex justify-center gap-4 pt-2">
+          <button className="gold-button px-8 py-3 text-lg" disabled={disabled || !selectedCards?.length} onClick={() => onAction("discard_bottom", selectedCards)}>
             扣底
           </button>
         </div>
       );
     case "playing":
-      return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-4 z-30">
-          <button className="emerald-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("play")}>
-            出牌
-          </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass")}>
-            不出
-          </button>
-        </div>
-      );
+      // HandCards component renders 出牌/不出 during playing phase
+      return null;
     default:
       return null;
   }

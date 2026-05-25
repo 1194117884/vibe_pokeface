@@ -896,8 +896,10 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		Cards:    cards,
 	}
 
+	log.Printf("[DEBUG] HandleAction: user=%s seat=%d playerID=%d action=%s cards=%v", userID, player.Seat, player.PlayerID, action, cards)
 	newState, err := r.Engine.ExecuteAction(r.State, gameAction)
 	if err != nil {
+		log.Printf("[DEBUG] HandleAction ERROR: user=%s err=%v", userID, err)
 		if player.IsBot {
 			// Report error to AI agent so it can retry with context
 			if agent, ok := r.agents[userID]; ok {
@@ -1045,6 +1047,7 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 
 	} else {
 		r.sendStateToAll("state_update")
+		log.Printf("[DEBUG] HandleAction SUCCESS: state_update sent to all")
 
 		// Trigger AI agent if next player is a bot
 		r.triggerAIAgent()

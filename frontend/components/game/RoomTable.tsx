@@ -28,6 +28,10 @@ interface RoomTableProps {
   landlordCards?: number[];
   landlordSeat?: number;
   lastPlay?: { seat: number; cards: number[] } | null;
+  trickPlays?: Record<number, number[]>;
+  bottomCards?: number[];
+  bottomSeat?: number;
+  discardedCards?: number[];
   cardsLeftMessage?: string | null;
   maxPlayers?: number;
   tableSize?: "sm" | "lg";
@@ -43,6 +47,10 @@ export function RoomTable({
   landlordCards = [],
   landlordSeat = undefined,
   lastPlay = null,
+  trickPlays = {},
+  bottomCards = [],
+  bottomSeat = undefined,
+  discardedCards = [],
   cardsLeftMessage = null,
   maxPlayers = 3,
   speechBubbles = {},
@@ -57,12 +65,16 @@ export function RoomTable({
     if (!cardsLeftMessage) return null;
     const match = cardsLeftMessage.match(/^seat_(\d+)_(baodan|baoshuang)$/);
     if (!match) return null;
-    return { seat: parseInt(match[1]), type: match[2] as "baodan" | "baoshuang" };
+    return {
+      seat: parseInt(match[1]),
+      type: match[2] as "baodan" | "baoshuang",
+    };
   })();
 
   // During game phases: seat positions depend on player count
   const leftSeat = (mySeat + 1) % maxPlayers;
-  const rightSeat = maxPlayers === 4 ? (mySeat + 3) % maxPlayers : (mySeat + 2) % maxPlayers;
+  const rightSeat =
+    maxPlayers === 4 ? (mySeat + 3) % maxPlayers : (mySeat + 2) % maxPlayers;
   const partnerSeat = maxPlayers === 4 ? (mySeat + 2) % maxPlayers : -1;
 
   function renderSeat(seatNum: number, position?: "left" | "right" | "top") {
@@ -76,26 +88,31 @@ export function RoomTable({
         player={
           player
             ? {
-              userId: player.userId,
-              name: player.name,
-              nickname: player.nickname,
-              characterId: player.characterId,
-              isBot: player.isBot,
-              isOwner: player.isOwner,
-              isReady: player.isReady,
-              isCurrentTurn: player.isCurrentTurn,
-              isLandlord: player.isLandlord,
-              isDealerTeam: player.isDealerTeam,
-              cardCount: player.cardCount,
-              hand: player.hand,
-            }
+                userId: player.userId,
+                name: player.name,
+                nickname: player.nickname,
+                characterId: player.characterId,
+                isBot: player.isBot,
+                isOwner: player.isOwner,
+                isReady: player.isReady,
+                isCurrentTurn: player.isCurrentTurn,
+                isLandlord: player.isLandlord,
+                isDealerTeam: player.isDealerTeam,
+                cardCount: player.cardCount,
+                hand: player.hand,
+              }
             : null
         }
         isMySeat={isMine}
         position={position}
+        phase={phase}
         cardsLeft={cardsLeftInfo?.seat === seatNum ? cardsLeftInfo.type : null}
         action={speechBubbles[seatNum] ?? null}
-        landlordCards={isLandlord && landlordSeat === seatNum ? landlordCards : undefined}
+        landlordCards={
+          isLandlord && landlordSeat === seatNum ? landlordCards : undefined
+        }
+        bottomCards={bottomSeat === seatNum ? bottomCards : undefined}
+        discardedCards={bottomSeat === seatNum ? discardedCards : undefined}
         compact={compact}
         onChangeSeat={() => {
           if (!player && seatNum !== mySeat) {
@@ -108,28 +125,60 @@ export function RoomTable({
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 relative w-full">
+    <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 pb-44 relative w-full">
       {/* Opponents + Timer Row (middle) */}
       {isGamePhase ? (
         <div className="w-full flex flex-col items-center gap-2">
           {partnerSeat >= 0 && renderSeat(partnerSeat, "top")}
-          <div className="w-full flex justify-between items-center px-4">
-            {renderSeat(leftSeat, "left")}
-            <div className="flex flex-col items-center gap-2">
-              {lastPlay && phase === "playing" && partnerSeat < 0 && (
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-on-surface-variant text-xs font-medium opacity-60">
-                    {players.find((p) => p.seat === lastPlay.seat)?.nickname || `Player ${lastPlay.seat}`}
-                  </span>
-                  <div className="flex gap-1">
-                    {lastPlay.cards.map((cardId, i) => (
-                      <Card key={i} cardId={cardId} medium />
-                    ))}
-                  </div>
+          <div className="w-full grid grid-cols-3 justify-items-center items-center gap-y-1.5 px-4">
+            {/* Row 1: top trick cards */}
+            <div />
+            <div>
+              {trickPlays[partnerSeat] && (
+                <div className="flex -space-x-5">
+                  {trickPlays[partnerSeat].map((cardId, i) => (
+                    <Card key={i} cardId={cardId} small />
+                  ))}
                 </div>
               )}
             </div>
-            {renderSeat(rightSeat, "right")}
+            <div />
+
+            {/* Row 2: left seat+trick, center, right seat+trick */}
+            <div className="flex items-center gap-1 justify-self-start">
+              {renderSeat(leftSeat, "left")}
+              {trickPlays[leftSeat] && (
+                <div className="flex -space-x-5">
+                  {trickPlays[leftSeat].map((cardId, i) => (
+                    <Card key={i} cardId={cardId} small />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col items-center gap-2"></div>
+            <div className="flex items-center gap-1 justify-self-end">
+              {trickPlays[rightSeat] && (
+                <div className="flex -space-x-5">
+                  {trickPlays[rightSeat].map((cardId, i) => (
+                    <Card key={i} cardId={cardId} small />
+                  ))}
+                </div>
+              )}
+              {renderSeat(rightSeat, "right")}
+            </div>
+
+            {/* Row 3: bottom (my) trick cards */}
+            <div />
+            <div>
+              {trickPlays[mySeat] && (
+                <div className="flex -space-x-5">
+                  {trickPlays[mySeat].map((cardId, i) => (
+                    <Card key={i} cardId={cardId} small />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div />
           </div>
         </div>
       ) : (
@@ -144,7 +193,9 @@ export function RoomTable({
       {/* Center status during waiting phase */}
       {!isGamePhase && (
         <div className="text-center mb-4">
-          <span className="text-4xl select-none drop-shadow-lg opacity-50">🃏</span>
+          <span className="text-4xl select-none drop-shadow-lg opacity-50">
+            🃏
+          </span>
           <p className="text-white/40 text-sm font-medium mt-1">
             {phase === "ended" ? "已结束" : "等待中"}
           </p>

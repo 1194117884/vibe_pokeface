@@ -6,6 +6,14 @@ import { getCharacterStyle } from "@/themes";
 const SUITS = ["♠", "♥", "♣", "♦"] as const;
 const RANKS = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"] as const;
 
+const phaseLabels: Record<string, string> = {
+  set_trump: "定主中",
+  counter_trump: "反主中",
+  take_bottom: "起底中",
+  discard_bottom: "扣底中",
+  playing: "出牌中",
+};
+
 function miniCardFace(cardId: number): number { return cardId % 54; }
 function miniCardColor(cardId: number): string {
   const face = cardId % 54;
@@ -41,7 +49,10 @@ interface SeatPositionProps {
   cardsLeft?: "baodan" | "baoshuang" | null;
   action?: string | null;
   landlordCards?: number[];
+  bottomCards?: number[];
+  discardedCards?: number[];
   compact?: boolean;
+  phase?: string;
 }
 
 export function SeatPosition({
@@ -52,9 +63,15 @@ export function SeatPosition({
   cardsLeft,
   action,
   landlordCards,
+  bottomCards,
+  discardedCards,
   compact = false,
   position,
+  phase,
 }: SeatPositionProps) {
+  const showTurnBadge = player?.isCurrentTurn;
+  const turnLabel = (phase && phaseLabels[phase]) || "出牌中";
+
   // Stitch opponent mode: compact display for left/right opponents during game phases
   if (position && player) {
     const charStyle = !player.isBot
@@ -122,10 +139,10 @@ export function SeatPosition({
           </div>
         )}
 
-        {/* Current turn badge */}
-        {player.isCurrentTurn && (
+        {/* Phase turn badge */}
+        {showTurnBadge && (
           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)] z-10">
-            ⚡ 出牌中
+            ⚡ {turnLabel}
           </div>
         )}
 
@@ -161,7 +178,7 @@ export function SeatPosition({
         )}
 
         {/* Avatar */}
-        <div className="relative -mt-3">
+        {/* <div className="relative -mt-3">
           <div
             className={clsx(
               "rounded-full border-2 border-surface-container-highest overflow-hidden",
@@ -190,7 +207,7 @@ export function SeatPosition({
               {player.cardCount}
             </div>
           )}
-        </div>
+        </div> */}
 
         {/* Name */}
         <p className={clsx("font-player-name text-on-surface text-center truncate", compact ? "text-[10px] max-w-[70px]" : "text-xs max-w-[90px]")}>
@@ -204,6 +221,46 @@ export function SeatPosition({
               <div
                 key={i}
                 className="w-3 h-5 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+              >
+                <span className={miniCardColor(cardId)}>
+                  {cardId % 54 >= 52 ? (cardId % 54 === 52 ? "小" : "大") : RANKS[cardId % 54 % 13]}
+                </span>
+                <span className={miniCardColor(cardId)}>
+                  {cardId % 54 >= 52 ? "王" : SUITS[Math.floor((cardId % 54) / 13)]}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dashengji bottom cards (底牌) */}
+        {bottomCards && bottomCards.length > 0 && (
+          <div className="flex gap-0.5 mt-1">
+            <span className="text-[8px] text-amber-300/60 mr-0.5">底</span>
+            {bottomCards.map((cardId, i) => (
+              <div
+                key={i}
+                className="w-3 h-5 bg-amber-100 rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+              >
+                <span className={miniCardColor(cardId)}>
+                  {cardId % 54 >= 52 ? (cardId % 54 === 52 ? "小" : "大") : RANKS[cardId % 54 % 13]}
+                </span>
+                <span className={miniCardColor(cardId)}>
+                  {cardId % 54 >= 52 ? "王" : SUITS[Math.floor((cardId % 54) / 13)]}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dashengji discarded cards (扣底) */}
+        {discardedCards && discardedCards.length > 0 && (
+          <div className="flex gap-0.5 mt-0.5">
+            <span className="text-[8px] text-red-300/60 mr-0.5">扣</span>
+            {discardedCards.map((cardId, i) => (
+              <div
+                key={i}
+                className="w-3 h-5 bg-red-100 rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
               >
                 <span className={miniCardColor(cardId)}>
                   {cardId % 54 >= 52 ? (cardId % 54 === 52 ? "小" : "大") : RANKS[cardId % 54 % 13]}
@@ -305,10 +362,10 @@ export function SeatPosition({
         </div>
       )}
 
-      {/* Current turn badge */}
-      {player.isCurrentTurn && (
+      {/* Phase turn badge */}
+      {showTurnBadge && (
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)]">
-          ⚡ 出牌中
+          ⚡ {turnLabel}
         </div>
       )}
 
@@ -390,6 +447,46 @@ export function SeatPosition({
             <div
               key={i}
               className="w-7 h-10 bg-white rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+            >
+              <span className={miniCardColor(cardId)}>
+                {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+              </span>
+              <span className={miniCardColor(cardId)}>
+                {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Dashengji bottom cards (底牌) */}
+      {bottomCards && bottomCards.length > 0 && (
+        <div className="flex gap-0.5 mt-1">
+          <span className="text-[10px] text-amber-300/60 mr-0.5">底</span>
+          {bottomCards.map((cardId, i) => (
+            <div
+              key={i}
+              className="w-7 h-10 bg-amber-100 rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
+            >
+              <span className={miniCardColor(cardId)}>
+                {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}
+              </span>
+              <span className={miniCardColor(cardId)}>
+                {cardId >= 52 ? "王" : SUITS[Math.floor(cardId / 13)]}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Dashengji discarded cards (扣底) */}
+      {discardedCards && discardedCards.length > 0 && (
+        <div className="flex gap-0.5 mt-0.5">
+          <span className="text-[10px] text-red-300/60 mr-0.5">扣</span>
+          {discardedCards.map((cardId, i) => (
+            <div
+              key={i}
+              className="w-7 h-10 bg-red-100 rounded-md flex flex-col items-center justify-center text-[8px] leading-none shadow"
             >
               <span className={miniCardColor(cardId)}>
                 {cardId >= 52 ? (cardId === 52 ? "小" : "大") : RANKS[cardId % 13]}

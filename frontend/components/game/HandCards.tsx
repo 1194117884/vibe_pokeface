@@ -6,22 +6,29 @@ import clsx from "clsx";
 interface HandCardsProps {
   cards: number[];
   onPlayCards?: (cardIds: number[]) => void;
+  onSelectionChange?: (cardIds: number[]) => void;
   disabled?: boolean;
   compact?: boolean;
+  mainCount?: number;
+  hidePass?: boolean;
 }
 
-export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsProps) {
+export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, compact, mainCount, hidePass }: HandCardsProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
-  // Split into rows for large hands (>24 cards = 2 rows)
+  // Split into rows: when mainCount is set, split at the main/secondary boundary.
+  // Otherwise, for large hands (>24 cards), split at midpoint.
   const rows = useMemo(() => {
+    if (mainCount != null && mainCount > 0 && mainCount < cards.length) {
+      return [cards.slice(0, mainCount), cards.slice(mainCount)];
+    }
     const n = cards.length;
     if (n > 24) {
       const mid = Math.ceil(n / 2);
       return [cards.slice(0, mid), cards.slice(mid)];
     }
     return [cards];
-  }, [cards]);
+  }, [cards, mainCount]);
 
   const cardSize = useMemo(() => {
     const n = cards.length;
@@ -30,7 +37,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
     return "default" as const;                 // ≤12, full size
   }, [cards.length]);
 
-  const overlap = cardSize === "small" ? "-space-x-8" : "-space-x-12";
+  const overlap = cardSize === "small" ? "-space-x-12" : "-space-x-12";
   const isSmall = cardSize === "small";
   const isMultiRow = rows.length > 1;
 
@@ -43,18 +50,29 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
       next.add(cardId);
     }
     setSelected(next);
+    onSelectionChange?.(Array.from(next));
   };
 
   const handlePlay = () => {
     if (disabled || selected.size === 0) return;
-    onPlayCards?.(Array.from(selected));
+    const cardsArray = Array.from(selected);
+    console.log("[HANDPLAY] Sending cards:", cardsArray.map(id => ({
+      id,
+      face: id % 54,
+      suit: Math.floor((id % 54) / 13),
+      suitChar: ["♠", "♥", "♣", "♦"][Math.floor((id % 54) / 13)],
+      rank: ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"][(id % 54) % 13],
+    })));
+    onPlayCards?.(cardsArray);
     setSelected(new Set());
+    onSelectionChange?.([]);
   };
 
   const handlePass = () => {
     if (disabled) return;
     onPlayCards?.([]);
     setSelected(new Set());
+    onSelectionChange?.([]);
   };
 
   return (
@@ -67,9 +85,9 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
             "flex justify-center px-8 overflow-visible items-end relative",
             overlap,
             ri > 0 && "z-10",
-            ri > 0 && isSmall && "-mt-10",
+            ri > 0 && isSmall && "-mt-16",
             ri > 0 && !isSmall && "-mt-24",
-            isSmall ? "min-h-[70px] pb-0" : "min-h-[144px] pb-2",
+            isSmall ? "min-h-[100px] pb-0" : "min-h-[144px] pb-2",
           )}
           style={ri > 0 ? { paddingLeft: "1.5rem" } : undefined}
         >
@@ -80,7 +98,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
               className={clsx(
                 "relative rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
                 isSmall
-                  ? "w-12 h-16 p-0.5 text-[11px] leading-none"
+                  ? "w-20 h-22 p-0.5 text-base leading-none"
                   : "w-24 h-36 text-card-number",
                 selected.has(cardId)
                   ? "ring-2 ring-blue-400 -translate-y-1"
@@ -94,7 +112,7 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
         </div>
       ))}
 
-      {onPlayCards && (
+      {onPlayCards && !disabled && (
         <div className={clsx("flex justify-center gap-6", isMultiRow && "pt-1")}>
           <button
             onClick={handlePlay}
@@ -103,13 +121,15 @@ export function HandCards({ cards, onPlayCards, disabled, compact }: HandCardsPr
           >
             出牌
           </button>
-          <button
-            onClick={handlePass}
-            disabled={disabled}
-            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
-          >
-            不出
-          </button>
+          {!hidePass && (
+            <button
+              onClick={handlePass}
+              disabled={disabled}
+              className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            >
+              不出
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -128,8 +148,8 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
     const color = face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
       <div className="absolute top-0.5 left-1 flex flex-col items-center">
-        <span className={clsx(small ? "text-[11px]" : "text-xs", color, "font-bold leading-none")}>{label}</span>
-        <span className={clsx(small ? "text-[7px]" : "text-[10px]", color, "leading-none")}>王</span>
+        <span className={clsx(small ? "text-base" : "text-xs", color, "font-bold leading-none")}>{label}</span>
+        <span className={clsx(small ? "text-[11px]" : "text-[10px]", color, "leading-none")}>王</span>
       </div>
     );
   }
@@ -142,10 +162,10 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
   return (
     <>
       <div className={clsx("absolute top-0.5 left-1 flex flex-col items-center", small ? "gap-[-1px]" : "gap-0")}>
-        <span className={clsx(small ? "text-[11px]" : "text-sm", colorClass, "font-bold leading-none")}>
+        <span className={clsx(small ? "text-lg" : "text-sm", colorClass, "font-bold leading-none")}>
           {rankChars[rank]}
         </span>
-        <span className={clsx(small ? "text-[7px]" : "text-xs", colorClass, "leading-none")}>
+        <span className={clsx(small ? "text-xs" : "text-xs", colorClass, "leading-none")}>
           {suitChars[suit]}
         </span>
       </div>

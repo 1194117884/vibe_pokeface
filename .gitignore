@@ -20,3 +20,4 @@ run.sh
 logs/
 server.pid
 package-lock.json
+.understand-anything/

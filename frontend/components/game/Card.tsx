@@ -101,7 +101,7 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
           <span
             className={clsx(
               "leading-none self-start",
-              small ? "text-[11px]" : medium ? "text-[16px]" : "text-card-number",
+              small ? "text-[15px]" : medium ? "text-[18px]" : "text-card-number",
               suitColor(suit)
             )}
           >
@@ -110,7 +110,7 @@ export function Card({ cardId, selected, onClick, faceDown, small, medium }: Car
           <span
             className={clsx(
               "leading-none self-start",
-              small ? "text-[7px]" : medium ? "text-[12px]" : "text-[20px]",
+              small ? "text-[15px]" : medium ? "text-[18px]" : "text-[30px]",
               suitColor(suit)
             )}
           >

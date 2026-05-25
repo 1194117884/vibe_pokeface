@@ -2,7 +2,9 @@ package dashengji
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
+	"sort"
 
 	"github.com/yongkl/vibe-pokeface/internal/game"
 )
@@ -60,6 +62,7 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 		CurrentLevel:     3,
 		LevelRank:        3,
 		TrumpSuit:        -1,
+			TakeBottomSeat:   -1,
 		BottomCards:      bottom,
 		RoundNum:         1,
 		HasPassedTrump:   make(map[int]bool),
@@ -87,7 +90,9 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 	if seat == -1 {
 		return nil, fmt.Errorf("player %d not found", action.PlayerID)
 	}
-	if seat != gs.CurrentSeat {
+	log.Printf("[DEBUG] ExecuteAction: seat=%d currentSeat=%d phase=%s action=%s", seat, gs.CurrentSeat, gs.Phase.String(), action.Action)
+	if !isValidSeatForPhase(gs, seat) {
+		log.Printf("[DEBUG] ExecuteAction: seat mismatch! seat=%d != currentSeat=%d", seat, gs.CurrentSeat)
 		return nil, &game.GameError{Code: game.ErrNotYourTurn}
 	}
 
@@ -193,6 +198,22 @@ func (e *Engine) handleCounterTrump(gs *GameState, seat int, action game.PlayerA
 }
 
 func (e *Engine) handleTakeBottom(gs *GameState, seat int, action game.PlayerAction) (*GameState, error) {
+	// Delegate bottom-taking to teammate
+	if action.Action == "pass_take_bottom" {
+		other := -1
+		for _, s := range gs.DealerSeats {
+			if s != seat {
+				other = s
+				break
+			}
+		}
+		if other == -1 {
+			return nil, fmt.Errorf("no teammate to delegate to")
+		}
+		gs.CurrentSeat = other
+		return gs, nil
+	}
+
 	playerIdx := -1
 	for i, p := range gs.Players {
 		if p.Seat == seat {
@@ -251,6 +272,8 @@ func (e *Engine) handleDiscardBottom(gs *GameState, seat int, action game.Player
 
 	gs.Phase = PhasePlaying
 	gs.CurrentSeat = seat
+	gs.RoundPlays = nil
+	gs.RoundLeader = seat
 
 	return gs, nil
 }
@@ -267,32 +290,26 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 		return nil, fmt.Errorf("player at seat %d not found", seat)
 	}
 
-	if action.Action == "pass" {
-		if gs.LastPlay == nil || gs.LastPlay.Seat == seat {
-			return nil, &game.GameError{Code: game.ErrCannotPass}
-		}
-		e.advanceSeat(gs)
-		return gs, nil
-	}
-
 	cards := make([]Card, len(action.Cards))
 	for i, id := range action.Cards {
 		cards[i] = Card{ID: id}
 	}
 
-	play := ParsePlayWithContext(cards, gs.TrumpSuit, gs.LevelRank)
-	if play.Type == PlayInvalid {
-		return nil, &game.GameError{Code: game.ErrInvalidCards}
-	}
+	isLeading := len(gs.RoundPlays) == 0
+	log.Printf("[HANDLEPLAY] seat=%d isLeading=%t roundPlays=%d action=%s cardCount=%d",
+		seat, isLeading, len(gs.RoundPlays), action.Action, len(action.Cards))
 
-	if gs.LastPlay != nil && gs.LastPlay.Seat != seat {
-		if err := validateFollow(cards, gs.Players[playerIdx].Hand, gs.LastPlay.Play,
-			gs.LastPlay.Cards, gs.TrumpSuit, gs.LevelRank); err != nil {
-			return nil, err
+	if isLeading {
+		play := ParsePlayWithContext(cards, gs.TrumpSuit, gs.LevelRank)
+		if play.Type == PlayInvalid {
+			return nil, &game.GameError{Code: game.ErrInvalidCards}
 		}
-
-		if !CanBeat(play, gs.LastPlay.Play) {
-			return nil, &game.GameError{Code: game.ErrCannotBeat}
+		gs.RoundLeader = seat
+	} else {
+		_, err := validateFollow(cards, gs.Players[playerIdx].Hand, gs.RoundPlays[0].Play,
+			gs.RoundPlays[0].Cards, gs.TrumpSuit, gs.LevelRank)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -308,11 +325,12 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 	}
 	gs.Players[playerIdx].Hand = newHand
 
+	play := ParsePlayWithContext(cards, gs.TrumpSuit, gs.LevelRank)
 	record := PlayRecord{Seat: seat, Play: play, Cards: cards}
 	gs.LastPlay = &record
 	gs.PlayHistory = append(gs.PlayHistory, record)
+	gs.RoundPlays = append(gs.RoundPlays, record)
 
-	// Count points from this trick
 	gs.RoundPoints += CountRoundPoints(cards)
 
 	if len(newHand) == 0 {
@@ -321,12 +339,80 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 		return gs, nil
 	}
 
-	e.advanceSeat(gs)
+	if len(gs.RoundPlays) == 4 {
+		e.resolveRound(gs)
+	} else {
+		e.advanceSeat(gs)
+	}
 	return gs, nil
+}
+
+// resolveRound determines the winner of the current round and sets up the next round.
+func (e *Engine) resolveRound(gs *GameState) {
+	winner := gs.RoundPlays[0].Seat
+	bestPlay := gs.RoundPlays[0].Play
+	bestIsTrump := false
+	bestIsPadding := true
+
+	ledPlay := gs.RoundPlays[0]
+	ledSuit := ledPlay.Cards[0].Suit()
+	ledCat := ClassifyCard(ledPlay.Cards[0], gs.TrumpSuit, gs.LevelRank)
+
+	for _, r := range gs.RoundPlays {
+		playCat := ClassifyCard(r.Cards[0], gs.TrumpSuit, gs.LevelRank)
+		playSuit := r.Cards[0].Suit()
+
+		isFollowing := playSuit == ledSuit && playCat == ledCat
+		isTrump := !isFollowing && (playCat == CatTrump || playCat == CatNativeMain || playCat == CatJoker)
+		isPadding := !isFollowing && !isTrump
+
+		if isPadding {
+			continue
+		}
+
+		if bestIsPadding {
+			// First non-padding play wins by default
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = isTrump
+			bestIsPadding = false
+			continue
+		}
+
+		// Trump beats following
+		if isTrump && !bestIsTrump {
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = true
+			continue
+		}
+
+		// Following loses to existing trump
+		if !isTrump && bestIsTrump {
+			continue
+		}
+
+		// Same category: compare main rank
+		if r.Play.MainRank > bestPlay.MainRank {
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = isTrump
+		}
+	}
+
+	log.Printf("[RESOLVEROUND] winner=seat%d roundPlays=%d", winner, len(gs.RoundPlays))
+	gs.RoundPlays = nil
+	gs.RoundLeader = winner
+	gs.CurrentSeat = winner
 }
 
 func (e *Engine) advanceSeat(gs *GameState) {
 	gs.CurrentSeat = (gs.CurrentSeat + 1) % 4
+}
+
+// isValidSeatForPhase checks whether the given seat can act in the current phase.
+func isValidSeatForPhase(gs *GameState, seat int) bool {
+	return seat == gs.CurrentSeat
 }
 
 func (e *Engine) nextDealerSeat(gs *GameState, current int) int {
@@ -398,8 +484,9 @@ func (e *Engine) swapDealerAndReDeal(gs *GameState) (*GameState, error) {
 	gs.TrumpRevealed = false
 	gs.BottomCards = bottom
 	gs.BottomTaken = false
-	gs.HasPassedTrump = make(map[int]bool)
-	gs.HasPassedCounter = make(map[int]bool)
+		gs.TakeBottomSeat = -1
+		gs.HasPassedTrump = make(map[int]bool)
+		gs.HasPassedCounter = make(map[int]bool)
 	gs.RoundNum++
 
 	return gs, nil
@@ -418,7 +505,7 @@ func (e *Engine) ValidateAction(state game.GameState, action game.PlayerAction) 
 			break
 		}
 	}
-	if seat != gs.CurrentSeat {
+	if !isValidSeatForPhase(gs, seat) {
 		return &game.GameError{Code: game.ErrNotYourTurn}
 	}
 	allowed := phaseActions[gs.Phase]
@@ -464,57 +551,131 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 	return scores, nil
 }
 
-// hasSuit checks if the player has any cards matching the led suit in hand.
-func hasSuit(hand []Card, ledSuit int) bool {
+// canFollow checks whether the player can match the led play type with same suit+category.
+func canFollow(hand []Card, ledPlay Play, ledCards []Card, trumpSuit int, levelRank int) bool {
+	ledSuit := ledCards[0].Suit()
+	ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
+
+	matching := make([]Card, 0)
 	for _, c := range hand {
-		if c.IsSmallJoker() || c.IsBigJoker() {
-			continue
-		}
-		if c.Suit() == ledSuit {
-			return true
+		if c.Suit() == ledSuit && ClassifyCard(c, trumpSuit, levelRank) == ledCat {
+			matching = append(matching, c)
 		}
 	}
-	return false
+
+	var result bool
+	switch ledPlay.Type {
+	case PlaySingle:
+		result = len(matching) >= 1
+	case PlayPair:
+		faceCount := make(map[int]int)
+		for _, c := range matching {
+			faceCount[c.Face()]++
+		}
+		for _, n := range faceCount {
+			if n >= 2 {
+				result = true
+				break
+			}
+		}
+	case PlayTriple:
+		faceCount := make(map[int]int)
+		for _, c := range matching {
+			faceCount[c.Face()]++
+		}
+		for _, n := range faceCount {
+			if n >= 3 {
+				result = true
+				break
+			}
+		}
+	case PlayTractor:
+		faceCount := make(map[int]int)
+		for _, c := range matching {
+			faceCount[c.Face()]++
+		}
+		paired := make([]int, 0)
+		for face, n := range faceCount {
+			if n >= 2 {
+				paired = append(paired, face%13)
+			}
+		}
+		sort.Ints(paired)
+		if len(paired) >= ledPlay.Length {
+			run := 1
+			for i := 1; i < len(paired); i++ {
+				if paired[i]-paired[i-1] == 1 {
+					run++
+					if run >= ledPlay.Length {
+						result = true
+						break
+					}
+				} else {
+					run = 1
+				}
+			}
+		}
+	}
+
+	log.Printf("[CANFOLLOW] ledSuit=%d ledCat=%d trumpSuit=%d levelRank=%d matching=%d ledType=%d result=%t",
+		ledSuit, ledCat, trumpSuit, levelRank, len(matching), ledPlay.Type, result)
+	return result
 }
 
 // validateFollow checks that played cards follow the led suit+type+category rules.
+// Returns isPadding=true when the player cannot follow and is padding (垫牌),
+// meaning the CanBeat check should be skipped.
 func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
-	trumpSuit int, levelRank int) error {
+	trumpSuit int, levelRank int) (bool, error) {
 
-	if len(cards) == 0 {
-		return &game.GameError{Code: game.ErrInvalidCards}
+	if len(cards) != len(ledCards) {
+		return false, &game.GameError{Code: game.ErrInvalidCards}
 	}
 
+	canFollowResult := canFollow(hand, ledPlay, ledCards, trumpSuit, levelRank)
+	log.Printf("[VALIDATEFOLLOW] canFollow=%t ledType=%d cardCount=%d", canFollowResult, ledPlay.Type, len(cards))
+
+	if canFollowResult {
+		// Player CAN follow => MUST follow exactly (same type, suit, category)
+		play := ParsePlayWithContext(cards, trumpSuit, levelRank)
+		if play.Type == PlayInvalid || play.Type != ledPlay.Type {
+			log.Printf("[VALIDATEFOLLOW] FOLLOW-REJECT: playType=%d playInvalid=%t typeMismatch=%t",
+				play.Type, play.Type == PlayInvalid, play.Type != ledPlay.Type)
+			return false, &game.GameError{Code: game.ErrInvalidCards}
+		}
+		if ledPlay.Type == PlayTractor && play.Length != ledPlay.Length {
+			return false, &game.GameError{Code: game.ErrInvalidCards}
+		}
+
+		ledSuit := ledCards[0].Suit()
+		ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
+		if cards[0].Suit() != ledSuit || ClassifyCard(cards[0], trumpSuit, levelRank) != ledCat {
+			log.Printf("[VALIDATEFOLLOW] FOLLOW-REJECT: suitMismatch cardSuit=%d ledSuit=%d cardCat=%d ledCat=%d",
+				cards[0].Suit(), ledSuit, ClassifyCard(cards[0], trumpSuit, levelRank), ledCat)
+			return false, &game.GameError{Code: game.ErrInvalidCards}
+		}
+		log.Printf("[VALIDATEFOLLOW] FOLLOW-ACCEPT: valid follow, will check CanBeat")
+		return false, nil // valid follow, must also beat
+	}
+
+	// Player CANNOT follow => 垫牌 (pad) or 枪毙 (trump)
+	// 枪毙: trump cards forming the same play type, must beat
 	play := ParsePlayWithContext(cards, trumpSuit, levelRank)
-	if play.Type == PlayInvalid {
-		return &game.GameError{Code: game.ErrInvalidCards}
-	}
-
-	if play.Type != ledPlay.Type {
-		return &game.GameError{Code: game.ErrInvalidCards}
-	}
-	if ledPlay.Type == PlayTractor && play.Length != ledPlay.Length {
-		return &game.GameError{Code: game.ErrInvalidCards}
-	}
-
-	ledSuit := ledCards[0].Suit()
-	ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
-	playCat := ClassifyCard(cards[0], trumpSuit, levelRank)
-	playSuit := cards[0].Suit()
-
-	// Same suit and same category = valid follow
-	if playSuit == ledSuit && playCat == ledCat {
-		return nil
-	}
-
-	// If no cards of led suit in hand, can trump (枪毙) with main cards
-	if !hasSuit(hand, ledSuit) {
-		if playCat == CatTrump || playCat == CatNativeMain || playCat == CatJoker {
-			return nil
+	if play.Type != PlayInvalid && play.Type == ledPlay.Type {
+		if ledPlay.Type == PlayTractor && play.Length != ledPlay.Length {
+			log.Printf("[VALIDATEFOLLOW] PADDING: mismatched tractor length")
+			return true, nil // mismatched tractor length => padding
+		}
+		cat := ClassifyCard(cards[0], trumpSuit, levelRank)
+		if cat == CatTrump || cat == CatNativeMain || cat == CatJoker {
+			log.Printf("[VALIDATEFOLLOW] TRUMPING: cat=%d playType=%d mainRank=%d", cat, play.Type, play.MainRank)
+			return false, nil // trumping play, must beat
 		}
 	}
 
-	return &game.GameError{Code: game.ErrInvalidCards}
+	log.Printf("[VALIDATEFOLLOW] PADDING-ACCEPT: playType=%d (ledType=%d) - accepted as padding",
+		play.Type, ledPlay.Type)
+	return true, nil // padding, no need to beat
 }
 
 // SerializeForAI returns JSON for AI consumption.

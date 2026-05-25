@@ -11,25 +11,46 @@ import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionB
 
 const SUIT_SYMBOLS = ["♠", "♥", "♣", "♦"];
 
-/** Sort hand for Dashengji display: group by suit, within suit by rank desc. */
-function sortDashengjiHand(cardIds: number[]): number[] {
+/** Sort hand for Dashengji display: when trump is set, main cards (trump) first, then side cards by suit. */
+function sortDashengjiHand(cardIds: number[], trumpSuit: number, currentLevel: number): number[] {
+  const levelRank = currentLevel >= 3 && currentLevel <= 14 ? currentLevel : 3;
+
+  const isMain = (face: number): boolean => {
+    if (face >= 52) return true; // jokers
+    const suit = Math.floor(face / 13);
+    const rank = face % 13;
+    const baseRank = rank + 3; // 0→3, 1→4, ..., 11→A(14), 12→2(15)
+    if (baseRank === 15 || baseRank === levelRank) return true; // 2 or level card
+    if (suit === trumpSuit) return true; // trump suit
+    return false;
+  };
+
   return [...cardIds].sort((a, b) => {
     const fa = a % 54, fb = b % 54;
-    // Jokers always first (big before small)
-    if (fa === 53 && fb !== 53) return -1;
-    if (fb === 53 && fa !== 53) return 1;
-    if (fa === 52 && fb !== 52 && fb !== 53) return -1;
-    if (fb === 52 && fa !== 52 && fa !== 53) return 1;
-    if (fa >= 52 && fb >= 52) return fb - fa;
-    // Group by suit
+    const ma = isMain(fa), mb = isMain(fb);
+    // Main cards before side cards
+    if (ma && !mb) return -1;
+    if (!ma && mb) return 1;
+    // Both main: jokers first, then by suit, then rank desc
+    if (ma && mb) {
+      if (fa === 53 && fb !== 53) return -1;
+      if (fb === 53 && fa !== 53) return 1;
+      if (fa === 52 && fb !== 52 && fb !== 53) return -1;
+      if (fb === 52 && fa !== 52 && fa !== 53) return 1;
+      if (fa >= 52 && fb >= 52) return fb - fa;
+      const sa = Math.floor(fa / 13);
+      const sb = Math.floor(fb / 13);
+      if (sa !== sb) return sa - sb;
+      return (fb % 13) - (fa % 13);
+    }
+    // Both side: group by suit, then rank desc
     const sa = Math.floor(fa / 13);
     const sb = Math.floor(fb / 13);
     if (sa !== sb) return sa - sb;
-    // Within same suit: higher rank first (2 is rank 12 in 0-based)
     return (fb % 13) - (fa % 13);
   });
 }
-import { ScoreBoard } from "@/components/game/dashengji/ScoreBoard";
+import { DashengjiInfoPanel } from "@/components/game/dashengji/DashengjiInfoPanel";
 
 interface ServerPlayer {
   user_id?: number | string;
@@ -56,14 +77,21 @@ interface ServerData {
   phase?: number;
   current_seat?: number;
   trump_suit?: number;
+  is_dead_trump?: boolean;
   current_level?: number;
   dealer_seats?: [number, number];
   bottom_cards?: Array<{ id: number } | number>;
+  discarded_cards?: Array<{ id: number } | number>;
+  take_bottom_seat?: number;
   round_points?: number;
   last_play?: {
     seat: number;
     cards: Array<{ id: number } | number>;
   } | null;
+  play_history?: Array<{
+    seat: number;
+    cards: Array<{ id: number } | number>;
+  }>;
   scores?: Array<{ player_id: number; score: number }>;
 }
 
@@ -136,12 +164,18 @@ export default function DashengjiRoomPage() {
   const [trumpSuit, setTrumpSuit] = useState(-1);
   const [currentLevel, setCurrentLevel] = useState(3);
   const [bottomCards, setBottomCards] = useState<number[]>([]);
+  const [discardedCards, setDiscardedCards] = useState<number[]>([]);
+  const [takeBottomSeat, setTakeBottomSeat] = useState<number>(-1);
   const [lastPlay, setLastPlay] = useState<{ seat: number; cards: number[] } | null>(null);
+  const [trickPlays, setTrickPlays] = useState<Record<number, number[]>>({});
   const [roundPoints, setRoundPoints] = useState(0);
   const [roundResult, setRoundResult] = useState<{ scores: Array<{ player_id: number; score: number }> } | null>(null);
+  const [selectedCards, setSelectedCards] = useState<number[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [dealerSeats, setDealerSeats] = useState<[number, number]>([0, 2]);
-  const dealerSeatsRef = useRef<[number, number]>([0, 2]);
+  const [trumpToast, setTrumpToast] = useState<string | null>(null);
+  const prevTrumpSuitRef = useRef<number>(-1);
+  const [dealerSeats, setDealerSeats] = useState<[number, number]>([-1, -1]);
+  const dealerSeatsRef = useRef<[number, number]>([-1, -1]);
   const setDealerSeatsWithRef = (seats: [number, number]) => {
     dealerSeatsRef.current = seats;
     setDealerSeats(seats);
@@ -189,15 +223,47 @@ export default function DashengjiRoomPage() {
 
       if (data?.phase !== undefined) {
         setPhase(phaseMap[data.phase] ?? "waiting");
+        setSelectedCards([]);
       }
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
-      if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
+      if (data?.trump_suit !== undefined) {
+        const newSuit = data.trump_suit;
+        const oldSuit = prevTrumpSuitRef.current;
+        if (newSuit !== oldSuit) {
+          prevTrumpSuitRef.current = newSuit;
+          if (newSuit >= 0) {
+            const suitName = ["黑桃", "红桃", "梅花", "方块"][newSuit];
+            const symbol = SUIT_SYMBOLS[newSuit];
+            if (oldSuit < 0) {
+              const dead = data.is_dead_trump ? " (定死)" : "";
+              setTrumpToast(`定主: ${symbol} ${suitName}${dead}`);
+            } else {
+              setTrumpToast(`反主: ${symbol} ${suitName}`);
+            }
+            setTimeout(() => setTrumpToast(null), 5000);
+          }
+        }
+        setTrumpSuit(newSuit);
+      }
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
       if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
       if (data?.bottom_cards) setBottomCards(extractCards(data.bottom_cards));
+      if (data?.discarded_cards) setDiscardedCards(extractCards(data.discarded_cards));
+      if (data?.take_bottom_seat !== undefined) setTakeBottomSeat(data.take_bottom_seat);
       if (data?.round_points !== undefined) setRoundPoints(data.round_points);
       if (data?.last_play) {
         setLastPlay({ seat: data.last_play.seat, cards: extractCards(data.last_play.cards) });
+      }
+      if (data?.play_history) {
+        const history = data.play_history;
+        const n = history.length;
+        const trickSize = n % 4 === 0 ? 4 : n % 4;
+        const start = n - trickSize;
+        const next: Record<number, number[]> = {};
+        for (let i = start; i < n; i++) {
+          next[history[i].seat] = extractCards(history[i].cards);
+        }
+        setTrickPlays(next);
       }
       if (data?.players) {
         const ds = data.dealer_seats || dealerSeatsRef.current;
@@ -248,6 +314,9 @@ export default function DashengjiRoomPage() {
         }
       }
       setPhase("set_trump");
+      setSelectedCards([]);
+      prevTrumpSuitRef.current = -1;
+      setTrickPlays({});
       setRoundResult(null);
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
@@ -260,8 +329,10 @@ export default function DashengjiRoomPage() {
 
     client.on("round_end", (msg) => {
       setPhase("ended");
+      setSelectedCards([]);
       setHand([]);
       setLastPlay(null);
+      setTrickPlays({});
       const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
       if (data?.scores) {
         setRoundResult({ scores: data.scores });
@@ -324,6 +395,7 @@ export default function DashengjiRoomPage() {
     wsRef.current?.changeSeat(seat);
   }, []);
 
+
   const myUserId = getUserIdFromToken();
   const myPlayer = players.find((p) => p.userId === myUserId);
   const amIOwner = myPlayer?.isOwner ?? false;
@@ -331,8 +403,29 @@ export default function DashengjiRoomPage() {
   const allReady = players.length >= 2 && players.every((p) => p.isReady);
   const canStart = amIOwner && players.length >= GAME_CONFIG.maxPlayers && allReady;
   const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
+  const isDealerTeam = mySeat !== null && dealerSeats.includes(mySeat);
   const showPhaseActions = phase !== "waiting" && phase !== "ended";
-  const sortedHand = useMemo(() => sortDashengjiHand(hand), [hand]);
+  const sortedHand = useMemo(() => sortDashengjiHand(hand, trumpSuit, currentLevel), [hand, trumpSuit, currentLevel]);
+
+  // Count main cards (trump set) to split display into main/secondary rows
+  const mainCount = useMemo(() => {
+    if (trumpSuit < 0) return 0;
+    const levelRank = currentLevel >= 3 && currentLevel <= 14 ? currentLevel : 3;
+    let count = 0;
+    for (const id of sortedHand) {
+      const face = id % 54;
+      if (face >= 52) { count++; continue; }
+      const suit = Math.floor(face / 13);
+      const rank = face % 13;
+      const baseRank = rank + 3;
+      if (baseRank === 15 || baseRank === levelRank || suit === trumpSuit) {
+        count++;
+      } else {
+        break; // side cards start here
+      }
+    }
+    return count;
+  }, [sortedHand, trumpSuit, currentLevel]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-950 relative overflow-hidden">
@@ -343,15 +436,13 @@ export default function DashengjiRoomPage() {
         onSitDown={handleSitDown}
         onAddBot={handleAddBot}
         lastPlay={lastPlay}
+        trickPlays={trickPlays}
+        bottomCards={takeBottomSeat >= 0 ? bottomCards : undefined}
+        discardedCards={takeBottomSeat >= 0 && discardedCards.length > 0 ? discardedCards : undefined}
+        bottomSeat={takeBottomSeat >= 0 ? takeBottomSeat : undefined}
         maxPlayers={GAME_CONFIG.maxPlayers}
       />
-      <ScoreBoard roundPoints={roundPoints} dealerLevel={currentLevel} />
-
-      {trumpSuit >= 0 && (
-        <div className="fixed top-4 left-4 bg-black/60 backdrop-blur rounded-xl p-3 text-white z-40">
-          <div className="text-lg">{["♠", "♥", "♣", "♦"][trumpSuit]} 主花色</div>
-        </div>
-      )}
+      <DashengjiInfoPanel trumpSuit={trumpSuit} roundPoints={roundPoints} dealerLevel={currentLevel} />
 
       {errorMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
@@ -359,17 +450,25 @@ export default function DashengjiRoomPage() {
         </div>
       )}
 
-      {showPhaseActions && (
-        <DashengjiActionBar phase={phase} isMyTurn={isMyTurn} onAction={handleAction} />
+      {trumpToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-amber-500/20 border border-amber-500/40 rounded-lg text-lg text-amber-300 text-center font-bold animate-toast-in">
+          {trumpToast}
+        </div>
       )}
 
-      {showPhaseActions && sortedHand.length > 0 && (
+      {showPhaseActions && (
         <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
-          <HandCards
-            cards={sortedHand}
-            onPlayCards={handlePlayCards}
-            disabled={!isMyTurn}
-          />
+          {sortedHand.length > 0 && (
+            <HandCards
+              cards={sortedHand}
+              onPlayCards={phase === "playing" ? handlePlayCards : undefined}
+              onSelectionChange={setSelectedCards}
+              disabled={!isMyTurn}
+              mainCount={trumpSuit >= 0 ? mainCount : undefined}
+              hidePass
+            />
+          )}
+          <DashengjiActionBar phase={phase} isMyTurn={isMyTurn} isDealerTeam={isDealerTeam} selectedCards={selectedCards} mySeat={mySeat} takeBottomSeat={takeBottomSeat} onAction={handleAction} />
         </div>
       )}
 
@@ -408,6 +507,7 @@ export default function DashengjiRoomPage() {
               <button
                 onClick={() => {
                   setPhase("waiting");
+                  setSelectedCards([]);
                   setRoundResult(null);
                   setLastPlay(null);
                   setCurrentSeat(undefined);
