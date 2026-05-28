@@ -15,6 +15,7 @@ pokeface-server
 run.sh
 .playwright-mcp/
 .claude
+.codex
 .superpowers
 .playwright-cli
 logs/
