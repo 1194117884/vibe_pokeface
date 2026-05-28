@@ -29,7 +29,7 @@ test.describe("Full Game Simulation", () => {
 
   test("complete game simulation with screenshots", async ({ page }) => {
     // Track client messages for debugging
-    const clientMessages: any[] = [];
+    const clientMessages: Array<{ type: string; data?: unknown }> = [];
 
     // Stateful mock server scenario
     mockServer = new MockGameServer({

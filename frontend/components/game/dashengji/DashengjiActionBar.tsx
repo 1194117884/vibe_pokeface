@@ -19,10 +19,10 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       if (!isDealerTeam) return null;
       return (
         <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("set_trump", selectedCards)}>
+          <button className="gold-button px-8 py-3 text-lg" onClick={() => onAction("set_trump", selectedCards)}>
             定主
           </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_trump")}>
+          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" onClick={() => onAction("pass_trump")}>
             不定
           </button>
         </div>
@@ -32,10 +32,10 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       if (isDealerTeam) return null;
       return (
         <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("counter_trump", selectedCards)}>
+          <button className="gold-button px-8 py-3 text-lg" onClick={() => onAction("counter_trump", selectedCards)}>
             反主
           </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_counter")}>
+          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" onClick={() => onAction("pass_counter")}>
             不反
           </button>
         </div>

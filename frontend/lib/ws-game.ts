@@ -76,6 +76,10 @@ export function formatError(data: ErrorData): string {
       return "当前必须出牌，不能不出";
     case "CANNOT_BEAT":
       return "打不过上家的牌";
+    case "WAIT_TEAMMATE":
+      return "等待队友操作";
+    case "ALREADY_ACTED":
+      return "您已操作过，等待队友操作";
     default:
       return `未知错误: ${data.code}`;
   }

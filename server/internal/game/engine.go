@@ -40,6 +40,8 @@ const (
 	ErrInvalidCards  GameErrorCode = "INVALID_CARDS"
 	ErrCannotPass    GameErrorCode = "CANNOT_PASS"
 	ErrCannotBeat    GameErrorCode = "CANNOT_BEAT"
+	ErrWaitTeammate  GameErrorCode = "WAIT_TEAMMATE"
+	ErrAlreadyActed  GameErrorCode = "ALREADY_ACTED"
 )
 
 // GameError is a structured error returned when a game rule is violated.

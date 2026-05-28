@@ -127,7 +127,7 @@ func TestFollowSuit_MustMatchSuit(t *testing.T) {
 	ledPlay := Play{Type: PlaySingle, MainRank: 5, Length: 1}
 	ledCards := []Card{{ID: 2}} // suits 0
 
-	followCards := []Card{{ID: 15}} // suit 1
+	followCards := []Card{{ID: 15}}   // suit 1
 	hand := []Card{{ID: 0}, {ID: 15}} // suits 0, 1
 
 	_, err := validateFollow(followCards, hand, ledPlay, ledCards, 0, 6)
@@ -141,7 +141,7 @@ func TestFollowSuit_CanTrumpWhenNoSuitCards(t *testing.T) {
 	ledCards := []Card{{ID: 2}} // suit 0, side card when trumpSuit=1
 	trumpSuit := 1              // hearts is trump
 
-	followCards := []Card{{ID: 13}} // hearts (trump suit)
+	followCards := []Card{{ID: 13}}    // hearts (trump suit)
 	hand := []Card{{ID: 13}, {ID: 14}} // only hearts cards
 
 	isPadding, err := validateFollow(followCards, hand, ledPlay, ledCards, trumpSuit, 6)
@@ -154,10 +154,10 @@ func TestFollowSuit_CanTrumpWhenNoSuitCards(t *testing.T) {
 }
 
 func TestFollowSuit_PadWhenCannotFollowTriple(t *testing.T) {
-	// Leader plays a triplet of ♣4 (suit=2, face=0)
+	// Leader plays a triplet of ♣4 (suit=2, rank=4)
 	ledPlay := Play{Type: PlayTriple, MainRank: 4, Length: 1}
-	ledCards := []Card{{ID: 26}, {ID: 80}, {ID: 134}} // suit 2, face 0 (♣4), three copies
-	trumpSuit := 0                                      // ♠ is trump
+	ledCards := []Card{{ID: 27}, {ID: 81}, {ID: 135}} // ♣4, three copies
+	trumpSuit := 0                                    // ♠ is trump
 
 	// Follower pads with ♣7, ♣8, ♣J (same suit, different ranks - not a triplet)
 	followCards := []Card{{ID: 30}, {ID: 31}, {ID: 34}}
@@ -179,8 +179,8 @@ func TestFollowSuit_PadWhenCannotFollowTriple(t *testing.T) {
 func TestFollowSuit_PaddingSkipsPlayTypeCheck(t *testing.T) {
 	// Leader plays a pair of ♣4 (suit=2)
 	ledPlay := Play{Type: PlayPair, MainRank: 4, Length: 1}
-	ledCards := []Card{{ID: 26}, {ID: 80}} // suit 2, face 0, two copies
-	trumpSuit := 0                          // ♠ is trump
+	ledCards := []Card{{ID: 27}, {ID: 81}} // ♣4, two copies
+	trumpSuit := 0                         // ♠ is trump
 
 	// Follower doesn't have a pair of ♣, pads with ♣7 and ♣8 (two singles, same suit)
 	followCards := []Card{{ID: 30}, {ID: 31}} // ♣7, ♣8
@@ -206,6 +206,58 @@ func TestValidateAction_WrongPhase(t *testing.T) {
 	err := eng.ValidateAction(state, action)
 	if err == nil {
 		t.Error("should reject 'play' action during set_trump phase")
+	}
+}
+
+func TestNotice_TakeBottomAndDiscardBottom(t *testing.T) {
+	eng := &Engine{}
+	gs := &GameState{
+		Phase:            PhaseTakeBottom,
+		CurrentSeat:      0,
+		TrumpSuit:        1,
+		LevelRank:        3,
+		DealerSeats:      [2]int{0, 2},
+		BottomCards:      []Card{{ID: 100}, {ID: 101}, {ID: 102}, {ID: 103}, {ID: 104}, {ID: 105}},
+		DealerHistory:    []int{},
+		Notices:          []Notice{},
+		NoticeSeq:        0,
+		RoundLeader:      0,
+		HasPassedTrump:   map[int]bool{},
+		HasPassedCounter: map[int]bool{},
+		Players: []PlayerHand{
+			{UserID: 1, Seat: 0, Hand: []Card{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}, {ID: 5}}},
+			{UserID: 2, Seat: 1, Hand: []Card{{ID: 6}}},
+			{UserID: 3, Seat: 2, Hand: []Card{{ID: 7}}},
+			{UserID: 4, Seat: 3, Hand: []Card{{ID: 8}}},
+		},
+	}
+
+	next, err := eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 1, Action: "take_bottom"})
+	if err != nil {
+		t.Fatalf("take bottom failed: %v", err)
+	}
+	gs = next.(*GameState)
+	if len(gs.Notices) != 1 {
+		t.Fatalf("expected 1 notice after take bottom, got %d", len(gs.Notices))
+	}
+	if got := gs.Notices[0]; got.Kind != "bottom_taken" || got.Seat != 0 {
+		t.Fatalf("unexpected take bottom notice: %+v", got)
+	}
+
+	discard := make([]int, 6)
+	for i := range discard {
+		discard[i] = gs.Players[0].Hand[i].ID
+	}
+	next, err = eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 1, Action: "discard_bottom", Cards: discard})
+	if err != nil {
+		t.Fatalf("discard bottom failed: %v", err)
+	}
+	gs = next.(*GameState)
+	if len(gs.Notices) != 2 {
+		t.Fatalf("expected 2 notices after discard bottom, got %d", len(gs.Notices))
+	}
+	if got := gs.Notices[1]; got.Kind != "bottom_discarded" || got.Seat != 0 {
+		t.Fatalf("unexpected discard bottom notice: %+v", got)
 	}
 }
 
@@ -334,9 +386,9 @@ func TestBug_UserScenario_HeartsVsSpadeLead(t *testing.T) {
 
 	// Configurations to test: (trumpSuit, levelRank, description)
 	configs := []struct {
-		trumpSuit  int
-		levelRank  int
-		desc       string
+		trumpSuit int
+		levelRank int
+		desc      string
 	}{
 		{-1, 3, "no trump set (all side cards CatSide)"},
 		{0, 3, "spades trump (♠8=CatTrump, ♠K=CatTrump, ♥5/J=CatSide)"},
@@ -469,10 +521,10 @@ func TestBug_FullGameSimulation(t *testing.T) {
 			}},
 			{UserID: 2, Seat: 1, Hand: []Card{
 				{ID: 11}, {ID: 65}, // pair of ♠K (same category as ♠8 when hearts trump)
-				{ID: 1},             // ♠4
-				{ID: 0},             // ♠3 (level rank! CatSideMain, different from ♠8's CatSide)
-				{ID: 15},            // ♥5 (trump suit CatTrump!)
-				{ID: 22},            // ♥J (trump suit CatTrump!)
+				{ID: 1},  // ♠4
+				{ID: 0},  // ♠3 (level rank! CatSideMain, different from ♠8's CatSide)
+				{ID: 15}, // ♥5 (trump suit CatTrump!)
+				{ID: 22}, // ♥J (trump suit CatTrump!)
 			}},
 			{UserID: 3, Seat: 2, Hand: []Card{{ID: 200}, {ID: 201}}},
 			{UserID: 4, Seat: 3, Hand: []Card{{ID: 202}, {ID: 203}}},
@@ -543,7 +595,7 @@ func TestFollowSuit_DoesNotRequireBeat(t *testing.T) {
 	ledPlay := Play{Type: PlaySingle, MainRank: 13, Length: 1}
 	ledCards := []Card{{ID: 10}} // ♠K
 
-	followCards := []Card{{ID: 1}} // ♠4 (lower rank)
+	followCards := []Card{{ID: 1}}    // ♠4 (lower rank)
 	hand := []Card{{ID: 1}, {ID: 10}} // has both cards
 
 	isPadding, err := validateFollow(followCards, hand, ledPlay, ledCards, -1, 3)
@@ -657,10 +709,10 @@ func TestRound_WinnerLeadsNextRound(t *testing.T) {
 		TrumpSuit:   -1,
 		LevelRank:   3,
 		Players: []PlayerHand{
-			{UserID: 1, Seat: 0, Hand: []Card{{ID: 10}, {ID: 1}, {ID: 2}}},  // ♠K, ♠4, ♠5
-			{UserID: 2, Seat: 1, Hand: []Card{{ID: 14}, {ID: 15}}}, // ♥4, ♥5
-			{UserID: 3, Seat: 2, Hand: []Card{{ID: 28}, {ID: 29}}}, // ♣4, ♣5
-			{UserID: 4, Seat: 3, Hand: []Card{{ID: 42}, {ID: 43}}}, // ♦4, ♦5
+			{UserID: 1, Seat: 0, Hand: []Card{{ID: 10}, {ID: 1}, {ID: 2}}}, // ♠K, ♠4, ♠5
+			{UserID: 2, Seat: 1, Hand: []Card{{ID: 14}, {ID: 15}}},         // ♥4, ♥5
+			{UserID: 3, Seat: 2, Hand: []Card{{ID: 28}, {ID: 29}}},         // ♣4, ♣5
+			{UserID: 4, Seat: 3, Hand: []Card{{ID: 42}, {ID: 43}}},         // ♦4, ♦5
 		},
 	}
 
@@ -735,6 +787,200 @@ func TestPhasePlaying_RejectsPass(t *testing.T) {
 		t.Error("pass should be rejected during PhasePlaying")
 	}
 	t.Logf("Pass correctly rejected: %v", err)
+}
+
+func TestSetTrump_PassesSwapDealerWithoutRedealAndUseNewLevel(t *testing.T) {
+	eng := &Engine{}
+	originalHand := []Card{{ID: 1}, {ID: 2}}
+	gs := &GameState{
+		Phase:               PhaseSetTrump,
+		CurrentSeat:         0,
+		DealerSeats:         [2]int{0, 2},
+		OriginalDealerSeats: [2]int{0, 2},
+		TeamLevels:          [2]int{5, 8},
+		CurrentLevel:        5,
+		LevelRank:           5,
+		Players:             []PlayerHand{{UserID: 1, Seat: 0, Hand: originalHand}, {UserID: 2, Seat: 1}, {UserID: 3, Seat: 2}, {UserID: 4, Seat: 3}},
+		HasPassedTrump:      map[int]bool{},
+		HasPassedCounter:    map[int]bool{},
+	}
+
+	state, _ := eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 1, Action: "pass_trump"})
+	state, _ = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "pass_trump"})
+	swapped := state.(*GameState)
+	if swapped.DealerSeats != [2]int{1, 3} || swapped.LevelRank != 8 || !swapped.SwappedDealer {
+		t.Fatalf("swap result = dealer %v level %d swapped %t", swapped.DealerSeats, swapped.LevelRank, swapped.SwappedDealer)
+	}
+	if len(swapped.Players[0].Hand) != len(originalHand) || swapped.Players[0].Hand[0].ID != originalHand[0].ID {
+		t.Fatal("in-deal dealer swap must retain the dealt hand")
+	}
+
+	state, _ = eng.ExecuteAction(swapped, game.PlayerAction{PlayerID: 2, Action: "pass_trump"})
+	state, _ = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 4, Action: "pass_trump"})
+	redeal := state.(*GameState)
+	if redeal.DealerSeats != [2]int{0, 2} || redeal.LevelRank != 5 || redeal.SwappedDealer {
+		t.Fatalf("redeal result = dealer %v level %d swapped %t", redeal.DealerSeats, redeal.LevelRank, redeal.SwappedDealer)
+	}
+	if len(redeal.Players[0].Hand) != 39 {
+		t.Fatalf("failed swapped dealer should redeal, hand size = %d", len(redeal.Players[0].Hand))
+	}
+}
+
+func TestSetTrump_WaitAndAlreadyActedErrors(t *testing.T) {
+	eng := &Engine{}
+	gs := &GameState{
+		Phase:          PhaseSetTrump,
+		CurrentSeat:    0,
+		DealerSeats:    [2]int{0, 2},
+		Players:        []PlayerHand{{UserID: 1}, {UserID: 2}, {UserID: 3}, {UserID: 4}},
+		HasPassedTrump: map[int]bool{},
+	}
+	_, err := eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 3, Action: "pass_trump"})
+	if err == nil || err.Error() != string(game.ErrWaitTeammate) {
+		t.Fatalf("second dealer acting early error = %v", err)
+	}
+	state, _ := eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 1, Action: "pass_trump"})
+	_, err = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 1, Action: "pass_trump"})
+	if err == nil || err.Error() != string(game.ErrAlreadyActed) {
+		t.Fatalf("dealer acting twice error = %v", err)
+	}
+}
+
+func TestRound_PointsAwardedOnlyAfterNonDealerWinsCompletedTrick(t *testing.T) {
+	eng := &Engine{}
+	gs := &GameState{
+		Phase:       PhasePlaying,
+		CurrentSeat: 0,
+		DealerSeats: [2]int{0, 2},
+		TrumpSuit:   -1,
+		LevelRank:   3,
+		Players: []PlayerHand{
+			{UserID: 1, Seat: 0, Hand: []Card{{ID: 1}}},
+			{UserID: 2, Seat: 1, Hand: []Card{{ID: 2}}},
+			{UserID: 3, Seat: 2, Hand: []Card{{ID: 14}}},
+			{UserID: 4, Seat: 3, Hand: []Card{{ID: 27}}},
+		},
+	}
+	state, _ := eng.ExecuteAction(gs, game.PlayerAction{PlayerID: 1, Action: "play", Cards: []int{1}})
+	if state.(*GameState).Phase == PhaseEnded {
+		t.Fatal("a player emptying hand must wait until the trick finishes")
+	}
+	state, _ = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 2, Action: "play", Cards: []int{2}})
+	state, _ = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 3, Action: "play", Cards: []int{14}})
+	state, _ = eng.ExecuteAction(state, game.PlayerAction{PlayerID: 4, Action: "play", Cards: []int{27}})
+	done := state.(*GameState)
+	if done.Phase != PhaseEnded || done.RoundLeader != 1 || done.RoundPoints != 5 {
+		t.Fatalf("ended trick = phase %v winner %d points %d", done.Phase, done.RoundLeader, done.RoundPoints)
+	}
+}
+
+func TestCalculateScore_DealerHighPointsRotatesWithoutLevelGain(t *testing.T) {
+	winner := 0
+	eng := &Engine{matchStarted: true, teamLevels: [2]int{5, 7}, nextDealerSeats: [2]int{0, 2}}
+	gs := &GameState{
+		Phase:       PhaseEnded,
+		DealerSeats: [2]int{0, 2},
+		TeamLevels:  [2]int{5, 7},
+		RoundPoints: 120,
+		WinnerSeat:  &winner,
+		Players:     []PlayerHand{{UserID: 1}, {UserID: 2}, {UserID: 3}, {UserID: 4}},
+	}
+	if _, err := eng.CalculateScore(gs); err != nil {
+		t.Fatalf("CalculateScore failed: %v", err)
+	}
+	if eng.teamLevels != [2]int{5, 7} || eng.nextDealerSeats != [2]int{1, 3} {
+		t.Fatalf("dealer high-points outcome = levels %v next dealer %v", eng.teamLevels, eng.nextDealerSeats)
+	}
+	state, _ := eng.Init(makePlayers())
+	next := state.(*GameState)
+	if next.DealerSeats != [2]int{1, 3} || next.LevelRank != 7 {
+		t.Fatalf("next deal = dealer %v level %d", next.DealerSeats, next.LevelRank)
+	}
+}
+
+func TestFollowSuit_PartialSuitMustBePlayedBeforePadding(t *testing.T) {
+	ledCards := []Card{{ID: 21}, {ID: 75}, {ID: 22}, {ID: 76}, {ID: 23}, {ID: 77}}
+	ledPlay := ParsePlayWithContext(ledCards, -1, 3)
+	hand := []Card{{ID: 14}, {ID: 15}, {ID: 16}, {ID: 17}, {ID: 0}, {ID: 26}}
+	_, err := validateFollow([]Card{{ID: 0}, {ID: 54}, {ID: 26}, {ID: 80}, {ID: 27}, {ID: 81}}, hand, ledPlay, ledCards, -1, 3)
+	if err == nil {
+		t.Fatal("player with four led-suit cards cannot pad all six cards off-suit")
+	}
+	_, err = validateFollow([]Card{{ID: 14}, {ID: 15}, {ID: 16}, {ID: 17}, {ID: 0}, {ID: 26}}, hand, ledPlay, ledCards, -1, 3)
+	if err != nil {
+		t.Fatalf("using all available led-suit cards before padding should succeed: %v", err)
+	}
+}
+
+func TestFollowPair_DoesNotForceBreakingTripleWhenAlternativesExist(t *testing.T) {
+	ledCards := []Card{{ID: 1}, {ID: 55}}
+	ledPlay := ParsePlayWithContext(ledCards, -1, 3)
+	hand := []Card{{ID: 2}, {ID: 56}, {ID: 110}, {ID: 4}, {ID: 5}}
+	_, err := validateFollow([]Card{{ID: 4}, {ID: 5}}, hand, ledPlay, ledCards, -1, 3)
+	if err != nil {
+		t.Fatalf("pair lead may be followed without splitting protected triple: %v", err)
+	}
+	_, err = validateFollow([]Card{{ID: 13}, {ID: 14}}, []Card{{ID: 2}, {ID: 56}, {ID: 110}}, ledPlay, ledCards, -1, 3)
+	if err == nil {
+		t.Fatal("when only a same-suit triple remains it must be split to follow")
+	}
+}
+
+func TestFollowTriple_SideLevelTripleCanFollowMainDespiteTrumpSuitCards(t *testing.T) {
+	// Hearts are trump, level is 3. A led ♥9 triplet is a main-suit trump
+	// triplet; a ♣3 triplet is side-level main and may follow even when the
+	// player also has other heart trump-suit cards.
+	ledCards := []Card{{ID: 19}, {ID: 73}, {ID: 127}} // ♥9 x3
+	ledPlay := ParsePlayWithContext(ledCards, 1, 3)
+	if ledPlay.Type != PlayTriple {
+		t.Fatalf("setup: expected led triplet, got %d", ledPlay.Type)
+	}
+
+	followCards := []Card{{ID: 26}, {ID: 80}, {ID: 134}}               // ♣3 x3, side-level main
+	hand := append(copyCards(followCards), Card{ID: 14}, Card{ID: 15}) // plus ♥4, ♥5
+	isPadding, err := validateFollow(followCards, hand, ledPlay, ledCards, 1, 3)
+	if err != nil {
+		t.Fatalf("side-level triplet should be a valid trumping follow: %v", err)
+	}
+	if isPadding {
+		t.Fatal("side-level triplet should be treated as trumping, not padding")
+	}
+}
+
+func TestResolveRound_SideLevelTripleBeatsTrumpSuitTriple(t *testing.T) {
+	gs := &GameState{
+		TrumpSuit:   1,
+		LevelRank:   3,
+		DealerSeats: [2]int{0, 2},
+		RoundPlays: []PlayRecord{
+			{Seat: 0, Cards: []Card{{ID: 19}, {ID: 73}, {ID: 127}}, Play: ParsePlayWithContext([]Card{{ID: 19}, {ID: 73}, {ID: 127}}, 1, 3)},
+			{Seat: 1, Cards: []Card{{ID: 26}, {ID: 80}, {ID: 134}}, Play: ParsePlayWithContext([]Card{{ID: 26}, {ID: 80}, {ID: 134}}, 1, 3)},
+			{Seat: 2, Cards: []Card{{ID: 14}, {ID: 68}, {ID: 122}}, Play: ParsePlayWithContext([]Card{{ID: 14}, {ID: 68}, {ID: 122}}, 1, 3)},
+			{Seat: 3, Cards: []Card{{ID: 0}, {ID: 54}, {ID: 108}}, Play: ParsePlayWithContext([]Card{{ID: 0}, {ID: 54}, {ID: 108}}, 1, 3)},
+		},
+	}
+	(&Engine{}).resolveRound(gs)
+	if gs.RoundLeader != 1 {
+		t.Fatalf("side-level triple should win over ordinary trump-suit triples, got winner seat %d", gs.RoundLeader)
+	}
+}
+
+func TestResolveRound_NativeLevelTripleBeatsSideLevelTriple(t *testing.T) {
+	gs := &GameState{
+		TrumpSuit:   1,
+		LevelRank:   3,
+		DealerSeats: [2]int{0, 2},
+		RoundPlays: []PlayRecord{
+			{Seat: 0, Cards: []Card{{ID: 13}, {ID: 67}, {ID: 121}}, Play: ParsePlayWithContext([]Card{{ID: 13}, {ID: 67}, {ID: 121}}, 1, 3)}, // ♥3 x3
+			{Seat: 1, Cards: []Card{{ID: 26}, {ID: 80}, {ID: 134}}, Play: ParsePlayWithContext([]Card{{ID: 26}, {ID: 80}, {ID: 134}}, 1, 3)}, // ♣3 x3
+			{Seat: 2, Cards: []Card{{ID: 19}, {ID: 73}, {ID: 127}}, Play: ParsePlayWithContext([]Card{{ID: 19}, {ID: 73}, {ID: 127}}, 1, 3)}, // ♥9 x3
+			{Seat: 3, Cards: []Card{{ID: 14}, {ID: 68}, {ID: 122}}, Play: ParsePlayWithContext([]Card{{ID: 14}, {ID: 68}, {ID: 122}}, 1, 3)}, // ♥4 x3
+		},
+	}
+	(&Engine{}).resolveRound(gs)
+	if gs.RoundLeader != 0 {
+		t.Fatalf("native-level triple should beat side-level triple, got winner seat %d", gs.RoundLeader)
+	}
 }
 
 func copyHand(src []Card) []Card {

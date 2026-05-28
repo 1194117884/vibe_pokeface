@@ -6,12 +6,12 @@ import "sort"
 type PlayType int
 
 const (
-	PlayInvalid  PlayType = 0
-	PlaySingle   PlayType = 1
-	PlayPair     PlayType = 2
-	PlayTriple   PlayType = 3
-	PlayTractor  PlayType = 4
-	PlayPass     PlayType = 5
+	PlayInvalid PlayType = 0
+	PlaySingle  PlayType = 1
+	PlayPair    PlayType = 2
+	PlayTriple  PlayType = 3
+	PlayTractor PlayType = 4
+	PlayPass    PlayType = 5
 )
 
 // Play represents a parsed card play.
@@ -34,7 +34,7 @@ func ParsePlayWithContext(cards []Card, trumpSuit int, levelRank int) Play {
 
 	// Single card (including any single joker) is a valid single
 	if len(cards) == 1 {
-		return Play{Type: PlaySingle, MainRank: cards[0].BaseRank(), Length: 1}
+		return Play{Type: PlaySingle, MainRank: playRank(cards[0], trumpSuit, levelRank), Length: 1}
 	}
 
 	// Mixed jokers (small + big) is invalid
@@ -50,14 +50,12 @@ func ParsePlayWithContext(cards []Card, trumpSuit int, levelRank int) Play {
 	if hasSJ && hasBJ {
 		return Play{Type: PlayInvalid}
 	}
+	if hasSJ || hasBJ {
+		return parseJokerPlay(cards, hasSJ, hasBJ, trumpSuit, levelRank)
+	}
 
 	// Two same jokers = pair
-	if len(cards) == 2 && hasSJ && !hasBJ {
-		return Play{Type: PlayPair, MainRank: 16, Length: 1}
-	}
-	if len(cards) == 2 && hasBJ && !hasSJ {
-		return Play{Type: PlayPair, MainRank: 17, Length: 1}
-	}
+	// handled by parseJokerPlay above.
 
 	// All cards must have the same suit
 	suit := cards[0].Suit()
@@ -96,12 +94,12 @@ func ParsePlayWithContext(cards []Card, trumpSuit int, levelRank int) Play {
 
 	// Pure pair: 2 cards, same face
 	if len(cards) == 2 && len(pairFaces) == 1 {
-		return Play{Type: PlayPair, MainRank: cards[0].BaseRank(), Length: 1}
+		return Play{Type: PlayPair, MainRank: playRank(cards[0], trumpSuit, levelRank), Length: 1}
 	}
 
 	// Pure triple: 3 cards, same face
 	if len(cards) == 3 && len(pairFaces) == 1 {
-		return Play{Type: PlayTriple, MainRank: cards[0].BaseRank(), Length: 1}
+		return Play{Type: PlayTriple, MainRank: playRank(cards[0], trumpSuit, levelRank), Length: 1}
 	}
 
 	// Tractor: 3+ consecutive pairs, same suit, same category
@@ -142,6 +140,46 @@ func ParsePlayWithContext(cards []Card, trumpSuit int, levelRank int) Play {
 	}
 
 	return Play{Type: PlayInvalid}
+}
+
+func playRank(card Card, trumpSuit int, levelRank int) int {
+	if trumpSuit >= 0 || levelRank >= 0 {
+		return card.CompareRank(trumpSuit, levelRank)
+	}
+	return card.BaseRank()
+}
+
+func groupPlayRank(cards []Card, trumpSuit int, levelRank int) int {
+	rank := playRank(cards[0], trumpSuit, levelRank)
+	for _, c := range cards[1:] {
+		if r := playRank(c, trumpSuit, levelRank); r > rank {
+			rank = r
+		}
+	}
+	return rank
+}
+
+func parseJokerPlay(cards []Card, hasSJ bool, hasBJ bool, trumpSuit int, levelRank int) Play {
+	if hasSJ && hasBJ {
+		return Play{Type: PlayInvalid}
+	}
+	for _, c := range cards {
+		if (hasSJ && !c.IsSmallJoker()) || (hasBJ && !c.IsBigJoker()) {
+			return Play{Type: PlayInvalid}
+		}
+	}
+	return parseMatchedGroup(cards, groupPlayRank(cards, trumpSuit, levelRank))
+}
+
+func parseMatchedGroup(cards []Card, rank int) Play {
+	switch len(cards) {
+	case 2:
+		return Play{Type: PlayPair, MainRank: rank, Length: 1}
+	case 3:
+		return Play{Type: PlayTriple, MainRank: rank, Length: 1}
+	default:
+		return Play{Type: PlayInvalid}
+	}
 }
 
 // CanBeat checks whether play beats lastPlay.

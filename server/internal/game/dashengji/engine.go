@@ -13,8 +13,22 @@ func init() {
 	game.RegisterEngine("dashengji", func() game.GameEngine { return &Engine{} })
 }
 
-// Engine implements the Dashengji (打升级) game logic.
-type Engine struct{}
+// Engine implements the Dashengji (打升级) game logic and retains match progress
+// while the same seated players continue playing in one room.
+type Engine struct {
+	matchStarted    bool
+	teamLevels      [2]int
+	nextDealerSeats [2]int
+	dealerHistory   []int
+}
+
+// ResetMatch discards continuous-match progress after the seated lineup changes.
+func (e *Engine) ResetMatch() {
+	e.matchStarted = false
+	e.teamLevels = [2]int{}
+	e.nextDealerSeats = [2]int{}
+	e.dealerHistory = nil
+}
 
 // Init creates a new game state for 4 players with a 162-card deck.
 func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
@@ -47,27 +61,34 @@ func (e *Engine) Init(players []game.PlayerInfo) (game.GameState, error) {
 		playerHands[i] = PlayerHand{UserID: info.ID, Seat: info.Seat, Hand: hand}
 	}
 
-	var dealerSeats [2]int
-	if rand.Intn(2) == 0 {
-		dealerSeats = [2]int{0, 2}
-	} else {
-		dealerSeats = [2]int{1, 3}
+	if !e.matchStarted {
+		e.teamLevels = [2]int{3, 3}
+		if rand.Intn(2) == 0 {
+			e.nextDealerSeats = [2]int{0, 2}
+		} else {
+			e.nextDealerSeats = [2]int{1, 3}
+		}
+		e.matchStarted = true
 	}
+	dealerSeats := e.nextDealerSeats
+	currentLevel := e.teamLevels[SeatTeam(dealerSeats[0])]
 
 	state := &GameState{
-		Phase:            PhaseSetTrump,
-		Players:          playerHands,
-		CurrentSeat:      dealerSeats[0],
-		DealerSeats:      dealerSeats,
-		CurrentLevel:     3,
-		LevelRank:        3,
-		TrumpSuit:        -1,
-			TakeBottomSeat:   -1,
-		BottomCards:      bottom,
-		RoundNum:         1,
-		HasPassedTrump:   make(map[int]bool),
-		HasPassedCounter: make(map[int]bool),
-		DealerHistory:    make([]int, 0),
+		Phase:               PhaseSetTrump,
+		Players:             playerHands,
+		CurrentSeat:         dealerSeats[0],
+		DealerSeats:         dealerSeats,
+		OriginalDealerSeats: dealerSeats,
+		TeamLevels:          e.teamLevels,
+		CurrentLevel:        currentLevel,
+		LevelRank:           currentLevel,
+		TrumpSuit:           -1,
+		TakeBottomSeat:      -1,
+		BottomCards:         bottom,
+		RoundNum:            1,
+		HasPassedTrump:      make(map[int]bool),
+		HasPassedCounter:    make(map[int]bool),
+		DealerHistory:       append([]int(nil), e.dealerHistory...),
 	}
 
 	return state, nil
@@ -92,6 +113,18 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 	}
 	log.Printf("[DEBUG] ExecuteAction: seat=%d currentSeat=%d phase=%s action=%s", seat, gs.CurrentSeat, gs.Phase.String(), action.Action)
 	if !isValidSeatForPhase(gs, seat) {
+		if gs.Phase == PhaseSetTrump && containsSeat(gs.DealerSeats, seat) {
+			if gs.HasPassedTrump[seat] {
+				return nil, &game.GameError{Code: game.ErrAlreadyActed}
+			}
+			return nil, &game.GameError{Code: game.ErrWaitTeammate}
+		}
+		if gs.Phase == PhaseCounterTrump && !containsSeat(gs.DealerSeats, seat) {
+			if gs.HasPassedCounter[seat] {
+				return nil, &game.GameError{Code: game.ErrAlreadyActed}
+			}
+			return nil, &game.GameError{Code: game.ErrWaitTeammate}
+		}
 		log.Printf("[DEBUG] ExecuteAction: seat mismatch! seat=%d != currentSeat=%d", seat, gs.CurrentSeat)
 		return nil, &game.GameError{Code: game.ErrNotYourTurn}
 	}
@@ -127,9 +160,13 @@ func (e *Engine) ExecuteAction(state game.GameState, action game.PlayerAction) (
 func (e *Engine) handleSetTrump(gs *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action == "pass_trump" {
 		gs.HasPassedTrump[seat] = true
+		gs.addNotice("trump_decision", seat, "pass_trump")
 		nextSeat := e.nextDealerSeat(gs, seat)
 		if nextSeat == -1 {
-			return e.swapDealerAndReDeal(gs)
+			if gs.SwappedDealer {
+				return e.redealAfterFailedSwap(gs)
+			}
+			return e.swapDealerWithinDeal(gs), nil
 		}
 		gs.CurrentSeat = nextSeat
 		return gs, nil
@@ -140,6 +177,9 @@ func (e *Engine) handleSetTrump(gs *GameState, seat int, action game.PlayerActio
 		cards[i] = Card{ID: id}
 	}
 
+	if !cardsInHand(gs.Players[seat].Hand, cards) {
+		return nil, &game.GameError{Code: game.ErrInvalidCards}
+	}
 	if !CheckSetTrump(cards, gs.LevelRank, true) {
 		return nil, &game.GameError{Code: game.ErrInvalidCards}
 	}
@@ -147,6 +187,7 @@ func (e *Engine) handleSetTrump(gs *GameState, seat int, action game.PlayerActio
 	gs.TrumpSuit = GetTrumpSuit(cards, gs.LevelRank)
 	gs.TrumpCards = cards
 	gs.TrumpRevealed = true
+	gs.addNotice("trump_decision", seat, "set_trump")
 
 	for i := range gs.Players {
 		SortCards(gs.Players[i].Hand, gs.TrumpSuit, gs.LevelRank)
@@ -166,6 +207,7 @@ func (e *Engine) handleSetTrump(gs *GameState, seat int, action game.PlayerActio
 func (e *Engine) handleCounterTrump(gs *GameState, seat int, action game.PlayerAction) (*GameState, error) {
 	if action.Action == "pass_counter" {
 		gs.HasPassedCounter[seat] = true
+		gs.addNotice("counter_decision", seat, "pass_counter")
 		nextSeat := e.nextNonDealerSeat(gs, seat)
 		if nextSeat == -1 {
 			gs.Phase = PhaseTakeBottom
@@ -181,12 +223,16 @@ func (e *Engine) handleCounterTrump(gs *GameState, seat int, action game.PlayerA
 		cards[i] = Card{ID: id}
 	}
 
+	if !cardsInHand(gs.Players[seat].Hand, cards) {
+		return nil, &game.GameError{Code: game.ErrInvalidCards}
+	}
 	if !CheckCounterTrump(cards, gs.LevelRank) {
 		return nil, &game.GameError{Code: game.ErrInvalidCards}
 	}
 
 	gs.TrumpSuit = GetTrumpSuit(cards, gs.LevelRank)
 	gs.TrumpCards = cards
+	gs.addNotice("counter_decision", seat, "counter_trump")
 
 	for i := range gs.Players {
 		SortCards(gs.Players[i].Hand, gs.TrumpSuit, gs.LevelRank)
@@ -211,6 +257,7 @@ func (e *Engine) handleTakeBottom(gs *GameState, seat int, action game.PlayerAct
 			return nil, fmt.Errorf("no teammate to delegate to")
 		}
 		gs.CurrentSeat = other
+		gs.addNotice("bottom_delegated", other, "")
 		return gs, nil
 	}
 
@@ -230,7 +277,9 @@ func (e *Engine) handleTakeBottom(gs *GameState, seat int, action game.PlayerAct
 	gs.BottomTaken = true
 	gs.TakeBottomSeat = seat
 	gs.DealerHistory = append(gs.DealerHistory, seat)
+	e.dealerHistory = append([]int(nil), gs.DealerHistory...)
 	gs.BottomRevealed = true
+	gs.addNotice("bottom_taken", seat, "")
 
 	gs.Phase = PhaseDiscardBottom
 	return gs, nil
@@ -252,6 +301,14 @@ func (e *Engine) handleDiscardBottom(gs *GameState, seat int, action game.Player
 		return nil, fmt.Errorf("player at seat %d not found", seat)
 	}
 
+	selected := make([]Card, len(action.Cards))
+	for i, id := range action.Cards {
+		selected[i] = Card{ID: id}
+	}
+	if !cardsInHand(gs.Players[playerIdx].Hand, selected) {
+		return nil, &game.GameError{Code: game.ErrInvalidCards}
+	}
+
 	discardSet := make(map[int]bool)
 	for _, id := range action.Cards {
 		discardSet[id] = true
@@ -269,6 +326,7 @@ func (e *Engine) handleDiscardBottom(gs *GameState, seat int, action game.Player
 	gs.Players[playerIdx].Hand = newHand
 	gs.DiscardedCards = discarded
 	gs.BottomRevealed = true
+	gs.addNotice("bottom_discarded", seat, "")
 
 	gs.Phase = PhasePlaying
 	gs.CurrentSeat = seat
@@ -298,6 +356,12 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 	isLeading := len(gs.RoundPlays) == 0
 	log.Printf("[HANDLEPLAY] seat=%d isLeading=%t roundPlays=%d action=%s cardCount=%d",
 		seat, isLeading, len(gs.RoundPlays), action.Action, len(action.Cards))
+
+	if !cardsInHand(gs.Players[playerIdx].Hand, cards) {
+		log.Printf("[HANDLEPLAY] CARDS-IN-HAND-REJECT: seat=%d handCount=%d cards=%v",
+			seat, len(gs.Players[playerIdx].Hand), action.Cards)
+		return nil, &game.GameError{Code: game.ErrInvalidCards}
+	}
 
 	if isLeading {
 		play := ParsePlayWithContext(cards, gs.TrumpSuit, gs.LevelRank)
@@ -331,16 +395,17 @@ func (e *Engine) handlePlay(gs *GameState, seat int, action game.PlayerAction) (
 	gs.PlayHistory = append(gs.PlayHistory, record)
 	gs.RoundPlays = append(gs.RoundPlays, record)
 
-	gs.RoundPoints += CountRoundPoints(cards)
-
 	if len(newHand) == 0 {
-		gs.Phase = PhaseEnded
-		gs.WinnerSeat = &seat
-		return gs, nil
+		gs.PendingEnd = true
 	}
 
 	if len(gs.RoundPlays) == 4 {
 		e.resolveRound(gs)
+		if gs.PendingEnd {
+			gs.Phase = PhaseEnded
+			winner := gs.RoundLeader
+			gs.WinnerSeat = &winner
+		}
 	} else {
 		e.advanceSeat(gs)
 	}
@@ -357,13 +422,13 @@ func (e *Engine) resolveRound(gs *GameState) {
 	ledPlay := gs.RoundPlays[0]
 	ledSuit := ledPlay.Cards[0].Suit()
 	ledCat := ClassifyCard(ledPlay.Cards[0], gs.TrumpSuit, gs.LevelRank)
+	ledIsMain := isMainCategory(ledCat)
 
 	for _, r := range gs.RoundPlays {
 		playCat := ClassifyCard(r.Cards[0], gs.TrumpSuit, gs.LevelRank)
-		playSuit := r.Cards[0].Suit()
 
-		isFollowing := playSuit == ledSuit && playCat == ledCat
-		isTrump := !isFollowing && (playCat == CatTrump || playCat == CatNativeMain || playCat == CatJoker)
+		isFollowing := isFollowGroupMatch(r.Cards[0], ledSuit, ledCat, gs.TrumpSuit, gs.LevelRank)
+		isTrump := !isFollowing && !ledIsMain && isMainCategory(playCat)
 		isPadding := !isFollowing && !isTrump
 
 		if isPadding {
@@ -401,6 +466,14 @@ func (e *Engine) resolveRound(gs *GameState) {
 	}
 
 	log.Printf("[RESOLVEROUND] winner=seat%d roundPlays=%d", winner, len(gs.RoundPlays))
+	trickPoints := 0
+	for _, r := range gs.RoundPlays {
+		trickPoints += CountRoundPoints(r.Cards)
+	}
+	if !containsSeat(gs.DealerSeats, winner) {
+		gs.RoundPoints += trickPoints
+	}
+	gs.addNotice("trick_winner", winner, "")
 	gs.RoundPlays = nil
 	gs.RoundLeader = winner
 	gs.CurrentSeat = winner
@@ -446,13 +519,21 @@ func (gs *GameState) nextTakeBottomSeat() int {
 	return gs.DealerSeats[0]
 }
 
-func (e *Engine) swapDealerAndReDeal(gs *GameState) (*GameState, error) {
-	if gs.DealerSeats[0] == 0 {
-		gs.DealerSeats = [2]int{1, 3}
-	} else {
-		gs.DealerSeats = [2]int{0, 2}
-	}
+func (e *Engine) swapDealerWithinDeal(gs *GameState) *GameState {
+	gs.DealerSeats = oppositeTeam(gs.DealerSeats)
+	gs.CurrentLevel = gs.TeamLevels[SeatTeam(gs.DealerSeats[0])]
+	gs.LevelRank = gs.CurrentLevel
+	gs.SwappedDealer = true
+	gs.CurrentSeat = gs.DealerSeats[0]
+	gs.HasPassedTrump = make(map[int]bool)
+	gs.addNotice("dealer_swapped", gs.DealerSeats[0], "")
+	return gs
+}
 
+func (e *Engine) redealAfterFailedSwap(gs *GameState) (*GameState, error) {
+	gs.DealerSeats = gs.OriginalDealerSeats
+	gs.CurrentLevel = gs.TeamLevels[SeatTeam(gs.DealerSeats[0])]
+	gs.LevelRank = gs.CurrentLevel
 	deck := NewDeck()
 	Shuffle(deck)
 	h0, h1, h2, h3, bottom := Deal(deck)
@@ -478,16 +559,18 @@ func (e *Engine) swapDealerAndReDeal(gs *GameState) (*GameState, error) {
 
 	gs.Phase = PhaseSetTrump
 	gs.CurrentSeat = gs.DealerSeats[0]
+	gs.SwappedDealer = false
 	gs.TrumpSuit = -1
 	gs.IsDeadTrump = false
 	gs.TrumpCards = nil
 	gs.TrumpRevealed = false
 	gs.BottomCards = bottom
 	gs.BottomTaken = false
-		gs.TakeBottomSeat = -1
-		gs.HasPassedTrump = make(map[int]bool)
-		gs.HasPassedCounter = make(map[int]bool)
+	gs.TakeBottomSeat = -1
+	gs.HasPassedTrump = make(map[int]bool)
+	gs.HasPassedCounter = make(map[int]bool)
 	gs.RoundNum++
+	gs.addNotice("redeal", gs.DealerSeats[0], "")
 
 	return gs, nil
 }
@@ -536,13 +619,25 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 		return nil, fmt.Errorf("round not ended")
 	}
 
-	dealerWon := IsDealerTeam(*gs.WinnerSeat)
+	dealerTeam := SeatTeam(gs.DealerSeats[0])
+	dealerWon := containsSeat(gs.DealerSeats, *gs.WinnerSeat)
 	change := CalculateLevelChange(dealerWon, gs.RoundPoints)
+	if change > 0 {
+		e.teamLevels[dealerTeam] = AdvanceLevel(e.teamLevels[dealerTeam], change)
+		e.nextDealerSeats = gs.DealerSeats
+	} else {
+		if change < 0 {
+			nonDealerTeam := 1 - dealerTeam
+			e.teamLevels[nonDealerTeam] = AdvanceLevel(e.teamLevels[nonDealerTeam], -change)
+		}
+		e.nextDealerSeats = oppositeTeam(gs.DealerSeats)
+	}
+	gs.TeamLevels = e.teamLevels
 
 	scores := make([]game.PlayerScore, 4)
 	for i, p := range gs.Players {
 		scores[i] = game.PlayerScore{PlayerID: p.UserID}
-		if IsDealerTeam(i) {
+		if containsSeat(gs.DealerSeats, i) {
 			scores[i].Score = change
 		} else {
 			scores[i].Score = -change
@@ -551,14 +646,15 @@ func (e *Engine) CalculateScore(state game.GameState) ([]game.PlayerScore, error
 	return scores, nil
 }
 
-// canFollow checks whether the player can match the led play type with same suit+category.
+// canFollow checks whether the player can match the led play type. Main cards
+// share one follow group; side cards must match the led side suit.
 func canFollow(hand []Card, ledPlay Play, ledCards []Card, trumpSuit int, levelRank int) bool {
 	ledSuit := ledCards[0].Suit()
 	ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
 
 	matching := make([]Card, 0)
 	for _, c := range hand {
-		if c.Suit() == ledSuit && ClassifyCard(c, trumpSuit, levelRank) == ledCat {
+		if isFollowGroupMatch(c, ledSuit, ledCat, trumpSuit, levelRank) {
 			matching = append(matching, c)
 		}
 	}
@@ -573,7 +669,7 @@ func canFollow(hand []Card, ledPlay Play, ledCards []Card, trumpSuit int, levelR
 			faceCount[c.Face()]++
 		}
 		for _, n := range faceCount {
-			if n >= 2 {
+			if n == 2 || (n >= 3 && len(matching)-n < 2) {
 				result = true
 				break
 			}
@@ -632,11 +728,35 @@ func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
 		return false, &game.GameError{Code: game.ErrInvalidCards}
 	}
 
+	ledSuit := ledCards[0].Suit()
+	ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
+	availableMatching := 0
+	playedMatching := 0
+	for _, c := range hand {
+		if isFollowGroupMatch(c, ledSuit, ledCat, trumpSuit, levelRank) {
+			availableMatching++
+		}
+	}
+	for _, c := range cards {
+		if isFollowGroupMatch(c, ledSuit, ledCat, trumpSuit, levelRank) {
+			playedMatching++
+		}
+	}
+	requiredMatching := len(ledCards)
+	if availableMatching < requiredMatching {
+		requiredMatching = availableMatching
+	}
+	if playedMatching < requiredMatching {
+		log.Printf("[VALIDATEFOLLOW] MATCHING-REJECT: ledSuit=%d ledCat=%d available=%d played=%d required=%d",
+			ledSuit, ledCat, availableMatching, playedMatching, requiredMatching)
+		return false, &game.GameError{Code: game.ErrInvalidCards}
+	}
+
 	canFollowResult := canFollow(hand, ledPlay, ledCards, trumpSuit, levelRank)
 	log.Printf("[VALIDATEFOLLOW] canFollow=%t ledType=%d cardCount=%d", canFollowResult, ledPlay.Type, len(cards))
 
 	if canFollowResult {
-		// Player CAN follow => MUST follow exactly (same type, suit, category)
+		// Player CAN follow => MUST follow the led group and play type.
 		play := ParsePlayWithContext(cards, trumpSuit, levelRank)
 		if play.Type == PlayInvalid || play.Type != ledPlay.Type {
 			log.Printf("[VALIDATEFOLLOW] FOLLOW-REJECT: playType=%d playInvalid=%t typeMismatch=%t",
@@ -647,9 +767,7 @@ func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
 			return false, &game.GameError{Code: game.ErrInvalidCards}
 		}
 
-		ledSuit := ledCards[0].Suit()
-		ledCat := ClassifyCard(ledCards[0], trumpSuit, levelRank)
-		if cards[0].Suit() != ledSuit || ClassifyCard(cards[0], trumpSuit, levelRank) != ledCat {
+		if !isFollowGroupMatch(cards[0], ledSuit, ledCat, trumpSuit, levelRank) {
 			log.Printf("[VALIDATEFOLLOW] FOLLOW-REJECT: suitMismatch cardSuit=%d ledSuit=%d cardCat=%d ledCat=%d",
 				cards[0].Suit(), ledSuit, ClassifyCard(cards[0], trumpSuit, levelRank), ledCat)
 			return false, &game.GameError{Code: game.ErrInvalidCards}
@@ -667,7 +785,7 @@ func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
 			return true, nil // mismatched tractor length => padding
 		}
 		cat := ClassifyCard(cards[0], trumpSuit, levelRank)
-		if cat == CatTrump || cat == CatNativeMain || cat == CatJoker {
+		if isMainCategory(cat) {
 			log.Printf("[VALIDATEFOLLOW] TRUMPING: cat=%d playType=%d mainRank=%d", cat, play.Type, play.MainRank)
 			return false, nil // trumping play, must beat
 		}
@@ -676,6 +794,48 @@ func validateFollow(cards []Card, hand []Card, ledPlay Play, ledCards []Card,
 	log.Printf("[VALIDATEFOLLOW] PADDING-ACCEPT: playType=%d (ledType=%d) - accepted as padding",
 		play.Type, ledPlay.Type)
 	return true, nil // padding, no need to beat
+}
+
+func isMainCategory(cat CardCategory) bool {
+	return cat == CatTrump || cat == CatSideMain || cat == CatNativeMain || cat == CatJoker
+}
+
+func isFollowGroupMatch(card Card, ledSuit int, ledCat CardCategory, trumpSuit int, levelRank int) bool {
+	cat := ClassifyCard(card, trumpSuit, levelRank)
+	if isMainCategory(ledCat) {
+		return isMainCategory(cat)
+	}
+	return card.Suit() == ledSuit && cat == ledCat
+}
+
+func containsSeat(seats [2]int, seat int) bool {
+	return seats[0] == seat || seats[1] == seat
+}
+
+func oppositeTeam(seats [2]int) [2]int {
+	if SeatTeam(seats[0]) == 0 {
+		return [2]int{1, 3}
+	}
+	return [2]int{0, 2}
+}
+
+func cardsInHand(hand []Card, cards []Card) bool {
+	available := make(map[int]bool, len(hand))
+	for _, c := range hand {
+		available[c.ID] = true
+	}
+	for _, c := range cards {
+		if !available[c.ID] {
+			return false
+		}
+		delete(available, c.ID)
+	}
+	return true
+}
+
+func (gs *GameState) addNotice(kind string, seat int, action string) {
+	gs.NoticeSeq++
+	gs.Notices = append(gs.Notices, Notice{Seq: gs.NoticeSeq, Kind: kind, Seat: seat, Action: action})
 }
 
 // SerializeForAI returns JSON for AI consumption.

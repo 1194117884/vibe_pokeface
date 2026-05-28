@@ -22,33 +22,33 @@ func TestCalculateLevelChange_DealerWinLowPoints(t *testing.T) {
 
 func TestCalculateLevelChange_DealerWinHighPoints(t *testing.T) {
 	change := CalculateLevelChange(true, 150)
-	if change != -1 {
-		t.Errorf("dealer win with 150 points: expected -1, got %d", change)
+	if change != 0 {
+		t.Errorf("dealer win with 150 points: expected no level change and dealer rotation, got %d", change)
 	}
 }
 
 func TestCalculateLevelChange_NonDealerWinZeroPoints(t *testing.T) {
 	change := CalculateLevelChange(false, 0)
-	if change != -1 {
-		t.Errorf("non-dealer win with 0 points: expected -1 level, got %d", change)
+	if change != 0 {
+		t.Errorf("non-dealer win with 0 points: expected no level change, got %d", change)
 	}
 }
 
 func TestCalculateLevelChange_NonDealerWinLowPoints(t *testing.T) {
 	change := CalculateLevelChange(false, 60)
-	if change != -1 {
-		t.Errorf("non-dealer win with 60 points: expected -1 level, got %d", change)
+	if change != 0 {
+		t.Errorf("non-dealer win with 60 points: expected no level change, got %d", change)
 	}
 }
 
 func TestCalculateLevelChange_NonDealerWinHighPoints(t *testing.T) {
 	change := CalculateLevelChange(false, 150)
-	if change != -2 {
-		t.Errorf("non-dealer win with 150 points: expected -2 levels, got %d", change)
+	if change != -1 {
+		t.Errorf("non-dealer win with 150 points: expected -1 level, got %d", change)
 	}
 	change = CalculateLevelChange(false, 120)
-	if change != -2 {
-		t.Errorf("non-dealer win with 120 points: expected -2 levels, got %d", change)
+	if change != -1 {
+		t.Errorf("non-dealer win with 120 points: expected -1 level, got %d", change)
 	}
 }
 

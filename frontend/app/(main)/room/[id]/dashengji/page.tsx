@@ -2,14 +2,12 @@
 
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import clsx from "clsx";
 import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
+import { formatDashengjiNoticeToast, mergeDashengjiNoticePlayers } from "@/lib/dashengji-notice";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
 import { HandCards } from "@/components/game/HandCards";
 import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionBar";
-
-const SUIT_SYMBOLS = ["♠", "♥", "♣", "♦"];
 
 /** Sort hand for Dashengji display: when trump is set, main cards (trump) first, then side cards by suit. */
 function sortDashengjiHand(cardIds: number[], trumpSuit: number, currentLevel: number): number[] {
@@ -79,6 +77,7 @@ interface ServerData {
   trump_suit?: number;
   is_dead_trump?: boolean;
   current_level?: number;
+  team_levels?: [number, number];
   dealer_seats?: [number, number];
   bottom_cards?: Array<{ id: number } | number>;
   discarded_cards?: Array<{ id: number } | number>;
@@ -93,6 +92,12 @@ interface ServerData {
     cards: Array<{ id: number } | number>;
   }>;
   scores?: Array<{ player_id: number; score: number }>;
+  notices?: Array<{
+    seq: number;
+    kind: string;
+    seat?: number;
+    action?: string;
+  }>;
 }
 
 const phaseMap: Record<number, string> = {
@@ -123,7 +128,7 @@ function extractHandCards(p: ServerPlayer): number[] {
   return p.hand.map((c) => (typeof c === "number" ? c : c.id));
 }
 
-function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined, dealerSeats?: [number, number]): TablePlayer {
+function toTablePlayer(p: ServerPlayer, currentSeat: number | undefined): TablePlayer {
   const seat = p.seat ?? 0;
   return {
     userId: String(p.user_id ?? p.userId ?? ""),
@@ -152,6 +157,14 @@ export default function DashengjiRoomPage() {
   const roomId = params.id as string;
 
   const [players, setPlayers] = useState<TablePlayer[]>([]);
+  const playersRef = useRef<TablePlayer[]>([]);
+  const setPlayersWithRef = (next: TablePlayer[] | ((current: TablePlayer[]) => TablePlayer[])) => {
+    setPlayers((current) => {
+      const resolved = typeof next === "function" ? next(current) : next;
+      playersRef.current = resolved;
+      return resolved;
+    });
+  };
   const [mySeat, setMySeat] = useState<number | null>(null);
   const mySeatRef = useRef<number | null>(null);
   const setMySeatWithRef = (seat: number | null) => {
@@ -163,6 +176,7 @@ export default function DashengjiRoomPage() {
   const [currentSeat, setCurrentSeat] = useState<number | undefined>(undefined);
   const [trumpSuit, setTrumpSuit] = useState(-1);
   const [currentLevel, setCurrentLevel] = useState(3);
+  const [teamLevels, setTeamLevels] = useState<[number, number]>([3, 3]);
   const [bottomCards, setBottomCards] = useState<number[]>([]);
   const [discardedCards, setDiscardedCards] = useState<number[]>([]);
   const [takeBottomSeat, setTakeBottomSeat] = useState<number>(-1);
@@ -172,8 +186,9 @@ export default function DashengjiRoomPage() {
   const [roundResult, setRoundResult] = useState<{ scores: Array<{ player_id: number; score: number }> } | null>(null);
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [trumpToast, setTrumpToast] = useState<string | null>(null);
-  const prevTrumpSuitRef = useRef<number>(-1);
+  const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
+  const toastIdRef = useRef(0);
+  const noticeSeqRef = useRef(0);
   const [dealerSeats, setDealerSeats] = useState<[number, number]>([-1, -1]);
   const dealerSeatsRef = useRef<[number, number]>([-1, -1]);
   const setDealerSeatsWithRef = (seats: [number, number]) => {
@@ -202,11 +217,33 @@ export default function DashengjiRoomPage() {
     const client = new WSGameClient(Number(userIdStr), token, roomId, "dashengji");
     wsRef.current = client;
     const uid = userIdStr;
+    const showToast = (text: string) => {
+      const id = ++toastIdRef.current;
+      setToasts((current) => [...current, { id, text }]);
+      window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 4000);
+    };
+    const applyNotices = (data: ServerData) => {
+      const noticePlayers = mergeDashengjiNoticePlayers(data.players, playersRef.current);
+      for (const notice of data.notices ?? []) {
+        if (notice.seq <= noticeSeqRef.current) continue;
+        noticeSeqRef.current = notice.seq;
+        if (notice.kind === "bottom_delegated") {
+          if (notice.seat === mySeatRef.current) showToast("队友将起底让与您操作");
+        } else if (notice.kind === "dealer_swapped") {
+          showToast("庄方无法定主，局内换庄");
+        } else if (notice.kind === "redeal") {
+          showToast("双方无法定主，流局重新发牌");
+        } else {
+          const text = formatDashengjiNoticeToast(notice, noticePlayers, data.trump_suit ?? trumpSuit);
+          if (text) showToast(text);
+        }
+      }
+    };
 
     client.on("player_joined", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, undefined, undefined)));
+        setPlayersWithRef(data.players.map((p) => toTablePlayer(p, undefined)));
       }
       if (data?.seat !== undefined && String(data.user_id) === uid) setMySeatWithRef(data.seat);
     });
@@ -214,12 +251,13 @@ export default function DashengjiRoomPage() {
     client.on("player_ready", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat, dealerSeatsRef.current)));
+        setPlayersWithRef(data.players.map((p) => toTablePlayer(p, currentSeat)));
       }
     });
 
     client.on("state_update", (msg) => {
       const data = msg.data as ServerData;
+      applyNotices(data);
 
       if (data?.phase !== undefined) {
         setPhase(phaseMap[data.phase] ?? "waiting");
@@ -227,25 +265,10 @@ export default function DashengjiRoomPage() {
       }
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) {
-        const newSuit = data.trump_suit;
-        const oldSuit = prevTrumpSuitRef.current;
-        if (newSuit !== oldSuit) {
-          prevTrumpSuitRef.current = newSuit;
-          if (newSuit >= 0) {
-            const suitName = ["黑桃", "红桃", "梅花", "方块"][newSuit];
-            const symbol = SUIT_SYMBOLS[newSuit];
-            if (oldSuit < 0) {
-              const dead = data.is_dead_trump ? " (定死)" : "";
-              setTrumpToast(`定主: ${symbol} ${suitName}${dead}`);
-            } else {
-              setTrumpToast(`反主: ${symbol} ${suitName}`);
-            }
-            setTimeout(() => setTrumpToast(null), 5000);
-          }
-        }
-        setTrumpSuit(newSuit);
+        setTrumpSuit(data.trump_suit);
       }
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
+      if (data?.team_levels) setTeamLevels(data.team_levels);
       if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
       if (data?.bottom_cards) setBottomCards(extractCards(data.bottom_cards));
       if (data?.discarded_cards) setDiscardedCards(extractCards(data.discarded_cards));
@@ -267,8 +290,8 @@ export default function DashengjiRoomPage() {
       }
       if (data?.players) {
         const ds = data.dealer_seats || dealerSeatsRef.current;
-        setPlayers((prev) => {
-          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat, ds));
+        setPlayersWithRef((prev) => {
+          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat));
           // Merge with previous to preserve known nicknames and apply dealer team
           return newPlayers.map((np) => {
             const existing = prev.find((pp) => pp.seat === np.seat);
@@ -293,11 +316,12 @@ export default function DashengjiRoomPage() {
 
     client.on("game_start", (msg) => {
       const data = msg.data as ServerData;
+      noticeSeqRef.current = 0;
       if (data?.dealer_seats) setDealerSeatsWithRef(data.dealer_seats);
       const ds = data.dealer_seats || dealerSeatsRef.current;
       if (data?.players) {
-        setPlayers((prev) => {
-          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat, ds));
+        setPlayersWithRef((prev) => {
+          const newPlayers = data.players!.map((p) => toTablePlayer(p, data.current_seat));
           return newPlayers.map((np) => {
             const existing = prev.find((pp) => pp.seat === np.seat);
             if (existing && existing.nickname && existing.nickname !== String(existing.seat)) {
@@ -315,28 +339,36 @@ export default function DashengjiRoomPage() {
       }
       setPhase("set_trump");
       setSelectedCards([]);
-      prevTrumpSuitRef.current = -1;
       setTrickPlays({});
       setRoundResult(null);
       if (data?.current_seat !== undefined) setCurrentSeat(data.current_seat);
       if (data?.trump_suit !== undefined) setTrumpSuit(data.trump_suit);
       if (data?.current_level !== undefined) setCurrentLevel(data.current_level);
+      if (data?.team_levels) setTeamLevels(data.team_levels);
       // Mark dealer team players after dealer_seats is known
       if (ds) {
-        setPlayers((prev) => prev.map((p) => ({ ...p, isDealerTeam: ds.includes(p.seat) })));
+        setPlayersWithRef((prev) => prev.map((p) => ({ ...p, isDealerTeam: ds.includes(p.seat) })));
+      }
+      const ownSeat = mySeatRef.current ?? data.players?.find((p) => String(p.user_id ?? p.userId) === uid)?.seat;
+      if (ownSeat !== undefined && ownSeat !== null) {
+        showToast(ds.includes(ownSeat) ? "您是庄家" : "您是闲家");
       }
     });
 
     client.on("round_end", (msg) => {
+      const state = msg.data as ServerData;
+      applyNotices(state);
       setPhase("ended");
       setSelectedCards([]);
       setHand([]);
       setLastPlay(null);
       setTrickPlays({});
-      const data = msg.data as { scores?: Array<{ player_id: number; score: number }> };
-      if (data?.scores) {
-        setRoundResult({ scores: data.scores });
+      if (state?.scores) {
+        setRoundResult({ scores: state.scores });
       }
+      if (state?.team_levels) setTeamLevels(state.team_levels);
+      if (state?.dealer_seats) setDealerSeatsWithRef(state.dealer_seats);
+      if (state?.round_points !== undefined) setRoundPoints(state.round_points);
     });
 
     client.on("error", (msg) => {
@@ -358,7 +390,7 @@ export default function DashengjiRoomPage() {
     client.on("player_left", (msg) => {
       const data = msg.data as ServerData;
       if (data?.players) {
-        setPlayers(data.players.map((p) => toTablePlayer(p, currentSeat, dealerSeatsRef.current)));
+        setPlayersWithRef(data.players.map((p) => toTablePlayer(p, currentSeat)));
       }
     });
 
@@ -406,6 +438,10 @@ export default function DashengjiRoomPage() {
   const isDealerTeam = mySeat !== null && dealerSeats.includes(mySeat);
   const showPhaseActions = phase !== "waiting" && phase !== "ended";
   const sortedHand = useMemo(() => sortDashengjiHand(hand, trumpSuit, currentLevel), [hand, trumpSuit, currentLevel]);
+  const teamNames = useMemo<[string, string]>(() => {
+    const bySeat = (seat: number) => players.find((p) => p.seat === seat)?.nickname ?? `玩家${seat + 1}`;
+    return [`${bySeat(0)} + ${bySeat(2)}`, `${bySeat(1)} + ${bySeat(3)}`];
+  }, [players]);
 
   // Count main cards (trump set) to split display into main/secondary rows
   const mainCount = useMemo(() => {
@@ -442,24 +478,30 @@ export default function DashengjiRoomPage() {
         bottomSeat={takeBottomSeat >= 0 ? takeBottomSeat : undefined}
         maxPlayers={GAME_CONFIG.maxPlayers}
       />
-      <DashengjiInfoPanel trumpSuit={trumpSuit} roundPoints={roundPoints} dealerLevel={currentLevel} />
+      <DashengjiInfoPanel trumpSuit={trumpSuit} roundPoints={roundPoints} teamLevels={teamLevels} dealerSeats={dealerSeats} teamNames={teamNames} />
 
       {errorMessage && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
+        <div className="fixed left-0 right-0 top-[18vh] z-50 flex justify-center px-4 pointer-events-none sm:top-24">
+          <div className="max-w-[min(92vw,28rem)] px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
           {errorMessage}
+          </div>
         </div>
       )}
 
-      {trumpToast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-amber-500/20 border border-amber-500/40 rounded-lg text-lg text-amber-300 text-center font-bold animate-toast-in">
-          {trumpToast}
-        </div>
-      )}
+      <div className="fixed left-0 right-0 top-[18vh] z-50 flex flex-col gap-2 items-center px-4 pointer-events-none sm:top-24">
+        {toasts.map((toast) => (
+          <div key={toast.id} className="max-w-[min(92vw,32rem)] px-5 py-3 bg-amber-500/20 border border-amber-500/40 rounded-lg text-base sm:text-lg text-amber-300 text-center font-bold animate-toast-in whitespace-normal break-words">
+            {toast.text}
+          </div>
+        ))}
+      </div>
 
       {showPhaseActions && (
         <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
           {sortedHand.length > 0 && (
+            /* Drop internal card selection when discarded bottom cards leave the hand. */
             <HandCards
+              key={phase}
               cards={sortedHand}
               onPlayCards={phase === "playing" ? handlePlayCards : undefined}
               onSelectionChange={setSelectedCards}

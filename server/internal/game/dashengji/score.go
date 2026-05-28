@@ -10,12 +10,12 @@ func CalculateLevelChange(dealerWin bool, points int) int {
 		if points < 120 {
 			return 1
 		}
-		return -1
+		return 0
 	} else {
 		if points < 120 {
-			return -1
+			return 0
 		}
-		return -2
+		return -1
 	}
 }
 

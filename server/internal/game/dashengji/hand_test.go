@@ -37,6 +37,42 @@ func TestParsePlay_Triple_DifferentSuit(t *testing.T) {
 	}
 }
 
+func TestParsePlay_MixedSuitLevelTripleInvalid(t *testing.T) {
+	play := ParsePlayWithContext([]Card{{ID: 0}, {ID: 26}, {ID: 39}}, 1, 3) // ♠3♣3♦3
+	if play.Type != PlayInvalid {
+		t.Fatalf("expected mixed-suit level cards to be invalid as a triple, got %d", play.Type)
+	}
+}
+
+func TestParsePlay_NativeLevelBeatsSideLevel(t *testing.T) {
+	sideLevel := ParsePlayWithContext([]Card{{ID: 26}, {ID: 80}, {ID: 134}}, 1, 3)   // ♣3 x3
+	nativeLevel := ParsePlayWithContext([]Card{{ID: 13}, {ID: 67}, {ID: 121}}, 1, 3) // ♥3 x3
+	if sideLevel.Type != PlayTriple || nativeLevel.Type != PlayTriple {
+		t.Fatalf("setup: expected level triples, got side=%d native=%d", sideLevel.Type, nativeLevel.Type)
+	}
+	if nativeLevel.MainRank <= sideLevel.MainRank {
+		t.Fatalf("native level should beat side level: native=%d side=%d", nativeLevel.MainRank, sideLevel.MainRank)
+	}
+}
+
+func TestParsePlay_MixedSuitTwoTripleInvalid(t *testing.T) {
+	play := ParsePlayWithContext([]Card{{ID: 12}, {ID: 25}, {ID: 38}}, 1, 3) // ♠2♥2♣2
+	if play.Type != PlayInvalid {
+		t.Fatalf("expected mixed-suit 2s to be invalid as a triple, got %d", play.Type)
+	}
+}
+
+func TestParsePlay_NativeTwoBeatsSideTwo(t *testing.T) {
+	sideTwo := ParsePlayWithContext([]Card{{ID: 38}, {ID: 92}, {ID: 146}}, 1, 3)   // ♣2 x3
+	nativeTwo := ParsePlayWithContext([]Card{{ID: 25}, {ID: 79}, {ID: 133}}, 1, 3) // ♥2 x3
+	if sideTwo.Type != PlayTriple || nativeTwo.Type != PlayTriple {
+		t.Fatalf("setup: expected 2 triples, got side=%d native=%d", sideTwo.Type, nativeTwo.Type)
+	}
+	if nativeTwo.MainRank <= sideTwo.MainRank {
+		t.Fatalf("native 2 should beat side 2: native=%d side=%d", nativeTwo.MainRank, sideTwo.MainRank)
+	}
+}
+
 func TestParsePlay_Tractor(t *testing.T) {
 	// 3+ consecutive pairs, same suit
 	// ♠3♠3♠4♠4♠5♠5 (faces 0,54,1,55,2,56 -- all spade, ranks 3,4,5)

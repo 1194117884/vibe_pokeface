@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,23 +33,24 @@ type PlayerSession struct {
 
 // GameRoom represents a game room with players and game state.
 type GameRoom struct {
-	ID       string
-	GameType string
-	Players  []*PlayerSession
-	Engine   GameEngine
-	State    GameState
-	Status   string
-	Theme    string
-	Closed   bool
-	store    RoomStore
-	mu       sync.Mutex
-	notify   chan []byte
-	agents   map[string]*ai.AIAgent
-	createdAt      time.Time
-	lastActiveAt   time.Time
-	currentGameID  int64
-	actionSeq      int
-	aiStore        *model.AIStore // for LLM call logging on AI agents
+	ID            string
+	GameType      string
+	Players       []*PlayerSession
+	Engine        GameEngine
+	State         GameState
+	Status        string
+	Theme         string
+	Closed        bool
+	store         RoomStore
+	mu            sync.Mutex
+	notify        chan []byte
+	agents        map[string]*ai.AIAgent
+	createdAt     time.Time
+	lastActiveAt  time.Time
+	currentGameID int64
+	actionSeq     int
+	aiStore       *model.AIStore // for LLM call logging on AI agents
+	matchLineup   string         // seated player identities for continuous upgrade matches
 }
 
 // RoomManager manages all active game rooms.
@@ -657,12 +659,12 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 		return fmt.Errorf("room is full")
 	}
 	bot := &PlayerSession{
-		UserID:   botID,
-		Seat:     seat,
-		Conn:     conn,
-		IsBot:    true,
+		UserID:    botID,
+		Seat:      seat,
+		Conn:      conn,
+		IsBot:     true,
 		Connected: true,
-		Ready:    true, // bots are always ready
+		Ready:     true, // bots are always ready
 	}
 	// Set nickname from bot sequence number
 	var botN int
@@ -734,13 +736,13 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 	}
 
 	bot := &PlayerSession{
-		UserID:    botID,
-		Seat:      seat,
-		Conn:      conn,
-		IsBot:     true,
-		Connected: true,
-		Ready:     true,
-		Nickname:  nickname,
+		UserID:      botID,
+		Seat:        seat,
+		Conn:        conn,
+		IsBot:       true,
+		Connected:   true,
+		Ready:       true,
+		Nickname:    nickname,
 		CharacterID: characterID,
 	}
 	r.Players = append(r.Players, bot)
@@ -753,10 +755,10 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 	}
 
 	r.broadcastMsg("player_joined", map[string]interface{}{
-		"user_id":  botID,
-		"seat":     seat,
-		"is_bot":   true,
-		"players":  r.playerList(),
+		"user_id": botID,
+		"seat":    seat,
+		"is_bot":  true,
+		"players": r.playerList(),
 	})
 	return nil
 }
@@ -829,6 +831,18 @@ func (r *GameRoom) startGame() {
 			Seat: i,
 		}
 	}
+
+	lineupParts := make([]string, len(r.Players))
+	for i, p := range r.Players {
+		lineupParts[i] = fmt.Sprintf("%d:%s", p.Seat, p.UserID)
+	}
+	lineup := strings.Join(lineupParts, "|")
+	if r.GameType == "dashengji" && r.matchLineup != "" && r.matchLineup != lineup {
+		if resetter, ok := r.Engine.(interface{ ResetMatch() }); ok {
+			resetter.ResetMatch()
+		}
+	}
+	r.matchLineup = lineup
 
 	state, err := r.Engine.Init(players)
 	if err != nil {
@@ -918,7 +932,7 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 		} else {
 			// Send structured error to human player's WebSocket
 			errData := map[string]interface{}{
-				"code":  "UNKNOWN",
+				"code": "UNKNOWN",
 			}
 			var gameErr *GameError
 			if errors.As(err, &gameErr) {
@@ -1013,9 +1027,9 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 			return
 		}
 
-		r.broadcastMsg("round_end", map[string]interface{}{
-			"scores": scores,
-		})
+		result := r.enrichState(newState)
+		result["scores"] = scores
+		r.broadcastMsg("round_end", result)
 
 		// Persist scores to DB
 		if r.store != nil {
@@ -1410,7 +1424,7 @@ func checkCardsLeft(state GameState) string {
 	}
 	var data struct {
 		Players []struct {
-			Seat int  `json:"seat"`
+			Seat int `json:"seat"`
 			Hand []struct {
 				ID int `json:"id"`
 			} `json:"hand"`

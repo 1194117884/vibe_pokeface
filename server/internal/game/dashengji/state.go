@@ -73,6 +73,14 @@ type PlayRecord struct {
 	Cards []Card `json:"cards"`
 }
 
+// Notice is a state-carried event that clients display once as a toast.
+type Notice struct {
+	Seq    int    `json:"seq"`
+	Kind   string `json:"kind"`
+	Seat   int    `json:"seat,omitempty"`
+	Action string `json:"action,omitempty"`
+}
+
 // GameState represents the full state of a Dashengji game.
 type GameState struct {
 	Phase       GamePhase    `json:"phase"`
@@ -80,39 +88,45 @@ type GameState struct {
 	CurrentSeat int          `json:"current_seat"`
 
 	// Dealer team info
-	DealerSeats  [2]int `json:"dealer_seats"`
-	CurrentLevel int    `json:"current_level"` // 3-14 (A=14)
-	LevelRank    int    `json:"level_rank"`    // base rank of level card (3->3, ..., A->14)
+	DealerSeats         [2]int `json:"dealer_seats"`
+	TeamLevels          [2]int `json:"team_levels"`
+	CurrentLevel        int    `json:"current_level"` // 3-14 (A=14)
+	LevelRank           int    `json:"level_rank"`    // base rank of level card (3->3, ..., A->14)
+	SwappedDealer       bool   `json:"swapped_dealer"`
+	OriginalDealerSeats [2]int `json:"original_dealer_seats"`
 
 	// Trump
-	TrumpSuit      int    `json:"trump_suit"`      // -1 if not set, 0-3 otherwise
-	IsDeadTrump    bool   `json:"is_dead_trump"`
-	TrumpCards     []Card `json:"trump_cards"`
-	TrumpRevealed  bool   `json:"trump_revealed"`
+	TrumpSuit     int    `json:"trump_suit"` // -1 if not set, 0-3 otherwise
+	IsDeadTrump   bool   `json:"is_dead_trump"`
+	TrumpCards    []Card `json:"trump_cards"`
+	TrumpRevealed bool   `json:"trump_revealed"`
 
 	// Bottom cards
-	BottomCards     []Card `json:"bottom_cards"`
-	BottomTaken     bool   `json:"bottom_taken"`
-	TakeBottomSeat  int    `json:"take_bottom_seat"`
-	DiscardedCards  []Card `json:"discarded_cards"`
-	BottomRevealed  bool   `json:"bottom_revealed"`
+	BottomCards    []Card `json:"bottom_cards"`
+	BottomTaken    bool   `json:"bottom_taken"`
+	TakeBottomSeat int    `json:"take_bottom_seat"`
+	DiscardedCards []Card `json:"discarded_cards"`
+	BottomRevealed bool   `json:"bottom_revealed"`
 
 	// Play state
 	LastPlay          *PlayRecord  `json:"last_play"`
 	PlayHistory       []PlayRecord `json:"play_history"`
 	ConsecutivePasses int          `json:"consecutive_passes"`
 	WinnerSeat        *int         `json:"winner_seat,omitempty"`
-	RoundPlays        []PlayRecord `json:"round_plays"` // plays in current round (0-4)
+	RoundPlays        []PlayRecord `json:"round_plays"`  // plays in current round (0-4)
 	RoundLeader       int          `json:"round_leader"` // seat that started the current round
+	PendingEnd        bool         `json:"pending_end"`
 
 	// Pass tracking
 	HasPassedTrump   map[int]bool `json:"has_passed_trump"`
 	HasPassedCounter map[int]bool `json:"has_passed_counter"`
 
 	// Score tracking
-	RoundPoints   int   `json:"round_points"`
-	RoundNum      int   `json:"round_num"`
-	DealerHistory []int `json:"dealer_history"` // which player took bottom each round (alternating)
+	RoundPoints   int      `json:"round_points"`
+	RoundNum      int      `json:"round_num"`
+	DealerHistory []int    `json:"dealer_history"` // which player took bottom each round (alternating)
+	Notices       []Notice `json:"notices"`
+	NoticeSeq     int      `json:"notice_seq"`
 }
 
 // ToJSON serializes the GameState to JSON.

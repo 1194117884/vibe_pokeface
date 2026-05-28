@@ -6,8 +6,17 @@ interface MockPlayer {
   seat: number;
 }
 
+interface MockClientMessage {
+  type: string;
+  data?: {
+    action?: string;
+    cards?: number[];
+    [key: string]: unknown;
+  };
+}
+
 export interface GameScenario {
-  onMessage(msg: any, player: MockPlayer, server: MockGameServer): void;
+  onMessage(msg: MockClientMessage, player: MockPlayer, server: MockGameServer): void;
 }
 
 export class MockGameServer {
@@ -39,7 +48,7 @@ export class MockGameServer {
 
         ws.on("message", (raw) => {
           try {
-            const msg = JSON.parse(raw.toString());
+            const msg = JSON.parse(raw.toString()) as MockClientMessage;
             this.scenario.onMessage(msg, player, this);
           } catch (e) {
             console.error("Mock server parse error:", e);
