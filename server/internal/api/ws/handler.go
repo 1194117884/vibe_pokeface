@@ -84,7 +84,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		h.Unregister <- client
 		if client.RoomID != "" {
 			if room := h.RoomManager.GetRoom(client.RoomID); room != nil {
-				room.MarkDisconnected(userID)
+				room.MarkDisconnected(userID, client.Send)
 			}
 		}
 	}()

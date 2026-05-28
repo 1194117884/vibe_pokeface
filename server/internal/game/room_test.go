@@ -147,6 +147,29 @@ func TestRoomAddPlayerReconnect(t *testing.T) {
 	}
 }
 
+func TestMarkDisconnectedIgnoresStaleConnection(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+	oldConn := make(chan []byte, 10)
+	newConn := make(chan []byte, 10)
+
+	if err := room.AddPlayer("user-1", "", "", oldConn); err != nil {
+		t.Fatalf("AddPlayer failed: %v", err)
+	}
+	if err := room.AddPlayer("user-1", "", "", newConn); err != nil {
+		t.Fatalf("Reconnect failed: %v", err)
+	}
+
+	room.MarkDisconnected("user-1", oldConn)
+	if !room.Players[0].Connected {
+		t.Fatal("stale connection close should not mark reconnected player disconnected")
+	}
+
+	room.MarkDisconnected("user-1", newConn)
+	if room.Players[0].Connected {
+		t.Fatal("current connection close should mark player disconnected")
+	}
+}
+
 func TestRoomAddPlayerFull(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 
@@ -727,6 +750,32 @@ func TestCleanup_TriggerF_OnlyBotsInPlaying(t *testing.T) {
 
 	if got := rm.GetRoom("room-1"); got != nil {
 		t.Error("room-1 should be removed when only bots in playing state")
+	}
+}
+
+func TestRemoveDisconnectedPlayers_DoesNotReassignSeatsWhilePlaying(t *testing.T) {
+	room := NewGameRoom("room-1", "dashengji", &mockEngine{}, nil)
+	discAt := time.Now().Add(-2 * time.Minute)
+	room.Players = []*PlayerSession{
+		{UserID: "user-1", Seat: 0, PlayerID: 0, Connected: true},
+		{UserID: "user-2", Seat: 1, PlayerID: 1, Connected: false, DisconnectedAt: &discAt},
+		{UserID: "user-3", Seat: 2, PlayerID: 2, Connected: true},
+		{UserID: "user-4", Seat: 3, PlayerID: 3, Connected: true},
+	}
+	room.Status = "playing"
+
+	remaining := room.RemoveDisconnectedPlayers(time.Minute)
+
+	if remaining != 4 {
+		t.Fatalf("remaining players = %d, want 4", remaining)
+	}
+	for i, p := range room.Players {
+		if p.Seat != i {
+			t.Fatalf("player %s seat = %d, want %d", p.UserID, p.Seat, i)
+		}
+		if p.PlayerID != int64(i) {
+			t.Fatalf("player %s playerID = %d, want %d", p.UserID, p.PlayerID, i)
+		}
 	}
 }
 

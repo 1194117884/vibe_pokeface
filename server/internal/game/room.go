@@ -526,11 +526,14 @@ func (r *GameRoom) removePlayer(userID string) {
 
 // MarkDisconnected marks a player as disconnected without removing them,
 // allowing reconnection within the grace period.
-func (r *GameRoom) MarkDisconnected(userID string) {
+func (r *GameRoom) MarkDisconnected(userID string, conn chan []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, p := range r.Players {
 		if p.UserID == userID {
+			if conn != nil && p.Conn != conn {
+				return
+			}
 			p.Connected = false
 			now := time.Now()
 			p.DisconnectedAt = &now
@@ -544,6 +547,9 @@ func (r *GameRoom) MarkDisconnected(userID string) {
 func (r *GameRoom) RemoveDisconnectedPlayers(timeout time.Duration) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.Status == "playing" {
+		return len(r.Players)
+	}
 	now := time.Now()
 	changed := false
 	for i := len(r.Players) - 1; i >= 0; i-- {

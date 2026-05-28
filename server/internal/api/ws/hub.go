@@ -32,10 +32,12 @@ func (rh *RoomHub) Add(client *Client) {
 	rh.Clients[client.ID] = client
 }
 
-func (rh *RoomHub) Remove(clientID string) {
+func (rh *RoomHub) Remove(client *Client) {
 	rh.mu.Lock()
 	defer rh.mu.Unlock()
-	delete(rh.Clients, clientID)
+	if current := rh.Clients[client.ID]; current == client {
+		delete(rh.Clients, client.ID)
+	}
 }
 
 func (rh *RoomHub) Broadcast(msg []byte) {
@@ -101,7 +103,7 @@ func (h *Hub) Run() {
 			room, ok := h.Rooms[client.RoomID]
 			h.mu.RUnlock()
 			if ok {
-				room.Remove(client.ID)
+				room.Remove(client)
 				if room.Count() == 0 {
 					h.mu.Lock()
 					delete(h.Rooms, client.RoomID)

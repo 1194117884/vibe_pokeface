@@ -46,10 +46,28 @@ func TestRoomHub_AddAndCount(t *testing.T) {
 
 func TestRoomHub_Remove(t *testing.T) {
 	rh := NewRoomHub()
-	rh.Add(&Client{ID: "c1", RoomID: "r1"})
-	rh.Remove("c1")
+	client := &Client{ID: "c1", RoomID: "r1"}
+	rh.Add(client)
+	rh.Remove(client)
 	if rh.Count() != 0 {
 		t.Errorf("Count() = %d, want %d", rh.Count(), 0)
+	}
+}
+
+func TestRoomHub_RemoveIgnoresStaleClient(t *testing.T) {
+	rh := NewRoomHub()
+	oldClient := &Client{ID: "c1", RoomID: "r1"}
+	newClient := &Client{ID: "c1", RoomID: "r1"}
+	rh.Add(oldClient)
+	rh.Add(newClient)
+
+	rh.Remove(oldClient)
+
+	if rh.Count() != 1 {
+		t.Fatalf("Count() = %d, want 1", rh.Count())
+	}
+	if rh.Clients["c1"] != newClient {
+		t.Fatal("stale client removal should preserve current client")
 	}
 }
 
