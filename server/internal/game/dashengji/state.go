@@ -77,7 +77,7 @@ type PlayRecord struct {
 type Notice struct {
 	Seq    int    `json:"seq"`
 	Kind   string `json:"kind"`
-	Seat   int    `json:"seat,omitempty"`
+	Seat   int    `json:"seat"`
 	Action string `json:"action,omitempty"`
 }
 
