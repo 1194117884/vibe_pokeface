@@ -86,7 +86,7 @@ func TestRegister_Success(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"nickname": "testuser", "password": "secure123"}
 	b, _ := json.Marshal(body)
@@ -110,7 +110,7 @@ func TestRegister_Success(t *testing.T) {
 func TestRegister_MissingFields(t *testing.T) {
 	store := &mockUserStore{}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"nickname": ""}
 	b, _ := json.Marshal(body)
@@ -134,7 +134,7 @@ func TestLogin_Success(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"password": "correct-pw", "provider_uid": "password:testuser"}
 	b, _ := json.Marshal(body)
@@ -155,7 +155,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"password": "wrong-pw", "provider_uid": "password:testuser"}
 	b, _ := json.Marshal(body)
@@ -175,7 +175,7 @@ func TestRegister_DuplicateNickname(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"nickname": "existing", "password": "secure123"}
 	b, _ := json.Marshal(body)
@@ -196,7 +196,7 @@ func TestRegister_DuplicateAuth(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"nickname": "existing", "password": "secure123"}
 	b, _ := json.Marshal(body)
@@ -220,7 +220,7 @@ func TestGuestLogin_RaceCondition(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"device_id": "race-device"}
 	b, _ := json.Marshal(body)
@@ -252,7 +252,7 @@ func TestGuestLogin_Success(t *testing.T) {
 		},
 	}
 	jwtSvc := auth.NewJWTService("test-secret")
-	handler := NewAuthHandler(store, jwtSvc)
+	handler := NewAuthHandler(store, jwtSvc, nil)
 
 	body := map[string]string{"device_id": "device-abc-123"}
 	b, _ := json.Marshal(body)

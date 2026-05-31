@@ -18,7 +18,7 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 	r.Use(middleware.Logging)
 	r.Use(middleware.CORS(corsCfg))
 
-	authHandler := NewAuthHandler(store, jwt)
+	authHandler := NewAuthHandler(store, jwt, nil) // regCodes wired in Task 4
 	authRateLimiter := middleware.NewRateLimiter(10, time.Second)
 
 	r.Route("/api/auth", func(r chi.Router) {
