@@ -70,10 +70,12 @@ func (s *RegistrationCodeDB) Create(ctx context.Context, codes []*RegistrationCo
 			}
 			c.Code = code
 
-			_, err = s.db.ExecContext(ctx,
+			result, err := s.db.ExecContext(ctx,
 				`INSERT INTO registration_codes (code, created_by, note) VALUES (?, ?, ?)`,
 				c.Code, c.CreatedBy, c.Note)
 			if err == nil {
+				id, _ := result.LastInsertId()
+				c.ID = id
 				break
 			}
 			if !isDuplicateEntry(err) {
