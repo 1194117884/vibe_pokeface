@@ -87,10 +87,11 @@ class ApiClient {
     }
   }
 
-  async register(nickname: string, password: string) {
+  async register(nickname: string, password: string, registrationCode: string) {
     const result = await this.request<LoginResult>("POST", "/api/auth/register", {
       nickname,
       password,
+      registration_code: registrationCode,
     });
     if (result.data) {
       this.setUser(result.data.user);
