@@ -36,6 +36,8 @@ interface RoomTableProps {
   maxPlayers?: number;
   tableSize?: "sm" | "lg";
   speechBubbles?: Record<number, string>;
+  waitingLayout?: "grid" | "row";
+  hideCardCount?: boolean;
 }
 
 export function RoomTable({
@@ -54,7 +56,9 @@ export function RoomTable({
   cardsLeftMessage = null,
   maxPlayers = 3,
   speechBubbles = {},
-  compact = false,
+  waitingLayout = "grid",
+  compact = true,
+  hideCardCount = false,
 }: RoomTableProps & { compact?: boolean }) {
   const seatMap = new Map<number, TablePlayer>();
   players.forEach((p) => seatMap.set(p.seat, p));
@@ -114,6 +118,7 @@ export function RoomTable({
         bottomCards={bottomSeat === seatNum ? bottomCards : undefined}
         discardedCards={bottomSeat === seatNum ? discardedCards : undefined}
         compact={compact}
+        hideCardCount={hideCardCount}
         onChangeSeat={() => {
           if (!player && seatNum !== mySeat) {
             onSitDown(seatNum);
@@ -125,12 +130,12 @@ export function RoomTable({
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-between py-2 px-6 pb-44 relative w-full">
+    <div className="flex-1 flex flex-col items-center justify-between px-2 pb-44 relative w-full min-h-0">
       {/* Opponents + Timer Row (middle) */}
       {isGamePhase ? (
-        <div className="w-full flex flex-col items-center gap-2">
+        <div className="w-full flex flex-col items-center gap-1">
           {partnerSeat >= 0 && renderSeat(partnerSeat, "top")}
-          <div className="w-full grid grid-cols-3 justify-items-center items-center gap-y-1.5 px-4">
+          <div className="w-full grid grid-cols-[1fr_minmax(70px,auto)_1fr] justify-items-center items-center gap-y-1 px-1">
             {/* Row 1: top trick cards */}
             <div />
             <div>
@@ -183,9 +188,26 @@ export function RoomTable({
         </div>
       ) : (
         /* Waiting phase: show all seats in a row */
-        <div className="w-full flex justify-center gap-6 items-center">
+        <div
+          className={
+            waitingLayout === "row"
+              ? "flex w-full max-w-[430px] items-start justify-between gap-1 px-1"
+              : "grid w-full max-w-[430px] grid-cols-2 gap-2 px-3"
+          }
+        >
           {Array.from({ length: maxPlayers }, (_, i) => (
-            <div key={i}>{renderSeat(i)}</div>
+            <div
+              key={i}
+              className={
+                waitingLayout === "row"
+                  ? "flex min-w-0 flex-1 justify-center"
+                  : maxPlayers === 3 && i === 2
+                    ? "col-span-2 flex justify-center"
+                    : "flex justify-center"
+              }
+            >
+              {renderSeat(i)}
+            </div>
           ))}
         </div>
       )}
@@ -193,10 +215,10 @@ export function RoomTable({
       {/* Center status during waiting phase */}
       {!isGamePhase && (
         <div className="text-center mb-4">
-          <span className="text-4xl select-none drop-shadow-lg opacity-50">
+          <span className="text-5xl select-none drop-shadow-lg opacity-50">
             🃏
           </span>
-          <p className="text-white/40 text-sm font-medium mt-1">
+          <p className="text-white/60 text-lg font-bold mt-1">
             {phase === "ended" ? "已结束" : "等待中"}
           </p>
         </div>

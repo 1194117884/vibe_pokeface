@@ -81,7 +81,6 @@ export default function RegisterPage() {
           error={regCodeError}
           inputMode="numeric"
           maxLength={6}
-          placeholder="6位数字"
         />
         <Button type="submit" fullWidth disabled={loading}>
           {loading ? "Creating account..." : "Create Account"}

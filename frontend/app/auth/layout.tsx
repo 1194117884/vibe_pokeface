@@ -7,7 +7,7 @@ export default function AuthLayout({
 }) {
   return (
     <div
-      className="min-h-screen flex flex-col items-center justify-center bg-cream px-4"
+      className="mobile-page flex flex-col items-center justify-center bg-cream py-5"
       style={{
         paddingTop: "var(--safe-area-top, 0px)",
         paddingBottom: "var(--safe-area-bottom, 0px)",
@@ -15,13 +15,13 @@ export default function AuthLayout({
         paddingRight: "var(--safe-area-right, 0px)",
       }}
     >
-      <Link href="/" className="mb-6 lg:mb-8 flex items-center gap-2">
+      <Link href="/" className="mb-5 flex items-center gap-2">
         <span className="text-3xl">🎴</span>
         <span className="text-xl font-bold text-starbucks tracking-tight">
           PokeFace
         </span>
       </Link>
-      <div className="w-full max-w-md mx-0 lg:mx-4">{children}</div>
+      <div className="w-full max-w-[430px]">{children}</div>
     </div>
   );
 }

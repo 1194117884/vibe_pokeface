@@ -27,11 +27,11 @@ export function ReadyBar({
   const roomFull = playerCount >= maxPlayers;
 
   return (
-    <div className="flex items-center justify-center gap-6 py-4">
+    <div className="grid w-full grid-cols-2 gap-2 px-3 py-3">
       {amIOwner && !roomFull && (
         <button
           onClick={onAddBot}
-          className="px-10 py-3 rounded-full bg-white/5 backdrop-blur-md border border-white/20 text-on-surface text-button-text font-button-text hover:bg-white/10 active:scale-95 transition-all"
+          className="min-h-14 rounded-full bg-white/5 px-4 py-3 text-lg font-black text-on-surface backdrop-blur-md border border-white/20 active:scale-95 transition-all"
         >
           + 添加AI ({playerCount}/{maxPlayers})
         </button>
@@ -39,7 +39,7 @@ export function ReadyBar({
 
       <button
         onClick={onReady}
-        className={`px-10 py-3 rounded-full text-button-text font-button-text active:scale-95 transition-all ${
+        className={`min-h-14 rounded-full px-4 py-3 text-lg font-black active:scale-95 transition-all ${!amIOwner ? "col-span-2" : ""} ${
           isReady
             ? "bg-white/5 backdrop-blur-md border border-white/20 text-on-surface hover:bg-white/10"
             : "bg-gradient-to-b from-secondary-container to-on-secondary-container text-on-secondary-fixed hover:brightness-110 shadow-[inset_0_2px_0_rgba(255,255,255,0.4),0_4px_6px_rgba(0,0,0,0.2)]"
@@ -53,7 +53,8 @@ export function ReadyBar({
           onClick={onStartGame}
           disabled={!canStart}
           className={clsx(
-            "px-10 py-3 rounded-full text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all",
+            roomFull ? "col-span-1" : "col-span-2",
+            "min-h-14 rounded-full px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all",
             canStart
               ? "gold-button animate-pulse"
               : "bg-white/5 backdrop-blur-md border border-white/20 text-on-surface-variant disabled:opacity-60"

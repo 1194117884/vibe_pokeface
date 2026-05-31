@@ -94,16 +94,18 @@ export class WSGameClient {
   private roomId: string | null = null;
   private autoJoinRoomId: string | null = null;
   private gameType: string;
+  private roomPassword: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private destroyed = false;
 
-  constructor(userId: number, token: string, autoJoinRoomId?: string, gameType?: string) {
+  constructor(userId: number, token: string, autoJoinRoomId?: string, gameType?: string, roomPassword?: string) {
     const baseUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
     this.url = `${baseUrl}/ws?user_id=${userId}`;
     this.token = token;
     this.autoJoinRoomId = autoJoinRoomId || null;
     this.gameType = gameType || "doudizhu";
+    this.roomPassword = roomPassword || "";
   }
 
   connect() {
@@ -177,9 +179,13 @@ export class WSGameClient {
     this.ws.send(JSON.stringify(msg));
   }
 
-  joinRoom(roomId: string, gameType?: string) {
+  joinRoom(roomId: string, gameType?: string, roomPassword?: string) {
     this.roomId = roomId;
-    this.send("join_room", roomId, { game_type: gameType || "doudizhu" });
+    const password = roomPassword ?? this.roomPassword;
+    this.send("join_room", roomId, {
+      game_type: gameType || "doudizhu",
+      ...(password ? { password } : {}),
+    });
   }
 
   leaveRoom() {
@@ -205,6 +211,13 @@ export class WSGameClient {
 
   startGame() {
     this.send("start_game", this.roomId || undefined);
+  }
+
+  rejoinRoom(password: string): void {
+    this.send("join_room", this.roomId || undefined, {
+      game_type: this.gameType,
+      password,
+    });
   }
 
   addBot(characterId?: number) {

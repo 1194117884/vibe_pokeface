@@ -11,7 +11,9 @@ import { apiClient } from "@/lib/api-client";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/lobby";
+  const redirectParam = searchParams.get("redirect") || "";
+  // Only allow relative paths (start with /) to prevent open redirect attacks
+  const redirectTo = redirectParam.startsWith("/") ? redirectParam : "/lobby";
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -46,8 +48,8 @@ function LoginForm() {
     <Card padding="lg">
       <div className="text-center mb-8">
         <div className="text-4xl mb-3">🃏</div>
-        <h1 className="text-2xl font-bold text-starbucks">Sign In</h1>
-        <p className="text-sm text-text-black-soft mt-1">
+        <h1 className="text-3xl font-black text-starbucks">Sign In</h1>
+        <p className="text-base font-bold text-text-black-soft mt-1">
           Sign in with your nickname and password
         </p>
       </div>
@@ -71,7 +73,7 @@ function LoginForm() {
       </form>
 
       <div className="mt-8 pt-6 border-t border-cream text-center">
-        <p className="text-sm text-text-black-soft">
+        <p className="text-base font-bold text-text-black-soft">
           Don&apos;t have an account?{" "}
           <Link
             href="/auth/register"

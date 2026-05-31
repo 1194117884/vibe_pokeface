@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -154,12 +155,33 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	}
 
 	gameType := "doudizhu"
+	password := ""
 	if len(msg.Data) > 0 {
 		var joinData struct {
 			GameType string `json:"game_type"`
+			Password string `json:"password"`
 		}
-		if err := json.Unmarshal(msg.Data, &joinData); err == nil && joinData.GameType != "" {
-			gameType = joinData.GameType
+		if err := json.Unmarshal(msg.Data, &joinData); err == nil {
+			if joinData.GameType != "" {
+				gameType = joinData.GameType
+			}
+			password = joinData.Password
+		}
+	}
+
+	if roomMeta, ok := h.loadRoomMeta(client, roomID); !ok {
+		return
+	} else if roomMeta != nil {
+		if roomMeta.Status == "ended" {
+			h.sendError(client, "room is closed")
+			return
+		}
+		if roomMeta.GameType != "" {
+			gameType = roomMeta.GameType
+		}
+		if requiresRoomPassword(roomMeta) && password != *roomMeta.Password {
+			h.sendError(client, "room password required")
+			return
 		}
 	}
 
@@ -170,21 +192,13 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 		// or if it was closed and deleted
 		engine, err := game.NewEngine(gameType)
 		if err != nil {
-			errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: fmt.Sprintf("unsupported game type: %s", gameType)})
-			select {
-			case client.Send <- errMsg:
-			default:
-			}
+			h.sendError(client, fmt.Sprintf("unsupported game type: %s", gameType))
 			return
 		}
 		room = h.RoomManager.GetOrCreateRoom(roomID, gameType, engine)
 	}
 	if room == nil || room.Closed {
-		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: "room is closed"})
-		select {
-		case client.Send <- errMsg:
-		default:
-		}
+		h.sendError(client, "room is closed")
 		return
 	}
 
@@ -202,12 +216,36 @@ func (h *Hub) handleJoinRoom(client *Client, msg C2SMessage) {
 	}
 
 	if err := room.AddPlayer(client.ID, nickname, characterID, client.Send); err != nil {
-		errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: err.Error()})
-		select {
-		case client.Send <- errMsg:
-		default:
-		}
+		h.sendError(client, err.Error())
 		return
+	}
+}
+
+func (h *Hub) loadRoomMeta(client *Client, roomID string) (*model.Room, bool) {
+	if h.GameStore == nil {
+		return nil, true
+	}
+	roomMeta, err := h.GameStore.GetRoom(context.Background(), roomID)
+	if err == nil {
+		return roomMeta, true
+	}
+	if err == sql.ErrNoRows {
+		return nil, true
+	}
+	log.Printf("ERROR loading room metadata for join: %v", err)
+	h.sendError(client, "failed to load room")
+	return nil, false
+}
+
+func requiresRoomPassword(room *model.Room) bool {
+	return room != nil && room.Password != nil && *room.Password != ""
+}
+
+func (h *Hub) sendError(client *Client, message string) {
+	errMsg, _ := json.Marshal(S2CMessage{Type: "error", Data: message})
+	select {
+	case client.Send <- errMsg:
+	default:
 	}
 }
 

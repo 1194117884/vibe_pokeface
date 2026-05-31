@@ -21,6 +21,18 @@ export interface RoomInfo {
   ownerId: number;
 }
 
+interface RoomInfoResponse {
+  id: string;
+  name: string;
+  game_type: string;
+  status: string;
+  max_players: number;
+  player_count: number;
+  is_open: boolean;
+  has_password: boolean;
+  owner_id: number;
+}
+
 export async function createRoom(params: CreateRoomParams): Promise<string> {
   const token = localStorage.getItem("token");
   const res = await fetch(`${API_BASE}/api/rooms`, {
@@ -37,7 +49,10 @@ export async function createRoom(params: CreateRoomParams): Promise<string> {
       password: params.password || undefined,
     }),
   });
-  if (!res.ok) throw new Error("Failed to create room");
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || "Failed to create room");
+  }
   const data = await res.json();
   return data.room_id;
 }
@@ -74,7 +89,18 @@ export async function listRooms(): Promise<RoomInfo[]> {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return [];
-    return res.json();
+    const data = (await res.json()) as RoomInfoResponse[];
+    return data.map((room) => ({
+      id: room.id,
+      name: room.name,
+      game_type: room.game_type,
+      status: room.status,
+      maxPlayers: room.max_players,
+      playerCount: room.player_count,
+      isOpen: room.is_open,
+      hasPassword: room.has_password,
+      ownerId: room.owner_id,
+    }));
   } catch {
     return [];
   }

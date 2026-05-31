@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
 import { HandCards } from "@/components/game/HandCards";
 import { ActionBar } from "@/components/game/ActionBar";
+import { GamePhasePrompt } from "@/components/game/GamePhasePrompt";
+import { PasswordPrompt } from "@/components/game/PasswordPrompt";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { VoiceButton } from "@/components/chat/VoiceButton";
 import { LiveKitClient } from "@/lib/livekit-client";
@@ -209,6 +211,32 @@ const GAME_CONFIG: Record<string, { maxPlayers: number; tableSize: "sm" | "lg" }
   doudizhu: { maxPlayers: 3, tableSize: "lg" },
 };
 
+function getDoudizhuPrompt(
+  phase: "waiting" | "calling" | "snatching" | "revealing" | "doubling" | "playing" | "ended",
+  isMyTurn: boolean,
+  currentPlayerName?: string,
+  errorMessage?: string | null,
+): { title: string; detail?: string; tone: "action" | "waiting" | "error" } {
+  if (errorMessage) return { title: errorMessage, detail: "请重新选择或等待下一步", tone: "error" };
+  if (phase === "waiting") return { title: "等待开始", detail: "先点准备，人数到齐后房主开始游戏", tone: "waiting" };
+  if (phase === "ended") return { title: "本局结束", detail: "查看得分后可以再来一局", tone: "waiting" };
+  if (!isMyTurn) return { title: "请稍等", detail: `正在等待 ${currentPlayerName ?? "其他玩家"} 操作`, tone: "waiting" };
+  switch (phase) {
+    case "calling":
+      return { title: "轮到你叫地主", detail: "请选择“叫地主”或“不叫”", tone: "action" };
+    case "snatching":
+      return { title: "轮到你抢地主", detail: "请选择“抢地主”或“不抢”", tone: "action" };
+    case "revealing":
+      return { title: "轮到你选择明牌", detail: "可点“明牌”，也可以点“不明牌”", tone: "action" };
+    case "doubling":
+      return { title: "轮到你选择加倍", detail: "可点“加倍”，也可以点“不加倍”", tone: "action" };
+    case "playing":
+      return { title: "轮到你出牌", detail: "先点选手牌，再点“出牌”；不要出就点“不出”", tone: "action" };
+    default:
+      return { title: "请查看当前提示", tone: "waiting" };
+  }
+}
+
 function toTablePlayer(p: ServerPlayer): TablePlayer {
   return {
     userId: String(p.user_id ?? p.userId ?? ""),
@@ -265,7 +293,9 @@ function getUserIdFromToken(): string {
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const roomId = params.id as string;
+  const roomPassword = searchParams.get("password") || "";
 
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [mySeat, setMySeat] = useState<number | null>(null);
@@ -294,6 +324,9 @@ export default function RoomPage() {
   const [multiplier, setMultiplier] = useState(1);
   const [roomScores, setRoomScores] = useState<Record<string, number>>({});
   const [showSettings, setShowSettings] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
   const gameConfig = GAME_CONFIG[gameType] || GAME_CONFIG.doudizhu;
   const [speechBubbles, setSpeechBubbles] = useState<Record<number, string>>({});
   const [audioMuted, setAudioMuted] = useState<boolean>(() => {
@@ -326,7 +359,8 @@ export default function RoomPage() {
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
-      router.push("/auth/login");
+      const currentUrl = window.location.pathname + window.location.search;
+      router.push(`/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
 
@@ -335,14 +369,14 @@ export default function RoomPage() {
       const payload = JSON.parse(atob(token.split(".")[1]));
       userIdStr = String(payload.user_id ?? payload.sub ?? "");
     } catch {
-      router.push("/auth/login");
+      const currentUrl = window.location.pathname + window.location.search;
+      router.push(`/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
 
-    const client = new WSGameClient(Number(userIdStr), token, roomId);
+    const client = new WSGameClient(Number(userIdStr), token, roomId, "doudizhu", roomPassword);
     wsClientRef.current = client;
     const uid = userIdStr;
-    let joined = false;
 
     client.on("player_joined", (msg) => {
       const data = msg.data as ServerData;
@@ -353,7 +387,6 @@ export default function RoomPage() {
       if (data?.theme) setRoomTheme(data.theme);
       if (data?.game_type) setGameType(data.game_type);
       setConnected(true);
-      joined = true;
     });
 
     client.on("player_left", (msg) => {
@@ -515,6 +548,11 @@ export default function RoomPage() {
         window.location.replace("/lobby");
         return;
       }
+      if (errMsg.indexOf("room password required") !== -1) {
+        setPasswordError(roomPassword ? "密码错误，请重试" : "");
+        setShowPasswordPrompt(true);
+        return;
+      }
       setConnected(true);
     });
 
@@ -538,7 +576,7 @@ export default function RoomPage() {
       wsClientRef.current = null;
       client.disconnect();
     };
-  }, [roomId, router]);
+  }, [roomId, roomPassword, router]);
 
   useEffect(() => {
     playersRef.current = players;
@@ -565,6 +603,8 @@ export default function RoomPage() {
     ...p,
     isCurrentTurn: p.seat === currentSeat,
   }));
+  const currentPlayerName = displayPlayers.find((p) => p.seat === currentSeat)?.nickname;
+  const prompt = getDoudizhuPrompt(phase, isMyTurn, currentPlayerName, errorMessage);
 
   const handleSitDown = (seat: number) => {
     wsClientRef.current?.changeSeat(seat);
@@ -650,9 +690,18 @@ export default function RoomPage() {
     }
   };
 
+  const handleCopyInvite = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const inviteUrl = new URL(`/room/${roomId}/doudizhu`, window.location.origin);
+    if (roomPassword) inviteUrl.searchParams.set("password", roomPassword);
+    await navigator.clipboard.writeText(inviteUrl.toString());
+    setInviteCopied(true);
+    window.setTimeout(() => setInviteCopied(false), 1800);
+  }, [roomId, roomPassword]);
+
   if (!connected) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-cream">
+      <div className="mobile-page flex items-center justify-center bg-cream">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🎴</div>
           <p className="text-text-black-soft">连接房间中...</p>
@@ -662,34 +711,34 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-on-background flex flex-col overflow-hidden">
+    <div className="mobile-game-shell bg-background text-on-background flex flex-col">
       {/* Top Navigation — Stitch compact header */}
       <header className={clsx(
-        "fixed top-0 left-0 w-full z-50 flex items-center justify-between px-4 h-10 bg-gradient-to-b from-black/40 to-transparent",
+        "fixed left-0 top-[var(--safe-area-top)] w-full z-50 flex h-11 items-center justify-between px-3 bg-gradient-to-b from-black/50 to-transparent",
         compactUI && "landscape-nav"
       )}>
-        <div className="flex items-center gap-3">
-          <span className="text-secondary-fixed text-sm font-black tracking-tight uppercase">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-secondary-fixed text-base font-black tracking-tight uppercase">
             房间 {roomId.slice(0, 4)}
           </span>
-          <div className="flex items-center bg-black/30 rounded-full px-3 py-0.5 border border-outline-variant/30">
-            <span className="text-secondary-fixed text-xs font-bold mr-1">$</span>
+          <div className="flex items-center bg-black/30 rounded-full px-2 py-0.5 border border-outline-variant/30">
+            <span className="text-secondary-fixed text-sm font-bold mr-1">$</span>
             <span className={clsx(
-              "text-xs font-bold",
+              "text-sm font-black",
               myCumulativeScore >= 0 ? "text-secondary-fixed" : "text-error"
             )}>
               {myCumulativeScore >= 0 ? "+" : ""}{myCumulativeScore}
             </span>
           </div>
-          <div className="bg-black/30 px-2 py-0.5 rounded border border-outline-variant/30 flex items-center gap-2">
-            <span className="text-[10px] font-bold text-on-surface-variant uppercase">倍数</span>
-            <span className="text-secondary-fixed text-xs font-bold">x{multiplier}</span>
+          <div className="bg-black/30 px-2 py-0.5 rounded border border-outline-variant/30 flex items-center gap-1.5">
+            <span className="text-xs font-bold text-on-surface-variant uppercase">倍数</span>
+            <span className="text-secondary-fixed text-sm font-black">x{multiplier}</span>
           </div>
         </div>
         <div className="relative">
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="text-on-surface-variant hover:text-secondary-fixed transition-colors text-xl leading-none"
+            className="flex h-10 w-10 items-center justify-center text-on-surface-variant hover:text-secondary-fixed transition-colors text-xl leading-none"
             aria-label="Settings"
           >
             ⚙
@@ -700,7 +749,7 @@ export default function RoomPage() {
               <div className="absolute right-0 top-8 z-50 bg-surface-container-high rounded-xl border border-outline-variant shadow-frap p-1.5 min-w-[140px] flex flex-col">
                 <button
                   onClick={() => { handleVoiceToggle(!micEnabled); }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-sm transition-colors w-full text-left"
+                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-base font-bold transition-colors w-full text-left"
                   style={{ color: micEnabled ? "#8ed5af" : undefined }}
                 >
                   <span className="text-base">{micEnabled ? "🎤" : "🤐"}</span>
@@ -712,7 +761,7 @@ export default function RoomPage() {
                     setAudioMuted(next);
                     localStorage.setItem("audio_muted", String(next));
                   }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-sm transition-colors w-full text-left"
+                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-base font-bold transition-colors w-full text-left"
                   style={{ color: audioMuted ? undefined : "#8ed5af" }}
                 >
                   <span className="text-base">{audioMuted ? "🔇" : "🔊"}</span>
@@ -721,15 +770,22 @@ export default function RoomPage() {
                 <hr className="border-outline-variant my-0.5" />
                 <button
                   onClick={() => { setShowSettings(false); setChatOpen(true); }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-sm transition-colors w-full text-left"
+                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-base font-bold transition-colors w-full text-left"
                 >
                   <span className="text-base">💬</span>
                   聊天
                 </button>
+                <button
+                  onClick={() => { void handleCopyInvite(); }}
+                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-base font-bold transition-colors w-full text-left"
+                >
+                  <span className="text-base">🔗</span>
+                  {inviteCopied ? "已复制" : "邀请链接"}
+                </button>
                 <hr className="border-outline-variant my-0.5" />
                 <button
                   onClick={() => router.push("/lobby")}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-error-container text-error text-sm transition-colors w-full text-left"
+                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-error-container text-error text-base font-bold transition-colors w-full text-left"
                 >
                   <span className="text-base">🚪</span>
                   退出
@@ -742,18 +798,19 @@ export default function RoomPage() {
 
       {/* Main Game Canvas — Imperial Emerald table */}
       <RoomThemeProvider themeId={roomTheme || "imperial-emerald"}>
-        <main className={clsx("flex-grow flex flex-col items-center justify-center pt-10 relative", compactUI && "landscape-main")}
+        <main className={clsx("relative flex min-h-0 flex-grow flex-col items-center justify-center pt-12", compactUI && "landscape-main")}
           style={{
             background: "radial-gradient(circle, #1a7452 0%, #063a27 100%)",
           }}
         >
           {/* Lattice pattern overlay */}
           <div className="absolute inset-0 pointer-events-none lattice-overlay" />
+          <GamePhasePrompt title={prompt.title} detail={prompt.detail} tone={prompt.tone} />
           {players.length === 0 ? (
             <div className="text-center text-on-surface-variant text-lg">房间是空的</div>
           ) : (
             <>
-              <div className={clsx("w-full flex-1 flex flex-col", compactUI && "landscape-table")}>
+              <div className={clsx("w-full min-h-0 flex-1 flex flex-col", compactUI && "landscape-table")}>
                 <RoomTable
                   players={displayPlayers}
                   mySeat={mySeat ?? 0}
@@ -767,17 +824,12 @@ export default function RoomPage() {
                   maxPlayers={gameConfig.maxPlayers}
                   tableSize={gameConfig.tableSize}
                   speechBubbles={speechBubbles}
-                  compact={compactUI}
+                  compact
                 />
               </div>
 
               {/* Waiting phase: Ready/Start controls */}
               {phase === "waiting" && (<>
-              {errorMessage && (
-                <div className="w-full max-w-lg px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
-                  {errorMessage}
-                </div>
-              )}
                 <ReadyBar
                   amIOwner={amIOwner}
                   isReady={amIReady}
@@ -798,15 +850,10 @@ export default function RoomPage() {
 
       {/* Bottom area: bidding controls + hand cards */}
       {(phase !== "waiting" && phase !== "ended") && (
-        <div className={clsx("fixed bottom-0 w-full flex flex-col items-center z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8", compactUI && "landscape-bottom-bar")}>
+        <div className={clsx("mobile-bottom-controls fixed bottom-0 w-full flex flex-col items-center z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-5", compactUI && "landscape-bottom-bar")}>
           {/* Bidding action buttons — above the hand cards */}
           {(phase === "calling" || phase === "snatching" || phase === "revealing" || phase === "doubling") && (
-            <div className="w-full max-w-3xl space-y-2 mb-2">
-              {errorMessage && (
-                <div className="px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
-                  {errorMessage}
-                </div>
-              )}
+            <div className="w-full max-w-[430px] space-y-2 mb-2">
               <ActionBar
                 phase={phase}
                 isMyTurn={isMyTurn}
@@ -818,17 +865,17 @@ export default function RoomPage() {
                 onNoDouble={handleNoDouble}
               />
               {(phase === "calling" || phase === "snatching") && !isMyTurn && (
-                <p className="text-center text-sm text-white/60 animate-pulse">
+                <p className="text-center text-base font-bold text-white/80 animate-pulse">
                   {phase === "calling" ? "等待其他玩家叫地主..." : "等待其他玩家抢地主..."}
                 </p>
               )}
               {phase === "revealing" && !isMyTurn && (
-                <p className="text-center text-sm text-white/60 animate-pulse">
+                <p className="text-center text-base font-bold text-white/80 animate-pulse">
                   等待其他玩家明牌...
                 </p>
               )}
               {phase === "doubling" && !isMyTurn && (
-                <p className="text-center text-sm text-white/60 animate-pulse">
+                <p className="text-center text-base font-bold text-white/80 animate-pulse">
                   等待其他玩家加倍...
                 </p>
               )}
@@ -849,22 +896,22 @@ export default function RoomPage() {
       {chatOpen && (
         <div className="fixed inset-0 z-50 flex flex-col">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setChatOpen(false)} />
-          <div className="absolute bottom-0 left-0 right-0 bg-surface-container-high rounded-t-2xl shadow-frap flex flex-col max-h-[70vh] pb-[var(--safe-area-bottom,0px)] border-t border-outline-variant">
+          <div className="absolute bottom-0 left-0 right-0 bg-surface-container-high rounded-t-2xl shadow-frap flex flex-col h-[72dvh] pb-[var(--safe-area-bottom,0px)] border-t border-outline-variant">
             <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/50">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-on-surface">聊天</span>
+                <span className="text-lg font-bold text-on-surface">聊天</span>
               </div>
               <div className="flex items-center gap-1">
                 <VoiceButton onToggle={handleVoiceToggle} disabled={!connected} />
                 <button
                   onClick={() => setChatOpen(false)}
-                  className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+                  className="w-11 h-11 rounded-full bg-surface-container flex items-center justify-center text-xl text-on-surface-variant hover:bg-surface-container-highest transition-colors"
                 >
                   ✕
                 </button>
               </div>
             </div>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 p-2">
               <ChatPanel messages={chatMessages} onSendMessage={handleSendChat} disabled={!connected} />
             </div>
           </div>
@@ -881,23 +928,23 @@ export default function RoomPage() {
       {/* Round end overlay */}
       {phase === "ended" && roundResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-surface-container-high rounded-2xl shadow-frap p-8 max-w-sm w-full mx-4 text-center border border-outline-variant">
-            <h2 className="text-2xl font-bold text-on-surface mb-2">🎉 本局结束</h2>
+          <div className="bg-surface-container-high rounded-2xl shadow-frap p-5 max-w-[390px] w-full mx-4 text-center border border-outline-variant">
+            <h2 className="text-3xl font-black text-on-surface mb-2">本局结束</h2>
             <div className="space-y-3 my-6">
               {players.map((p) => {
                 const score = roundResult.scores.find((s) => s.player_id === p.seat);
                 const isPositive = score && score.score > 0;
                 return (
                   <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-surface-container rounded-xl">
-                    <span className="font-medium text-on-surface">{p.nickname || p.name}</span>
-                    <span className={`font-bold text-lg ${isPositive ? "text-primary" : "text-error"}`}>
+                    <span className="text-lg font-bold text-on-surface">{p.nickname || p.name}</span>
+                    <span className={`text-xl font-black ${isPositive ? "text-primary" : "text-error"}`}>
                       {score ? (score.score > 0 ? "+" : "") + score.score : "0"}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <div className="flex gap-3 justify-center">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
                   setPhase("waiting");
@@ -909,13 +956,13 @@ export default function RoomPage() {
                   setCurrentSeat(undefined);
                   handleReady();
                 }}
-                className="px-6 py-2 rounded-full gold-button font-bold hover:brightness-110 active:scale-95 transition-all"
+                className="min-h-14 px-4 py-3 rounded-full gold-button text-lg font-black hover:brightness-110 active:scale-95 transition-all"
               >
                 再来一局
               </button>
               <button
                 onClick={() => router.push("/lobby")}
-                className="px-6 py-2 rounded-full emerald-button font-bold hover:brightness-110 active:scale-95 transition-all"
+                className="min-h-14 px-4 py-3 rounded-full emerald-button text-lg font-black hover:brightness-110 active:scale-95 transition-all"
               >
                 返回大厅
               </button>
@@ -923,6 +970,21 @@ export default function RoomPage() {
           </div>
         </div>
       )}
+
+      <PasswordPrompt
+        open={showPasswordPrompt}
+        error={passwordError}
+        loading={false}
+        onSubmit={(pw) => {
+          setPasswordError("");
+          wsClientRef.current?.rejoinRoom(pw);
+          setShowPasswordPrompt(false);
+        }}
+        onCancel={() => {
+          setShowPasswordPrompt(false);
+          router.push("/lobby");
+        }}
+      />
     </div>
   );
 }

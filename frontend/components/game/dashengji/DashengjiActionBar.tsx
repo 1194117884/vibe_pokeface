@@ -18,11 +18,11 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       // Only dealer team can set trump
       if (!isDealerTeam) return null;
       return (
-        <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" onClick={() => onAction("set_trump", selectedCards)}>
+        <div className="grid grid-cols-2 gap-2 px-3 pt-2">
+          <button className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black" onClick={() => onAction("set_trump", selectedCards)}>
             定主
           </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" onClick={() => onAction("pass_trump")}>
+          <button className="min-h-14 rounded-full bg-white/10 px-4 py-3 text-lg font-black text-white/80 hover:bg-white/20" onClick={() => onAction("pass_trump")}>
             不定
           </button>
         </div>
@@ -31,11 +31,11 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       // Only non-dealer team (闲家) can counter trump
       if (isDealerTeam) return null;
       return (
-        <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" onClick={() => onAction("counter_trump", selectedCards)}>
+        <div className="grid grid-cols-2 gap-2 px-3 pt-2">
+          <button className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black" onClick={() => onAction("counter_trump", selectedCards)}>
             反主
           </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" onClick={() => onAction("pass_counter")}>
+          <button className="min-h-14 rounded-full bg-white/10 px-4 py-3 text-lg font-black text-white/80 hover:bg-white/20" onClick={() => onAction("pass_counter")}>
             不反
           </button>
         </div>
@@ -44,11 +44,11 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       // Only dealer team can take bottom cards
       if (!isDealerTeam) return null;
       return (
-        <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled} onClick={() => onAction("take_bottom")}>
+        <div className="grid grid-cols-2 gap-2 px-3 pt-2">
+          <button className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black disabled:opacity-40" disabled={disabled} onClick={() => onAction("take_bottom")}>
             起底
           </button>
-          <button className="px-8 py-3 text-lg rounded-xl bg-white/10 text-white/70 hover:bg-white/20" disabled={disabled} onClick={() => onAction("pass_take_bottom")}>
+          <button className="min-h-14 rounded-full bg-white/10 px-4 py-3 text-lg font-black text-white/80 hover:bg-white/20 disabled:opacity-40" disabled={disabled} onClick={() => onAction("pass_take_bottom")}>
             队友起底
           </button>
         </div>
@@ -57,8 +57,8 @@ export function DashengjiActionBar({ phase, isMyTurn, isDealerTeam, selectedCard
       // Only the player who took bottom cards can discard
       if (mySeat == null || mySeat !== takeBottomSeat) return null;
       return (
-        <div className="flex justify-center gap-4 pt-2">
-          <button className="gold-button px-8 py-3 text-lg" disabled={disabled || !selectedCards?.length} onClick={() => onAction("discard_bottom", selectedCards)}>
+        <div className="px-3 pt-2">
+          <button className="min-h-14 w-full rounded-full gold-button px-4 py-3 text-lg font-black disabled:opacity-40" disabled={disabled || !selectedCards?.length} onClick={() => onAction("discard_bottom", selectedCards)}>
             扣底
           </button>
         </div>

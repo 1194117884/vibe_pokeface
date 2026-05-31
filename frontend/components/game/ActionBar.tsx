@@ -32,20 +32,20 @@ export function ActionBar({
   const passLabel = phase === "calling" ? "不叫" : "不抢";
 
   return (
-    <div className="flex justify-center gap-6 py-3">
+    <div className="grid grid-cols-2 gap-2 px-3 py-2">
       {isBidding && (
         <>
           <button
             onClick={onBidCall}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? callLabel : `${callLabel} ⌛`}
           </button>
           <button
             onClick={onBidPass}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full emerald-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? passLabel : `${passLabel} ⌛`}
           </button>
@@ -56,14 +56,14 @@ export function ActionBar({
           <button
             onClick={onReveal}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "明牌" : "明牌 ⌛"}
           </button>
           <button
             onClick={onRevealPass}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full emerald-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "不明牌" : "不明牌 ⌛"}
           </button>
@@ -74,14 +74,14 @@ export function ActionBar({
           <button
             onClick={onDouble}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "加倍" : "加倍 ⌛"}
           </button>
           <button
             onClick={onNoDouble}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full emerald-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "不加倍" : "不加倍 ⌛"}
           </button>
@@ -92,14 +92,14 @@ export function ActionBar({
           <button
             onClick={onPlay}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "出牌" : "出牌 ⌛"}
           </button>
           <button
             onClick={onPass}
             disabled={!isMyTurn}
-            className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className="min-h-14 rounded-full emerald-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
           >
             {isMyTurn ? "不出" : "不出 ⌛"}
           </button>

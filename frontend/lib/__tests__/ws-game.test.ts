@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { WSGameClient } from "../ws-game";
 
 class MockWebSocket {
   onopen: (() => void) | null = null;
@@ -6,14 +7,16 @@ class MockWebSocket {
   onmessage: ((event: { data: string }) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   readyState: number = WebSocket.CONNECTING;
+  sent: string[] = [];
   url: string;
 
   constructor(url: string) {
     this.url = url;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  send(_data: string) {}
+  send(data: string) {
+    this.sent.push(data);
+  }
 
   close(code?: number, reason?: string) {
     this.readyState = WebSocket.CLOSED;
@@ -43,6 +46,10 @@ describe("WebSocket Game Client", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).WebSocket = class extends MockWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 3;
+
       constructor(url: string | URL) {
         super(url.toString());
         mockWsInstances.push(this);
@@ -172,6 +179,60 @@ describe("WebSocket Game Client", () => {
     expect(client.messages[0]).toEqual({
       type: "state_update",
       payload: { room_id: "abc-123", players: [{ id: "me", nickname: "test" }] },
+    });
+  });
+
+  it("should include password when auto-joining an invited room", () => {
+    const client = new WSGameClient(7, "token", "ROOM123", "doudizhu", "secret");
+    client.connect();
+    mockWsInstances[0]._open();
+
+    expect(mockWsInstances[0].sent).toContain(
+      JSON.stringify({
+        type: "join_room",
+        room_id: "ROOM123",
+        data: { game_type: "doudizhu", password: "secret" },
+      })
+    );
+  });
+
+  describe("rejoinRoom", () => {
+    it("sends a join_room message with the correct room_id and password", () => {
+      const client = new WSGameClient(1, "token", "ROOM456", "doudizhu");
+      client.connect();
+      mockWsInstances[0]._open();
+
+      // After auto-join, roomId is set. Clear the sent buffer to check only
+      // the rejoinRoom call. (The auto-join message was already sent on open.)
+      mockWsInstances[0].sent = [];
+
+      client.rejoinRoom("mypassword");
+
+      expect(mockWsInstances[0].sent).toContain(
+        JSON.stringify({
+          type: "join_room",
+          room_id: "ROOM456",
+          data: { game_type: "doudizhu", password: "mypassword" },
+        })
+      );
+    });
+
+    it("sends join_room with empty password string when password is empty", () => {
+      const client = new WSGameClient(2, "token", "ROOM789", "doudizhu");
+      client.connect();
+      mockWsInstances[0]._open();
+
+      mockWsInstances[0].sent = [];
+
+      client.rejoinRoom("");
+
+      expect(mockWsInstances[0].sent).toContain(
+        JSON.stringify({
+          type: "join_room",
+          room_id: "ROOM789",
+          data: { game_type: "doudizhu", password: "" },
+        })
+      );
     });
   });
 });

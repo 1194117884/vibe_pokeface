@@ -29,7 +29,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={clsx(
-          "rounded-pill px-5 py-[10px] lg:px-4 lg:py-[7px] text-sm font-semibold tracking-tight",
+          "min-h-[52px] rounded-pill px-5 py-3 text-base font-bold tracking-tight",
           "transition-all duration-200 ease",
           "active:scale-[0.95]",
           "disabled:opacity-50 disabled:cursor-not-allowed",

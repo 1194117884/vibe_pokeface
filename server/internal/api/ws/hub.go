@@ -63,6 +63,7 @@ type Hub struct {
 	Register    chan *Client
 	Unregister  chan *Client
 	RoomManager *game.RoomManager
+	GameStore   *model.GameStore
 	AIStore     *model.AIStore
 	UserStore   model.UserStore
 }
@@ -73,6 +74,7 @@ func NewHub(store *model.GameStore, aiStore *model.AIStore, userStore model.User
 		Register:    make(chan *Client, 256),
 		Unregister:  make(chan *Client, 256),
 		RoomManager: game.NewRoomManager(store, aiStore),
+		GameStore:   store,
 		AIStore:     aiStore,
 		UserStore:   userStore,
 	}

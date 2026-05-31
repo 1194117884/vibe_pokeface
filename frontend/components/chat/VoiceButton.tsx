@@ -23,7 +23,7 @@ export function VoiceButton({ onToggle, disabled }: VoiceButtonProps) {
       onClick={handleToggle}
       disabled={disabled}
       className={clsx(
-        "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 text-lg border-2 active:scale-[0.95]",
+        "w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 text-2xl border-2 active:scale-[0.95]",
         enabled
           ? "bg-green-accent text-white border-green-accent shadow-md"
           : "bg-white text-text-black-soft border-ceramic hover:border-green-accent/50",

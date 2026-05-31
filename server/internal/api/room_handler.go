@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 
 	"github.com/yongkl/vibe-pokeface/internal/api/middleware"
 	"github.com/yongkl/vibe-pokeface/internal/auth"
@@ -24,7 +25,8 @@ type CreateRoomRequest struct {
 }
 
 type CreateRoomResponse struct {
-	RoomID string `json:"room_id"`
+	RoomID     string `json:"room_id"`
+	InvitePath string `json:"invite_path"`
 }
 
 type RoomListItem struct {
@@ -54,6 +56,17 @@ func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxPlayers < 2 || req.MaxPlayers > 4 {
 		req.MaxPlayers = 3
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Password = strings.TrimSpace(req.Password)
+	if req.IsOpen {
+		req.Password = ""
+	} else if req.Password == "" {
+		http.Error(w, `{"error":"password required for private room"}`, http.StatusBadRequest)
+		return
+	} else if len(req.Password) > 64 {
+		http.Error(w, `{"error":"password too long"}`, http.StatusBadRequest)
+		return
 	}
 
 	claims, ok := r.Context().Value(middleware.ClaimsKey).(*auth.Claims)
@@ -92,7 +105,10 @@ func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(CreateRoomResponse{RoomID: roomID})
+	json.NewEncoder(w).Encode(CreateRoomResponse{
+		RoomID:     roomID,
+		InvitePath: "/room/" + roomID + "/" + req.GameType,
+	})
 }
 
 func (h *RoomHandler) ListRooms(w http.ResponseWriter, r *http.Request) {

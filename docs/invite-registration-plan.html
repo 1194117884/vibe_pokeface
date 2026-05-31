@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title>邀请注册改造计划</title>
+  <style>
+    :root {
+      --bg: #f4f1e8;
+      --panel: #fffaf1;
+      --text: #1f1a17;
+      --muted: #6b6258;
+      --line: #e3d7c6;
+      --accent: #0f6b3a;
+      --accent-2: #b56a00;
+      --danger: #b42318;
+      --shadow: 0 18px 40px rgba(31, 26, 23, 0.08);
+      --radius: 18px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+        "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(15, 107, 58, 0.08), transparent 28%),
+        radial-gradient(circle at top right, rgba(181, 106, 0, 0.08), transparent 24%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    .hero {
+      background: linear-gradient(180deg, rgba(15, 107, 58, 0.96), rgba(15, 107, 58, 0.90));
+      color: #fff;
+      border-radius: 24px;
+      padding: 24px 20px;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 6px 12px;
+      border-radius: 999px;
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-size: clamp(30px, 5vw, 46px);
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      max-width: 64ch;
+      color: rgba(255, 255, 255, 0.88);
+      font-size: 16px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 22px;
+      line-height: 1.2;
+      color: #1e1915;
+    }
+
+    .card p {
+      margin: 0 0 10px;
+      color: var(--text);
+    }
+
+    .card p:last-child {
+      margin-bottom: 0;
+    }
+
+    ul {
+      margin: 10px 0 0;
+      padding-left: 1.2em;
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    .section-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      background: rgba(15, 107, 58, 0.08);
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent-2);
+      background: #fff5e8;
+      padding: 14px 14px 14px 16px;
+      border-radius: 14px;
+      margin-top: 14px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #eee4d7;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      background: #faf5ec;
+      color: #2a241f;
+      font-weight: 800;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag-green {
+      color: var(--accent);
+      background: rgba(15, 107, 58, 0.12);
+    }
+
+    .tag-amber {
+      color: var(--accent-2);
+      background: rgba(181, 106, 0, 0.12);
+    }
+
+    .tag-red {
+      color: var(--danger);
+      background: rgba(180, 35, 24, 0.10);
+    }
+
+    .footer {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.96em;
+      background: rgba(31, 26, 23, 0.06);
+      padding: 0.12em 0.36em;
+      border-radius: 6px;
+    }
+
+    @media (min-width: 860px) {
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero {
+        padding: 30px 28px;
+      }
+
+      .card {
+        padding: 22px 20px;
+      }
+
+      .span-2 {
+        grid-column: 1 / -1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero" aria-labelledby="title">
+      <div class="eyebrow">邀请注册改造计划</div>
+      <h1 id="title">必须使用注册码注册，关闭随机注册入口</h1>
+      <p class="subtitle">
+        本文档用于冻结邀请注册方案，作为后续实现、测试与验收的唯一参考。目标是把现有账号注册收口为“必须输入一次性邀请码”，并同步补齐后台管理与游客入口收束。
+      </p>
+      <div class="meta" aria-label="document metadata">
+        <span class="pill">状态：计划冻结前版本</span>
+        <span class="pill">范围：后端 / 前端 / 管理后台</span>
+        <span class="pill">约束：一次性邀请码</span>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="plan sections">
+      <article class="card span-2">
+        <div class="section-note">1. 目标</div>
+        <h2>把注册改成“邀请制”，不再支持随机注册</h2>
+        <p>当前系统的注册入口只需要昵称和密码，且还存在游客登录自动创建账号的路径。改造后，任何新账号都必须由管理员发放的邀请码完成注册，避免随意注册和账号泛滥。</p>
+        <div class="callout">
+          <strong>核心结果：</strong>
+          普通用户无法绕过邀请码直接注册；邀请码成功使用后立即失效；游客登录不再创建新账号。
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-note">2. 冻结 Specs</div>
+        <h2>本次必须达成的验收点</h2>
+        <ul>
+          <li>注册接口必须校验 <code>registration_code</code>，缺失直接拒绝。</li>
+          <li>邀请码为一次性使用，注册成功后即标记为已使用。</li>
+          <li>游客登录保留路由，但不再创建用户，统一返回 <span class="tag tag-red">403</span>。</li>
+          <li>后台提供邀请码的生成、列表、禁用能力。</li>
+          <li>前端注册页必须显示邀请码输入框，并能在手机上清晰操作。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="section-note">3. 非目标</div>
+        <h2>本期不做的事</h2>
+        <ul>
+          <li>不做开放式自助注册。</li>
+          <li>不做复杂的多次使用邀请码策略。</li>
+          <li>不做邀请码前台公开领取页面。</li>
+          <li>不改现有登录方式，只收紧注册路径。</li>
+        </ul>
+      </article>
+
+      <article class="card span-2">
+        <div class="section-note">4. 接口契约</div>
+        <h2>后端与前端的调用约定</h2>
+        <div class="table-wrap" role="region" aria-label="interface contract table">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 22%;">接口 / 组件</th>
+                <th style="width: 22%;">输入</th>
+                <th style="width: 22%;">输出 / 行为</th>
+                <th>错误与约束</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>POST /api/auth/register</code></td>
+                <td><code>nickname</code>、<code>password</code>、<code>registration_code</code></td>
+                <td>成功后返回 token 与用户信息</td>
+                <td>缺码 <span class="tag tag-amber">400</span>；无效/已用/已禁用 <span class="tag tag-red">403</span>；昵称重复 <span class="tag tag-amber">409</span></td>
+              </tr>
+              <tr>
+                <td><code>POST /api/auth/guest</code></td>
+                <td>无</td>
+                <td>不再创建随机账号</td>
+                <td>固定返回 <span class="tag tag-red">403</span>，提示游客注册已关闭</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/admin/registration-codes</code></td>
+                <td>管理员 JWT</td>
+                <td>邀请码列表</td>
+                <td>非管理员由现有 admin middleware 拦截</td>
+              </tr>
+              <tr>
+                <td><code>POST /api/admin/registration-codes</code></td>
+                <td>生成数量、备注等管理参数</td>
+                <td>创建一次性邀请码</td>
+                <td>管理员权限必需</td>
+              </tr>
+              <tr>
+                <td><code>PUT /api/admin/registration-codes/{id}/disable</code></td>
+                <td>邀请码 ID</td>
+                <td>禁用未使用的邀请码</td>
+                <td>已使用码不可再变更为可用</td>
+              </tr>
+              <tr>
+                <td><code>apiClient.register()</code></td>
+                <td>昵称、密码、注册码</td>
+                <td>发送注册请求</td>
+                <td>前端必须同步更新请求体结构</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-note">5. 数据模型</div>
+        <h2>邀请码表的职责</h2>
+        <ul>
+          <li>保存邀请码本身和使用状态。</li>
+          <li>记录创建时间、使用时间、创建人和使用人。</li>
+          <li>支持一次性消耗，避免并发重复注册。</li>
+          <li>支持后台列表查询和禁用。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="section-note">6. 前端改动</div>
+        <h2>注册页与管理页都要改</h2>
+        <ul>
+          <li>注册页新增“注册码”输入框，必须填写。</li>
+          <li>错误文案要短、明确、适合老人识别。</li>
+          <li>后台新增邀请码管理页面，可生成、复制、查看、禁用。</li>
+          <li>页面在手机宽度下不能出现拥挤或被裁切的情况。</li>
+        </ul>
+      </article>
+
+      <article class="card span-2">
+        <div class="section-note">7. 测试计划</div>
+        <h2>按契约先测，再实现</h2>
+        <div class="table-wrap" role="region" aria-label="test plan table">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 24%;">测试范围</th>
+                <th style="width: 38%;">要覆盖的场景</th>
+                <th>验收标准</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>后端注册</td>
+                <td>缺码、错码、已用码、成功注册、并发消耗同一码</td>
+                <td>所有分支返回稳定且符合约定的状态码与错误信息</td>
+              </tr>
+              <tr>
+                <td>游客入口</td>
+                <td>调用 <code>/api/auth/guest</code></td>
+                <td>始终返回 <span class="tag tag-red">403</span>，不产生新账号</td>
+              </tr>
+              <tr>
+                <td>后台接口</td>
+                <td>邀请码生成、列表、禁用、权限校验</td>
+                <td>管理员可操作，普通用户被拦截</td>
+              </tr>
+              <tr>
+                <td>前端请求</td>
+                <td><code>apiClient.register</code> 请求体字段校验</td>
+                <td>请求中必须带上 <code>registration_code</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-note">8. 实施顺序</div>
+        <h2>先后顺序要固定</h2>
+        <ul>
+          <li>先定后端数据模型和接口契约。</li>
+          <li>再写测试用例，覆盖一次性邀请码和游客关闭路径。</li>
+          <li>再改后端注册与后台邀请码接口。</li>
+          <li>最后改前端注册页和管理员页面。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="section-note">9. 默认假设</div>
+        <h2>没有额外说明时按这个执行</h2>
+        <ul>
+          <li>邀请码由管理员后台生成，不开放给普通用户。</li>
+          <li>邀请码第一版只做一次性使用，不做多次复用。</li>
+          <li>保留游客接口路径，避免兼容性断裂，但它不再创建账号。</li>
+        </ul>
+      </article>
+
+      <article class="card span-2">
+        <div class="section-note">10. 验收结论</div>
+        <h2>通过标准</h2>
+        <p>只要以上契约、测试和界面都完成，且注册链路无法在没有邀请码的情况下新增账号，就可以认为这次改造达标。</p>
+        <div class="callout">
+          <strong>最终要求：</strong>
+          用户注册时只能走邀请码；游客注册不再可用；后台能管理邀请码生命周期；前端移动端显示清晰可用。
+        </div>
+      </article>
+    </section>
+
+    <p class="footer">
+      文档路径建议：<code>docs/invite-registration-plan.html</code> · 该文件为静态说明文档，不参与业务运行。
+    </p>
+  </main>
+</body>
+</html>

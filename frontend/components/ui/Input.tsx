@@ -16,9 +16,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="relative">
         <div
-          className={clsx(
-            className,
-            "border rounded-[4px] px-3 pt-5 pb-3 lg:pb-2 transition-all duration-200",
+            className={clsx(
+              className,
+            "min-h-16 border rounded-[8px] px-4 pt-6 pb-3 transition-all duration-200",
             error
               ? "border-red-error bg-red-50/5"
               : focused
@@ -30,8 +30,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={clsx(
               "absolute left-3 transition-all duration-200 pointer-events-none",
               focused || hasValue
-                ? "top-1 text-xs font-bold uppercase tracking-wide"
-                : "top-1/2 -translate-y-1/2 text-base",
+                ? "top-1.5 text-sm font-bold uppercase tracking-wide"
+                : "top-1/2 -translate-y-1/2 text-lg",
               error
                 ? "text-red-error"
                 : focused
@@ -43,7 +43,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           </label>
           <input
             ref={ref}
-            className="w-full bg-transparent outline-none text-base text-text-black"
+            className="w-full bg-transparent outline-none text-lg text-text-black"
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             value={value}
@@ -52,7 +52,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           />
         </div>
         {error && (
-          <p className="mt-1 text-xs text-red-error">{error}</p>
+          <p className="mt-1 text-base font-bold text-red-error">{error}</p>
         )}
       </div>
     );

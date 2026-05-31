@@ -13,14 +13,20 @@ interface HandCardsProps {
   hidePass?: boolean;
 }
 
-export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, compact, mainCount, hidePass }: HandCardsProps) {
+export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, mainCount, hidePass }: HandCardsProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   // Split into rows: when mainCount is set, split at the main/secondary boundary.
   // Otherwise, for large hands (>24 cards), split at midpoint.
   const rows = useMemo(() => {
     if (mainCount != null && mainCount > 0 && mainCount < cards.length) {
-      return [cards.slice(0, mainCount), cards.slice(mainCount)];
+      const first = cards.slice(0, mainCount);
+      const second = cards.slice(mainCount);
+      if (first.length > 18 || second.length > 18) {
+        const mid = Math.ceil(cards.length / 2);
+        return [cards.slice(0, mid), cards.slice(mid)];
+      }
+      return [first, second];
     }
     const n = cards.length;
     if (n > 24) {
@@ -31,14 +37,15 @@ export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, com
   }, [cards, mainCount]);
 
   const cardSize = useMemo(() => {
-    const n = cards.length;
-    if (n > 24) return "small" as const;     // 2 rows, small cards
-    if (n > 12) return "small" as const;      // 1 row, small cards
-    return "default" as const;                 // ≤12, full size
-  }, [cards.length]);
+    const maxRow = Math.max(...rows.map((row) => row.length), 0);
+    if (maxRow <= 8) return { width: 78, height: 112, margin: -30, rank: "text-2xl", suit: "text-lg" };
+    if (maxRow <= 12) return { width: 68, height: 98, margin: -30, rank: "text-xl", suit: "text-base" };
+    if (maxRow <= 18) return { width: 62, height: 90, margin: -36, rank: "text-lg", suit: "text-base" };
+    if (maxRow <= 24) return { width: 60, height: 88, margin: -40, rank: "text-lg", suit: "text-base" };
+    return { width: 58, height: 84, margin: -41, rank: "text-lg", suit: "text-base" };
+  }, [rows]);
 
-  const overlap = cardSize === "small" ? "-space-x-12" : "-space-x-12";
-  const isSmall = cardSize === "small";
+  const isSmall = cardSize.width < 60;
   const isMultiRow = rows.length > 1;
 
   const toggleCard = (cardId: number) => {
@@ -76,48 +83,51 @@ export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, com
   };
 
   return (
-    <div>
+    <div className="w-full overflow-hidden">
       {/* Hand cards — rows overlap: second row behind first, cards staggered */}
       {rows.map((row, ri) => (
         <div
           key={ri}
           className={clsx(
-            "flex justify-center px-8 overflow-visible items-end relative",
-            overlap,
+            "flex justify-center px-2 overflow-visible items-end relative",
             ri > 0 && "z-10",
-            ri > 0 && isSmall && "-mt-16",
-            ri > 0 && !isSmall && "-mt-24",
-            isSmall ? "min-h-[100px] pb-0" : "min-h-[144px] pb-2",
+            ri > 0 && (isSmall ? "-mt-11" : "-mt-14"),
+            isSmall ? "min-h-[92px] pb-0" : "min-h-[112px] pb-1",
           )}
-          style={ri > 0 ? { paddingLeft: "1.5rem" } : undefined}
+          style={ri > 0 ? { paddingLeft: 18 } : undefined}
         >
-          {row.map((cardId) => (
+          {row.map((cardId, index) => (
             <div
               key={cardId}
               onClick={() => toggleCard(cardId)}
               className={clsx(
-                "relative rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
-                isSmall
-                  ? "w-20 h-22 p-0.5 text-base leading-none"
-                  : "w-24 h-36 text-card-number",
+                "relative shrink-0 rounded-md flex flex-col items-center justify-center border border-black/20 bg-white shadow-md",
                 selected.has(cardId)
-                  ? "ring-2 ring-blue-400 -translate-y-1"
-                  : !isSmall && !disabled && "cursor-pointer",
+                  ? "ring-4 ring-amber-300 -translate-y-3"
+                  : !disabled && "cursor-pointer",
                 "transition-transform duration-150 ease-out",
               )}
+              style={{
+                width: cardSize.width,
+                height: cardSize.height,
+                marginLeft: index === 0 ? 0 : cardSize.margin,
+              }}
             >
-              <MiniCardFace cardId={cardId} small={isSmall} />
+              <MiniCardFace cardId={cardId} rankClass={cardSize.rank} suitClass={cardSize.suit} />
             </div>
           ))}
         </div>
       ))}
 
       {onPlayCards && !disabled && (
-        <div className={clsx("flex justify-center gap-6", isMultiRow && "pt-1")}>
+        <div className={clsx("grid grid-cols-2 gap-2 px-3", isMultiRow ? "pt-2" : "")}>
           <button
             onClick={handlePlay}
             disabled={disabled || selected.size === 0}
-            className="px-10 py-3 rounded-full gold-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+            className={clsx(
+              "min-h-14 rounded-full gold-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40",
+              hidePass && "col-span-2"
+            )}
           >
             出牌
           </button>
@@ -125,7 +135,7 @@ export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, com
             <button
               onClick={handlePass}
               disabled={disabled}
-              className="px-10 py-3 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+              className="min-h-14 rounded-full emerald-button px-4 py-3 text-lg font-black hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
             >
               不出
             </button>
@@ -136,7 +146,7 @@ export function HandCards({ cards, onPlayCards, onSelectionChange, disabled, com
   );
 }
 
-function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
+function MiniCardFace({ cardId, rankClass, suitClass }: { cardId: number; rankClass: string; suitClass: string }) {
   const suitChars = ["♠", "♥", "♣", "♦"];
   const rankChars = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
 
@@ -147,9 +157,9 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
     const label = face === 52 ? "小" : "大";
     const color = face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
     return (
-      <div className="absolute top-0.5 left-1 flex flex-col items-center">
-        <span className={clsx(small ? "text-base" : "text-xs", color, "font-bold leading-none")}>{label}</span>
-        <span className={clsx(small ? "text-[11px]" : "text-[10px]", color, "leading-none")}>王</span>
+      <div className="absolute left-1.5 top-1 flex flex-col items-center">
+        <span className={clsx(rankClass, color, "font-bold leading-none")}>{label}</span>
+        <span className={clsx(suitClass, color, "leading-none")}>王</span>
       </div>
     );
   }
@@ -161,11 +171,11 @@ function MiniCardFace({ cardId, small }: { cardId: number; small: boolean }) {
 
   return (
     <>
-      <div className={clsx("absolute top-0.5 left-1 flex flex-col items-center", small ? "gap-[-1px]" : "gap-0")}>
-        <span className={clsx(small ? "text-lg" : "text-sm", colorClass, "font-bold leading-none")}>
+      <div className="absolute left-1.5 top-1 flex flex-col items-center gap-0">
+        <span className={clsx(rankClass, colorClass, "font-bold leading-none")}>
           {rankChars[rank]}
         </span>
-        <span className={clsx(small ? "text-xs" : "text-xs", colorClass, "leading-none")}>
+        <span className={clsx(suitClass, colorClass, "leading-none")}>
           {suitChars[suit]}
         </span>
       </div>

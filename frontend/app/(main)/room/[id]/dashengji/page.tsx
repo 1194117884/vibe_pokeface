@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { WSGameClient, formatError, type ErrorData } from "@/lib/ws-game";
 import { formatDashengjiNoticeToast, mergeDashengjiNoticePlayers } from "@/lib/dashengji-notice";
 import { RoomTable, TablePlayer } from "@/components/game/RoomTable";
 import { ReadyBar } from "@/components/game/ReadyBar";
 import { HandCards } from "@/components/game/HandCards";
 import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionBar";
+import { GamePhasePrompt } from "@/components/game/GamePhasePrompt";
+import { PasswordPrompt } from "@/components/game/PasswordPrompt";
 
 /** Sort hand for Dashengji display: when trump is set, main cards (trump) first, then side cards by suit. */
 function sortDashengjiHand(cardIds: number[], trumpSuit: number, currentLevel: number): number[] {
@@ -111,6 +113,42 @@ const phaseMap: Record<number, string> = {
 
 const GAME_CONFIG = { maxPlayers: 4, tableSize: "sm" as const };
 
+function getDashengjiPrompt(
+  phase: string,
+  isMyTurn: boolean,
+  isDealerTeam: boolean,
+  mySeat: number | null,
+  takeBottomSeat: number,
+  currentPlayerName?: string,
+  errorMessage?: string | null,
+): { title: string; detail?: string; tone: "action" | "waiting" | "error" } {
+  if (errorMessage) return { title: errorMessage, detail: "请重新选择或等待下一步", tone: "error" };
+  if (phase === "waiting") return { title: "等待开始", detail: "先点准备，四人到齐后房主开始游戏", tone: "waiting" };
+  if (phase === "ended") return { title: "本轮结束", detail: "查看得分后可以再来一局", tone: "waiting" };
+  if (phase === "set_trump") {
+    if (!isDealerTeam) return { title: "请稍等", detail: "庄家队正在选择是否定主", tone: "waiting" };
+    return { title: "轮到庄家队定主", detail: "选中可定主的牌后点“定主”，也可以点“不定”", tone: "action" };
+  }
+  if (phase === "counter_trump") {
+    if (isDealerTeam) return { title: "请稍等", detail: "闲家队正在选择是否反主", tone: "waiting" };
+    return { title: "轮到闲家队反主", detail: "选中可反主的牌后点“反主”，也可以点“不反”", tone: "action" };
+  }
+  if (phase === "take_bottom") {
+    if (!isDealerTeam) return { title: "请稍等", detail: "庄家队正在选择谁起底", tone: "waiting" };
+    if (!isMyTurn) return { title: "请稍等", detail: `正在等待 ${currentPlayerName ?? "队友"} 操作`, tone: "waiting" };
+    return { title: "轮到你起底", detail: "可以自己起底，也可以交给队友起底", tone: "action" };
+  }
+  if (phase === "discard_bottom") {
+    if (mySeat !== takeBottomSeat) return { title: "请稍等", detail: "正在等待起底玩家扣底", tone: "waiting" };
+    return { title: "轮到你扣底", detail: "选好要扣的底牌后，点“扣底”", tone: "action" };
+  }
+  if (phase === "playing") {
+    if (!isMyTurn) return { title: "请稍等", detail: `正在等待 ${currentPlayerName ?? "其他玩家"} 出牌`, tone: "waiting" };
+    return { title: "轮到你出牌", detail: "先点选手牌，再点“出牌”", tone: "action" };
+  }
+  return { title: "请查看当前提示", tone: "waiting" };
+}
+
 function getUserIdFromToken(): string {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("token");
@@ -154,7 +192,9 @@ function extractCards(arr: Array<{ id: number } | number> | undefined): number[]
 export default function DashengjiRoomPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const roomId = params.id as string;
+  const roomPassword = searchParams.get("password") || "";
 
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const playersRef = useRef<TablePlayer[]>([]);
@@ -187,6 +227,9 @@ export default function DashengjiRoomPage() {
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
   const toastIdRef = useRef(0);
   const noticeSeqRef = useRef(0);
   const [dealerSeats, setDealerSeats] = useState<[number, number]>([-1, -1]);
@@ -201,7 +244,8 @@ export default function DashengjiRoomPage() {
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
-      router.push("/auth/login");
+      const currentUrl = window.location.pathname + window.location.search;
+      router.push(`/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
 
@@ -210,11 +254,12 @@ export default function DashengjiRoomPage() {
       const payload = JSON.parse(atob(token.split(".")[1]));
       userIdStr = String(payload.user_id ?? payload.sub ?? "");
     } catch {
-      router.push("/auth/login");
+      const currentUrl = window.location.pathname + window.location.search;
+      router.push(`/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
 
-    const client = new WSGameClient(Number(userIdStr), token, roomId, "dashengji");
+    const client = new WSGameClient(Number(userIdStr), token, roomId, "dashengji", roomPassword);
     wsRef.current = client;
     const uid = userIdStr;
     const showToast = (text: string) => {
@@ -385,6 +430,11 @@ export default function DashengjiRoomPage() {
         window.location.replace("/lobby");
         return;
       }
+      if (errMsg.indexOf("room password required") !== -1) {
+        setPasswordError(roomPassword ? "密码错误，请重试" : "");
+        setShowPasswordPrompt(true);
+        return;
+      }
     });
 
     client.on("player_left", (msg) => {
@@ -400,7 +450,7 @@ export default function DashengjiRoomPage() {
       client.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, router]);
+  }, [roomId, roomPassword, router]);
 
   const handleAction = useCallback((action: string, cards?: number[]) => {
     wsRef.current?.sendAction(action, cards);
@@ -427,6 +477,15 @@ export default function DashengjiRoomPage() {
     wsRef.current?.changeSeat(seat);
   }, []);
 
+  const handleCopyInvite = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const inviteUrl = new URL(`/room/${roomId}/dashengji`, window.location.origin);
+    if (roomPassword) inviteUrl.searchParams.set("password", roomPassword);
+    await navigator.clipboard.writeText(inviteUrl.toString());
+    setInviteCopied(true);
+    window.setTimeout(() => setInviteCopied(false), 1800);
+  }, [roomId, roomPassword]);
+
 
   const myUserId = getUserIdFromToken();
   const myPlayer = players.find((p) => p.userId === myUserId);
@@ -442,6 +501,9 @@ export default function DashengjiRoomPage() {
     const bySeat = (seat: number) => players.find((p) => p.seat === seat)?.nickname ?? `玩家${seat + 1}`;
     return [`${bySeat(0)} + ${bySeat(2)}`, `${bySeat(1)} + ${bySeat(3)}`];
   }, [players]);
+  const currentPlayerName = players.find((p) => p.seat === currentSeat)?.nickname;
+  const prompt = getDashengjiPrompt(phase, isMyTurn, isDealerTeam, mySeat, takeBottomSeat, currentPlayerName, errorMessage);
+  const showPrompt = phase === "waiting" || phase === "ended" || prompt.tone !== "waiting";
 
   // Count main cards (trump set) to split display into main/secondary rows
   const mainCount = useMemo(() => {
@@ -464,40 +526,62 @@ export default function DashengjiRoomPage() {
   }, [sortedHand, trumpSuit, currentLevel]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-950 relative overflow-hidden">
-      <RoomTable
-        players={players}
-        mySeat={mySeat ?? 0}
-        phase={phase}
-        onSitDown={handleSitDown}
-        onAddBot={handleAddBot}
-        lastPlay={lastPlay}
-        trickPlays={trickPlays}
-        bottomCards={takeBottomSeat >= 0 ? bottomCards : undefined}
-        discardedCards={takeBottomSeat >= 0 && discardedCards.length > 0 ? discardedCards : undefined}
-        bottomSeat={takeBottomSeat >= 0 ? takeBottomSeat : undefined}
-        maxPlayers={GAME_CONFIG.maxPlayers}
-      />
+    <div className="mobile-game-shell relative bg-gradient-to-b from-green-900 via-green-800 to-green-950">
+      <div className="fixed right-3 top-[max(12px,var(--safe-area-top))] z-50">
+        <button
+          type="button"
+          onClick={() => { void handleCopyInvite(); }}
+          className="min-h-10 rounded-full bg-black/40 px-3 text-sm font-black text-white backdrop-blur border border-white/15"
+        >
+          {inviteCopied ? "已复制" : "邀请"}
+        </button>
+      </div>
+      <div className="flex h-full flex-col pt-4">
+        <RoomTable
+          players={players}
+          mySeat={mySeat ?? 0}
+          phase={phase}
+          onSitDown={handleSitDown}
+          onAddBot={handleAddBot}
+          lastPlay={lastPlay}
+          trickPlays={trickPlays}
+          bottomCards={takeBottomSeat >= 0 ? bottomCards : undefined}
+          discardedCards={takeBottomSeat >= 0 && discardedCards.length > 0 ? discardedCards : undefined}
+          bottomSeat={takeBottomSeat >= 0 ? takeBottomSeat : undefined}
+          maxPlayers={GAME_CONFIG.maxPlayers}
+          waitingLayout="row"
+          hideCardCount
+        />
+      </div>
       <DashengjiInfoPanel trumpSuit={trumpSuit} roundPoints={roundPoints} teamLevels={teamLevels} dealerSeats={dealerSeats} teamNames={teamNames} />
+      {showPrompt && (
+        <GamePhasePrompt
+          title={prompt.title}
+          detail={prompt.detail}
+          tone={prompt.tone}
+          position={phase === "waiting" || phase === "ended" ? "top" : "tableCenter"}
+          compact={phase !== "waiting" && phase !== "ended"}
+        />
+      )}
 
       {errorMessage && (
-        <div className="fixed left-0 right-0 top-[18vh] z-50 flex justify-center px-4 pointer-events-none sm:top-24">
-          <div className="max-w-[min(92vw,28rem)] px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-sm text-red-300 text-center animate-pulse">
+        <div className="fixed left-0 right-0 top-[18vh] z-50 flex justify-center px-4 pointer-events-none">
+          <div className="max-w-[min(92vw,28rem)] px-4 py-3 bg-red-500/20 border border-red-500/40 rounded-lg text-base font-bold text-red-200 text-center animate-pulse">
           {errorMessage}
           </div>
         </div>
       )}
 
-      <div className="fixed left-0 right-0 top-[18vh] z-50 flex flex-col gap-2 items-center px-4 pointer-events-none sm:top-24">
+      <div className="fixed left-0 right-0 top-[18vh] z-50 flex flex-col gap-2 items-center px-4 pointer-events-none">
         {toasts.map((toast) => (
-          <div key={toast.id} className="max-w-[min(92vw,32rem)] px-5 py-3 bg-amber-500/20 border border-amber-500/40 rounded-lg text-base sm:text-lg text-amber-300 text-center font-bold animate-toast-in whitespace-normal break-words">
+          <div key={toast.id} className="max-w-[min(92vw,32rem)] px-5 py-3 bg-amber-500/20 border border-amber-500/40 rounded-lg text-base text-amber-300 text-center font-bold animate-toast-in whitespace-normal break-words">
             {toast.text}
           </div>
         ))}
       </div>
 
       {showPhaseActions && (
-        <div className="fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-6 pb-8">
+        <div className="mobile-bottom-controls fixed bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-5">
           {sortedHand.length > 0 && (
             /* Drop internal card selection when discarded bottom cards leave the hand. */
             <HandCards
@@ -515,7 +599,7 @@ export default function DashengjiRoomPage() {
       )}
 
       {phase === "waiting" && (
-        <div className="fixed bottom-0 left-0 right-0 z-40">
+        <div className="mobile-bottom-controls fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/80 to-transparent pt-4">
           <ReadyBar
             amIOwner={amIOwner}
             isReady={amIReady}
@@ -531,21 +615,21 @@ export default function DashengjiRoomPage() {
       )}
 
       {phase === "ended" && roundResult && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-900 rounded-2xl p-8 text-white text-center min-w-[300px]">
-            <h2 className="text-2xl font-bold mb-4">本轮结束</h2>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
+          <div className="w-full max-w-[390px] bg-gray-900 rounded-2xl p-5 text-white text-center">
+            <h2 className="text-3xl font-black mb-4">本轮结束</h2>
             {players.map((p) => {
               const score = roundResult.scores.find((s) => s.player_id === p.seat);
               return (
                 <div key={p.userId} className="flex items-center justify-between px-4 py-2 bg-white/5 rounded-xl mb-2">
-                  <span className="font-medium">{p.nickname}</span>
-                  <span className={`font-bold text-lg ${score && score.score > 0 ? "text-amber-400" : "text-red-400"}`}>
+                  <span className="text-lg font-bold">{p.nickname}</span>
+                  <span className={`text-xl font-black ${score && score.score > 0 ? "text-amber-400" : "text-red-400"}`}>
                     {score ? (score.score > 0 ? "+" : "") + score.score : "0"}
                   </span>
                 </div>
               );
             })}
-            <div className="flex gap-3 justify-center mt-6">
+            <div className="grid grid-cols-2 gap-2 mt-6">
               <button
                 onClick={() => {
                   setPhase("waiting");
@@ -555,13 +639,13 @@ export default function DashengjiRoomPage() {
                   setCurrentSeat(undefined);
                   handleReady();
                 }}
-                className="px-6 py-2 rounded-full gold-button font-bold"
+                className="min-h-14 px-4 py-3 rounded-full gold-button text-lg font-black"
               >
                 再来一局
               </button>
               <button
                 onClick={() => router.push("/lobby")}
-                className="px-6 py-2 rounded-full bg-white/10 text-white"
+                className="min-h-14 px-4 py-3 rounded-full bg-white/10 text-lg font-black text-white"
               >
                 返回大厅
               </button>
@@ -569,6 +653,21 @@ export default function DashengjiRoomPage() {
           </div>
         </div>
       )}
+
+      <PasswordPrompt
+        open={showPasswordPrompt}
+        error={passwordError}
+        loading={false}
+        onSubmit={(pw) => {
+          setPasswordError("");
+          wsRef.current?.rejoinRoom(pw);
+          setShowPasswordPrompt(false);
+        }}
+        onCancel={() => {
+          setShowPasswordPrompt(false);
+          router.push("/lobby");
+        }}
+      />
     </div>
   );
 }

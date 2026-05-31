@@ -38,14 +38,14 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
   };
 
   return (
-    <div className="relative flex flex-col h-64 bg-surface-container-high rounded-[12px] shadow-card border border-outline-variant">
+    <div className="relative flex h-full min-h-0 flex-col bg-surface-container-high rounded-[12px] shadow-card border border-outline-variant">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {messages.length === 0 && (
-          <p className="text-center text-on-surface-variant text-sm">No messages yet</p>
+          <p className="text-center text-on-surface-variant text-base">暂无消息</p>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className="text-sm">
+          <div key={i} className="text-base leading-6">
             <span className="font-semibold text-primary">
               {msg.nickname}:{" "}
             </span>
@@ -65,7 +65,7 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
       <div className="border-t border-outline-variant p-2 flex gap-2">
         <button
           onClick={() => setShowEmoji(!showEmoji)}
-          className="px-2 py-1 text-lg hover:bg-surface-container rounded-[4px] transition-colors"
+          className="min-h-12 min-w-12 px-2 py-1 text-2xl hover:bg-surface-container rounded-[8px] transition-colors"
           title="Open emoji picker"
         >
           😊
@@ -77,14 +77,14 @@ export function ChatPanel({ messages, onSendMessage, disabled }: ChatPanelProps)
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Type a message..."
           disabled={disabled}
-          className="flex-1 px-3 py-1.5 text-sm bg-surface border border-outline-variant rounded-pill outline-none transition-all duration-200 text-on-surface placeholder:text-on-surface-variant focus:border-primary disabled:opacity-50"
+          className="min-h-12 min-w-0 flex-1 px-4 py-2 text-lg bg-surface border border-outline-variant rounded-pill outline-none transition-all duration-200 text-on-surface placeholder:text-on-surface-variant focus:border-primary disabled:opacity-50"
         />
         <button
           onClick={handleSend}
           disabled={disabled || !input.trim()}
-          className="px-4 py-1.5 bg-primary text-on-primary text-sm rounded-pill font-semibold disabled:opacity-40 hover:brightness-110 transition-all duration-200 active:scale-[0.95]"
+          className="min-h-12 px-5 py-2 bg-primary text-on-primary text-base rounded-pill font-bold disabled:opacity-40 hover:brightness-110 transition-all duration-200 active:scale-[0.95]"
         >
-          Send
+          发送
         </button>
       </div>
 

@@ -14,18 +14,12 @@ const phaseLabels: Record<string, string> = {
   playing: "出牌中",
 };
 
-function miniCardFace(cardId: number): number { return cardId % 54; }
 function miniCardColor(cardId: number): string {
   const face = cardId % 54;
   if (face >= 52) return face === 52 ? "text-[#1a1a1a]" : "text-[#c82014]";
   const suit = Math.floor(face / 13);
   return suit === 1 || suit === 3 ? "text-[#c82014]" : "text-[#1a1a1a]";
 }
-function miniCardSuit(cardId: number): number {
-  const face = cardId % 54;
-  return face >= 52 ? 4 : Math.floor(face / 13);
-}
-
 interface SeatPositionProps {
   seatNumber: number;
   player?: {
@@ -53,6 +47,7 @@ interface SeatPositionProps {
   discardedCards?: number[];
   compact?: boolean;
   phase?: string;
+  hideCardCount?: boolean;
 }
 
 export function SeatPosition({
@@ -68,25 +63,22 @@ export function SeatPosition({
   compact = false,
   position,
   phase,
+  hideCardCount = false,
 }: SeatPositionProps) {
   const showTurnBadge = player?.isCurrentTurn;
   const turnLabel = (phase && phaseLabels[phase]) || "出牌中";
 
   // Stitch opponent mode: compact display for left/right opponents during game phases
   if (position && player) {
-    const charStyle = !player.isBot
-      ? getCharacterStyle(player.characterId || "panda")
-      : undefined;
-
     return (
       <div
         className={clsx(
           "relative flex rounded-xl transition-all",
           position === "top"
-            ? "flex-row items-center gap-2 p-1.5"
-            : compact ? "flex-col items-center gap-1 p-2"
+            ? "flex-row items-center gap-2 p-2"
+            : compact ? "flex-col items-center gap-1.5 p-2.5"
             : "flex-col items-center gap-2 p-3",
-          compact ? "gap-1 p-2" : "gap-2 p-3",
+          compact ? "gap-1.5 p-2.5" : "gap-2 p-3",
           "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
           player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
           player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
@@ -103,7 +95,7 @@ export function SeatPosition({
               position === "right" && "left-0 -translate-x-[calc(100%+8px)]",
             )}
           >
-            <div className="bg-black/85 backdrop-blur-sm text-white text-sm font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
+            <div className="max-w-[46vw] truncate bg-black/85 backdrop-blur-sm text-white text-base font-black px-4 py-2 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
               {action}
             </div>
             <div className={clsx(
@@ -117,7 +109,7 @@ export function SeatPosition({
         {/* Owner badge */}
         {player.isOwner && (
           <span
-            className="absolute -top-2 -left-1 text-base drop-shadow-md z-10"
+            className="absolute -top-2 -left-1 text-xl drop-shadow-md z-10"
             title="房主"
             style={{ color: "#e9c400" }}
           >
@@ -127,40 +119,40 @@ export function SeatPosition({
 
         {/* Landlord badge */}
         {player.isLandlord && (
-          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
+          <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-sm font-black px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
             👑 地主
           </div>
         )}
 
         {/* Dealer team badge */}
         {player.isDealerTeam && (
-          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
+          <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-sm font-black px-3 py-0.5 rounded-full whitespace-nowrap shadow-md z-10">
             🏠 庄
           </div>
         )}
 
         {/* Phase turn badge */}
         {showTurnBadge && (
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)] z-10">
+          <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-sm font-black px-3 py-1 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)] z-10">
             ⚡ {turnLabel}
           </div>
         )}
 
         {/* Baodan / Baoshuang badges */}
         {cardsLeft === "baodan" && (
-          <span className="absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse z-10">
+          <span className="absolute -top-2 right-0 bg-red-500 text-white text-sm px-2 py-0.5 rounded-full font-black animate-pulse z-10">
             报单
           </span>
         )}
         {cardsLeft === "baoshuang" && (
-          <span className="absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse z-10">
+          <span className="absolute -top-2 right-0 bg-orange-400 text-white text-sm px-2 py-0.5 rounded-full font-black animate-pulse z-10">
             报双
           </span>
         )}
 
         {/* Revealed hand (only when cards are exposed) */}
         {player.hand && player.hand.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-0.5 max-w-[100px] mb-0.5">
+          <div className="flex flex-wrap justify-center gap-0.5 max-w-[72px] mb-0.5">
             {player.hand.map((cardId, i) => (
               <div
                 key={i}
@@ -210,9 +202,15 @@ export function SeatPosition({
         </div> */}
 
         {/* Name */}
-        <p className={clsx("font-player-name text-on-surface text-center truncate", compact ? "text-[10px] max-w-[70px]" : "text-xs max-w-[90px]")}>
+        <p className="max-w-[96px] truncate text-center font-player-name text-sm font-bold text-on-surface">
           {player.nickname || player.name}
         </p>
+
+        {!hideCardCount && player.cardCount <= 2 && (
+          <p className="rounded-full bg-black/35 px-2.5 py-0.5 text-sm font-black text-secondary-fixed">
+            余 {player.cardCount} 张
+          </p>
+        )}
 
         {/* Landlord cards (底牌) */}
         {player.isLandlord && landlordCards && landlordCards.length > 0 && (
@@ -236,7 +234,7 @@ export function SeatPosition({
         {/* Dashengji bottom cards (底牌) */}
         {bottomCards && bottomCards.length > 0 && (
           <div className="flex gap-0.5 mt-1">
-            <span className="text-[8px] text-amber-300/60 mr-0.5">底</span>
+            <span className="text-xs font-bold text-amber-300/80 mr-0.5">底</span>
             {bottomCards.map((cardId, i) => (
               <div
                 key={i}
@@ -256,7 +254,7 @@ export function SeatPosition({
         {/* Dashengji discarded cards (扣底) */}
         {discardedCards && discardedCards.length > 0 && (
           <div className="flex gap-0.5 mt-0.5">
-            <span className="text-[8px] text-red-300/60 mr-0.5">扣</span>
+            <span className="text-xs font-bold text-red-300/80 mr-0.5">扣</span>
             {discardedCards.map((cardId, i) => (
               <div
                 key={i}
@@ -281,25 +279,25 @@ export function SeatPosition({
     return (
       <div
         className={clsx(
-          "relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-white/10",
-          "bg-white/5 backdrop-blur-sm min-w-[110px]",
+          "relative flex min-h-[116px] flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/10 p-3",
+          "bg-white/5 backdrop-blur-sm min-w-[112px]",
         )}
       >
-        <div className="w-14 h-14 rounded-full border-2 border-white/10 flex items-center justify-center text-white/30 text-lg">
+        <div className="w-12 h-12 rounded-full border-2 border-white/10 flex items-center justify-center text-white/30 text-xl">
           ?
         </div>
-        <p className="text-xs text-white/40">空座位</p>
+        <p className="text-base font-bold text-white/50">空座位</p>
         {isMySeat ? (
           <button
             onClick={onChangeSeat}
-            className="text-xs text-primary hover:underline font-medium"
+            className="min-h-10 px-3 text-base font-bold text-primary hover:underline"
           >
             坐下
           </button>
         ) : onAddBot ? (
           <button
             onClick={onAddBot}
-            className="text-xs text-primary hover:underline font-medium"
+            className="min-h-10 px-3 text-base font-bold text-primary hover:underline"
           >
             添加AI
           </button>
@@ -317,7 +315,7 @@ export function SeatPosition({
     <div
       className={clsx(
         "relative flex flex-col items-center rounded-xl transition-all",
-        compact ? "gap-1.5 p-2 min-w-[80px]" : "gap-3 p-4 min-w-[120px]",
+        compact ? "gap-2 p-2 min-w-[84px]" : "gap-3 p-4 min-w-[132px]",
         "bg-surface-container-low/40 backdrop-blur-md border border-white/5 shadow-lg",
         player.isCurrentTurn && "border-primary/50 ring-2 ring-primary/20 shadow-[0_0_16px_rgba(142,213,175,0.2)]",
         player.isLandlord && "border-secondary-container/50 ring-1 ring-secondary-container/20",
@@ -331,7 +329,7 @@ export function SeatPosition({
           key={action}
           className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 animate-bubble-in"
         >
-          <div className="bg-black/85 backdrop-blur-sm text-white text-sm font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
+          <div className="max-w-[70vw] truncate bg-black/85 backdrop-blur-sm text-white text-base font-black px-4 py-2 rounded-xl whitespace-nowrap shadow-lg border border-white/10">
             {action}
           </div>
           <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-black/85 rotate-45" />
@@ -340,7 +338,7 @@ export function SeatPosition({
       {/* Owner badge */}
       {player.isOwner && (
         <span
-          className="absolute -top-2 -left-1 text-base drop-shadow-md"
+            className="absolute -top-2 -left-1 text-xl drop-shadow-md"
           title="房主"
           style={{ color: "#e9c400" }}
         >
@@ -350,21 +348,21 @@ export function SeatPosition({
 
       {/* Landlord badge */}
       {player.isLandlord && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md">
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-secondary-container text-on-secondary-container text-sm font-black px-3 py-0.5 rounded-full whitespace-nowrap shadow-md">
           👑 地主
         </div>
       )}
 
       {/* Dealer team badge */}
       {player.isDealerTeam && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[11px] font-extrabold px-3 py-0.5 rounded-full whitespace-nowrap shadow-md">
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-sm font-black px-3 py-0.5 rounded-full whitespace-nowrap shadow-md">
           🏠 庄
         </div>
       )}
 
       {/* Phase turn badge */}
       {showTurnBadge && (
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-[10px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)]">
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-primary text-on-primary text-sm font-black px-3 py-1 rounded-full whitespace-nowrap shadow-[0_0_8px_rgba(142,213,175,0.3)]">
           ⚡ {turnLabel}
         </div>
       )}
@@ -395,25 +393,25 @@ export function SeatPosition({
           )}
         </div>
         {player.cardCount > 0 && (
-          <div className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary-container rounded-full px-2 py-0.5 text-[10px] font-bold shadow-md">
+          <div className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary-container rounded-full px-2.5 py-1 text-sm font-black shadow-md">
             {player.cardCount}
           </div>
         )}
       </div>
 
       {/* Name */}
-      <p className={clsx("font-player-name text-on-surface text-center truncate", compact ? "text-[10px] max-w-[70px]" : "text-player-name max-w-[110px]")}>
+      <p className={clsx("font-player-name text-on-surface text-center truncate font-bold", compact ? "text-sm max-w-[76px]" : "text-player-name max-w-[120px]")}>
         {player.nickname || player.name}
       </p>
 
       {/* Status */}
-      <p className={clsx("text-primary font-bold", compact ? "text-[10px]" : "text-label-md")}>
+      <p className={clsx("text-primary font-black", compact ? "text-sm" : "text-base")}>
         {player.isReady ? "已准备" : "等待中..."}
       </p>
 
       {/* Ready badge */}
       {player.isReady && (
-        <span className="text-xs px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container font-semibold">
+        <span className="text-sm px-2.5 py-1 rounded-full bg-primary-container text-on-primary-container font-black">
           ✓ 已准备
         </span>
       )}
@@ -422,7 +420,7 @@ export function SeatPosition({
       {isMySeat && onChangeSeat && (
         <button
           onClick={onChangeSeat}
-          className="text-xs text-on-surface-variant hover:text-primary font-medium"
+          className="min-h-10 px-3 text-base text-on-surface-variant hover:text-primary font-bold"
         >
           换座
         </button>
@@ -430,12 +428,12 @@ export function SeatPosition({
 
       {/* Cards left badges */}
       {cardsLeft === "baodan" && (
-        <span className="absolute -top-2 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+        <span className="absolute -top-2 right-0 bg-red-500 text-white text-sm px-2 py-0.5 rounded-full font-black animate-pulse">
           报单
         </span>
       )}
       {cardsLeft === "baoshuang" && (
-        <span className="absolute -top-2 right-0 bg-orange-400 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+        <span className="absolute -top-2 right-0 bg-orange-400 text-white text-sm px-2 py-0.5 rounded-full font-black animate-pulse">
           报双
         </span>
       )}
@@ -462,7 +460,7 @@ export function SeatPosition({
       {/* Dashengji bottom cards (底牌) */}
       {bottomCards && bottomCards.length > 0 && (
         <div className="flex gap-0.5 mt-1">
-          <span className="text-[10px] text-amber-300/60 mr-0.5">底</span>
+          <span className="text-xs font-bold text-amber-300/80 mr-0.5">底</span>
           {bottomCards.map((cardId, i) => (
             <div
               key={i}
@@ -482,7 +480,7 @@ export function SeatPosition({
       {/* Dashengji discarded cards (扣底) */}
       {discardedCards && discardedCards.length > 0 && (
         <div className="flex gap-0.5 mt-0.5">
-          <span className="text-[10px] text-red-300/60 mr-0.5">扣</span>
+          <span className="text-xs font-bold text-red-300/80 mr-0.5">扣</span>
           {discardedCards.map((cardId, i) => (
             <div
               key={i}
