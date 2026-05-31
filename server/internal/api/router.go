@@ -12,13 +12,13 @@ import (
 	"github.com/yongkl/vibe-pokeface/internal/model"
 )
 
-func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg middleware.CORSConfig, lkConfig LiveKitConfig, adminHandler *admin.Handler, roomHandler *RoomHandler) *chi.Mux {
+func NewRouter(store model.UserStore, regCodeStore model.RegistrationCodeStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg middleware.CORSConfig, lkConfig LiveKitConfig, adminHandler *admin.Handler, roomHandler *RoomHandler) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logging)
 	r.Use(middleware.CORS(corsCfg))
 
-	authHandler := NewAuthHandler(store, jwt, nil) // regCodes wired in Task 4
+	authHandler := NewAuthHandler(store, jwt, regCodeStore)
 	authRateLimiter := middleware.NewRateLimiter(10, time.Second)
 
 	r.Route("/api/auth", func(r chi.Router) {
@@ -56,6 +56,9 @@ func NewRouter(store model.UserStore, jwt *auth.JWTService, hub *ws.Hub, corsCfg
 				r.Get("/llm-stats", adminHandler.LLMConfig.GetStats)
 				r.Get("/scores", adminHandler.Scores.GetBalance)
 				r.Post("/scores/adjust", adminHandler.Scores.Adjust)
+				r.Get("/registration-codes", adminHandler.RegistrationCodes.List)
+				r.Post("/registration-codes", adminHandler.RegistrationCodes.Generate)
+				r.Put("/registration-codes/{id}/disable", adminHandler.RegistrationCodes.Disable)
 			})
 		})
 

@@ -51,3 +51,10 @@ func AdminOnly(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// GetClaims retrieves the JWT claims from the request context.
+// Returns nil if no claims are present.
+func GetClaims(ctx context.Context) *auth.Claims {
+	claims, _ := ctx.Value(ClaimsKey).(*auth.Claims)
+	return claims
+}

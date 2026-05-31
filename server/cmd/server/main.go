@@ -35,11 +35,12 @@ func main() {
 
 	gameStore := model.NewGameStore(db)
 	aiStore := model.NewAIStore(db)
+	regCodeStore := model.NewRegistrationCodeDB(db)
 
 	hub := ws.NewHub(gameStore, aiStore, userDB)
 	go hub.Run()
 
-	adminHandler := admin.NewHandler(userDB, gameStore, aiStore, hub)
+	adminHandler := admin.NewHandler(userDB, gameStore, aiStore, hub, regCodeStore)
 
 	lkConfig := api.LiveKitConfig{
 		APIKey:    os.Getenv("LIVEKIT_API_KEY"),
@@ -49,7 +50,7 @@ func main() {
 
 	roomHandler := api.NewRoomHandler(gameStore)
 
-	router := api.NewRouter(userDB, jwtSvc, hub, middleware.CORSConfig{
+	router := api.NewRouter(userDB, regCodeStore, jwtSvc, hub, middleware.CORSConfig{
 		AllowedOrigins: cfg.AllowedOrigins,
 	}, lkConfig, adminHandler, roomHandler)
 
