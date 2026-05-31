@@ -68,6 +68,7 @@ export default function RegisterPage() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          error={error}
         />
         <Input
           label="注册码"
