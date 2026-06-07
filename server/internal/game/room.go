@@ -281,6 +281,12 @@ func (rm *RoomManager) FillEmptySeats(roomID string) int {
 			Nickname:  fmt.Sprintf("AI Player %d", nextN),
 		}
 		room.Players = append(room.Players, bot)
+		agent := ai.NewAIAgent(botID, seat, nil, nil, room)
+		agent.SetAIStore(room.aiStore)
+		agent.SetRoomID(room.ID)
+		agent.SetGameType(room.GameType)
+		agent.Start()
+		room.agents[botID] = agent
 
 		room.broadcastMsg("player_joined", map[string]interface{}{
 			"user_id": botID,
@@ -321,6 +327,11 @@ func (r *GameRoom) maxSeats() int {
 	default:
 		return 3
 	}
+}
+
+// MaxSeats returns the configured seat count for the room's game type.
+func (r *GameRoom) MaxSeats() int {
+	return r.maxSeats()
 }
 
 // nextAvailableSeat returns the first unoccupied seat number (0..maxSeats-1).
@@ -660,38 +671,51 @@ func (r *GameRoom) FillWithBot(botID string, conn chan []byte, opts ...BotOption
 		}
 	}
 
-	seat, err := r.nextAvailableSeat()
-	if err != nil {
-		return fmt.Errorf("room is full")
-	}
-	bot := &PlayerSession{
-		UserID:    botID,
-		Seat:      seat,
-		Conn:      conn,
-		IsBot:     true,
-		Connected: true,
-		Ready:     true, // bots are always ready
-	}
-	// Set nickname from bot sequence number
-	var botN int
-	if _, err := fmt.Sscanf(botID, "ai:bot:%d", &botN); err == nil {
-		bot.Nickname = fmt.Sprintf("AI Player %d", botN)
-	} else {
-		bot.Nickname = "AI Player"
-	}
-	r.Players = append(r.Players, bot)
-
-	// Apply bot options and create AI agent if a provider is configured
 	botCfg := &botConfig{}
 	for _, opt := range opts {
 		opt(botCfg)
 	}
-	if botCfg.Character != nil || botCfg.Provider != nil {
-		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
-		agent.SetAIStore(r.aiStore)
-		agent.Start()
-		r.agents[botID] = agent
+
+	var characterID string
+	if botCfg.Character != nil {
+		characterID = strconv.Itoa(botCfg.Character.ID)
+		if r.hasBotCharacterLocked(characterID) {
+			return fmt.Errorf("ai bot already in room")
+		}
 	}
+
+	seat, err := r.nextAvailableSeat()
+	if err != nil {
+		return fmt.Errorf("room is full")
+	}
+	nickname := "AI Player"
+	if botCfg.Character != nil && botCfg.Character.Name != "" {
+		nickname = botCfg.Character.Name
+	} else {
+		// Set nickname from bot sequence number
+		var botN int
+		if _, err := fmt.Sscanf(botID, "ai:bot:%d", &botN); err == nil {
+			nickname = fmt.Sprintf("AI Player %d", botN)
+		}
+	}
+	bot := &PlayerSession{
+		UserID:      botID,
+		Seat:        seat,
+		Conn:        conn,
+		IsBot:       true,
+		Connected:   true,
+		Ready:       true, // bots are always ready
+		Nickname:    nickname,
+		CharacterID: characterID,
+	}
+	r.Players = append(r.Players, bot)
+
+	agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+	agent.SetAIStore(r.aiStore)
+	agent.SetRoomID(r.ID)
+	agent.SetGameType(r.GameType)
+	agent.Start()
+	r.agents[botID] = agent
 
 	r.broadcastMsg("player_joined", map[string]interface{}{
 		"user_id": botID,
@@ -736,6 +760,9 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 	var characterID string
 	if botCfg.Character != nil {
 		characterID = strconv.Itoa(botCfg.Character.ID)
+		if r.hasBotCharacterLocked(characterID) {
+			return fmt.Errorf("ai bot already in room")
+		}
 		if botCfg.Character.Name != "" {
 			nickname = botCfg.Character.Name
 		}
@@ -753,12 +780,12 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 	}
 	r.Players = append(r.Players, bot)
 
-	if botCfg.Character != nil || botCfg.Provider != nil {
-		agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
-		agent.SetAIStore(r.aiStore)
-		agent.Start()
-		r.agents[botID] = agent
-	}
+	agent := ai.NewAIAgent(botID, seat, botCfg.Character, botCfg.Provider, r)
+	agent.SetAIStore(r.aiStore)
+	agent.SetRoomID(r.ID)
+	agent.SetGameType(r.GameType)
+	agent.Start()
+	r.agents[botID] = agent
 
 	r.broadcastMsg("player_joined", map[string]interface{}{
 		"user_id": botID,
@@ -767,6 +794,20 @@ func (r *GameRoom) AddBot(ownerID string, opts ...BotOption) error {
 		"players": r.playerList(),
 	})
 	return nil
+}
+
+// hasBotCharacterLocked reports whether a specific AI character is already
+// seated in this room. Caller must hold r.mu.
+func (r *GameRoom) hasBotCharacterLocked(characterID string) bool {
+	if characterID == "" {
+		return false
+	}
+	for _, p := range r.Players {
+		if p.IsBot && p.CharacterID == characterID {
+			return true
+		}
+	}
+	return false
 }
 
 // PlayerCount returns the current number of players in the room.
@@ -1101,6 +1142,8 @@ func WithLLMProvider(provider ai.LLMProvider) BotOption {
 func (r *GameRoom) createAIAgent(userID string, seat int, character *model.AICharacter, provider ai.LLMProvider) *ai.AIAgent {
 	agent := ai.NewAIAgent(userID, seat, character, provider, r)
 	agent.SetAIStore(r.aiStore)
+	agent.SetRoomID(r.ID)
+	agent.SetGameType(r.GameType)
 	agent.Start()
 	r.agents[userID] = agent
 	return agent

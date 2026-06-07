@@ -381,6 +381,49 @@ func TestRoomAddBot_SeatAssignment(t *testing.T) {
 	}
 }
 
+func TestRoomAddBot_RejectsDuplicateAICharacter(t *testing.T) {
+	for _, gameType := range []string{"doudizhu", "dashengji"} {
+		t.Run(gameType, func(t *testing.T) {
+			room := NewGameRoom("room-1", gameType, &mockEngine{}, nil)
+			conn := make(chan []byte, 20)
+			room.AddPlayer("user-1", "", "", conn)
+			drainN(t, conn, 1, "player_joined")
+
+			character := &model.AICharacter{ID: 7, Name: "Seven", PlayStyle: "balanced"}
+			if err := room.AddBot("user-1", WithAICharacter(character)); err != nil {
+				t.Fatalf("first AddBot failed: %v", err)
+			}
+			if err := room.AddBot("user-1", WithAICharacter(character)); err == nil {
+				t.Fatal("second AddBot with same AI character should fail")
+			}
+			if len(room.Players) != 2 {
+				t.Fatalf("players = %d, want 2 after duplicate rejection", len(room.Players))
+			}
+		})
+	}
+}
+
+func TestRoomFillWithBot_RejectsDuplicateAICharacter(t *testing.T) {
+	room := NewGameRoom("room-1", "dashengji", &mockEngine{}, nil)
+	conn := make(chan []byte, 20)
+	room.AddPlayer("user-1", "", "", conn)
+	drainN(t, conn, 1, "player_joined")
+
+	character := &model.AICharacter{ID: 9, Name: "Nine", PlayStyle: "balanced"}
+	if err := room.FillWithBot("ai:bot:1", make(chan []byte, 20), WithAICharacter(character)); err != nil {
+		t.Fatalf("first FillWithBot failed: %v", err)
+	}
+	if err := room.FillWithBot("ai:bot:2", make(chan []byte, 20), WithAICharacter(character)); err == nil {
+		t.Fatal("second FillWithBot with same AI character should fail")
+	}
+	if len(room.Players) != 2 {
+		t.Fatalf("players = %d, want 2 after duplicate rejection", len(room.Players))
+	}
+	if got := room.Players[1].CharacterID; got != "9" {
+		t.Fatalf("bot character_id = %q, want 9", got)
+	}
+}
+
 // TestRoomAddBot_NonSequentialSeats verifies AddBot doesn't collide with
 // non-contiguous seat numbers caused by AddPlayer's random seat selection.
 func TestRoomAddBot_NonSequentialSeats(t *testing.T) {

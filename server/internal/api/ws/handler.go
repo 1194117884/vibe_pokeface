@@ -428,13 +428,17 @@ func (h *Hub) fillRoomBots(roomID string) {
 		return
 	}
 	n := 1
-	for room.PlayerCount() < 3 {
+	for room.PlayerCount() < room.MaxSeats() {
 		botID := fmt.Sprintf("ai:bot:%d", n)
 		opts := []game.BotOption{game.WithLLMProvider(provider)}
 		if char != nil {
 			opts = append(opts, game.WithAICharacter(char))
 		}
 		if err := room.FillWithBot(botID, make(chan []byte, 256), opts...); err != nil {
+			if err.Error() == "ai bot already in room" {
+				h.RoomManager.FillEmptySeats(roomID)
+				return
+			}
 			n++
 			continue
 		}

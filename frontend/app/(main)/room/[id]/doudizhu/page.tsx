@@ -923,6 +923,10 @@ export default function RoomPage() {
         open={showAIPicker}
         onClose={() => setShowAIPicker(false)}
         onSelect={handleSelectAICharacter}
+        disabledCharacterIds={players
+          .filter((p) => p.isBot && p.characterId)
+          .map((p) => Number(p.characterId))
+          .filter((id) => Number.isFinite(id))}
       />
 
       {/* Round end overlay */}

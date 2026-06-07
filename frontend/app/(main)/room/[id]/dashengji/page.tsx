@@ -10,6 +10,7 @@ import { HandCards } from "@/components/game/HandCards";
 import { DashengjiActionBar } from "@/components/game/dashengji/DashengjiActionBar";
 import { GamePhasePrompt } from "@/components/game/GamePhasePrompt";
 import { PasswordPrompt } from "@/components/game/PasswordPrompt";
+import { AICharacterPicker } from "@/components/game/AICharacterPicker";
 
 /** Sort hand for Dashengji display: when trump is set, main cards (trump) first, then side cards by suit. */
 function sortDashengjiHand(cardIds: number[], trumpSuit: number, currentLevel: number): number[] {
@@ -227,11 +228,14 @@ export default function DashengjiRoomPage() {
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
+  const [speechBubbles, setSpeechBubbles] = useState<Record<number, string>>({});
   const [inviteCopied, setInviteCopied] = useState(false);
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [showAIPicker, setShowAIPicker] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const toastIdRef = useRef(0);
   const noticeSeqRef = useRef(0);
+  const speechTimersRef = useRef<Record<number, number>>({});
   const [dealerSeats, setDealerSeats] = useState<[number, number]>([-1, -1]);
   const dealerSeatsRef = useRef<[number, number]>([-1, -1]);
   const setDealerSeatsWithRef = (seats: [number, number]) => {
@@ -266,6 +270,18 @@ export default function DashengjiRoomPage() {
       const id = ++toastIdRef.current;
       setToasts((current) => [...current, { id, text }]);
       window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 4000);
+    };
+    const showSpeechBubble = (seat: number, text: string) => {
+      window.clearTimeout(speechTimersRef.current[seat]);
+      setSpeechBubbles((current) => ({ ...current, [seat]: text }));
+      speechTimersRef.current[seat] = window.setTimeout(() => {
+        setSpeechBubbles((current) => {
+          const next = { ...current };
+          delete next[seat];
+          return next;
+        });
+        delete speechTimersRef.current[seat];
+      }, 3200);
     };
     const applyNotices = (data: ServerData) => {
       const noticePlayers = mergeDashengjiNoticePlayers(data.players, playersRef.current);
@@ -416,6 +432,24 @@ export default function DashengjiRoomPage() {
       if (state?.round_points !== undefined) setRoundPoints(state.round_points);
     });
 
+    client.on("chat", (msg) => {
+      const data = msg.data as ServerData & {
+        content?: string;
+        type?: string;
+        nickname?: string;
+      };
+      const content = data?.content?.trim();
+      if (!content) return;
+
+      const senderId = String(data.user_id ?? "");
+      const sender = playersRef.current.find((p) => p.userId === senderId);
+      if (sender) {
+        showSpeechBubble(sender.seat, content);
+      } else if (data.nickname) {
+        showToast(`${data.nickname}：${content}`);
+      }
+    });
+
     client.on("error", (msg) => {
       const data = msg.data;
       if (typeof data === "object" && data !== null && "code" in data) {
@@ -447,6 +481,8 @@ export default function DashengjiRoomPage() {
     client.connect();
     return () => {
       wsRef.current = null;
+      Object.values(speechTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+      speechTimersRef.current = {};
       client.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -470,6 +506,16 @@ export default function DashengjiRoomPage() {
   }, []);
 
   const handleAddBot = useCallback(() => {
+    setShowAIPicker(true);
+  }, []);
+
+  const handleSelectAICharacter = useCallback((characterId: number) => {
+    setShowAIPicker(false);
+    wsRef.current?.addBot(characterId);
+  }, []);
+
+  const handleSelectDefaultAI = useCallback(() => {
+    setShowAIPicker(false);
     wsRef.current?.addBot();
   }, []);
 
@@ -549,6 +595,7 @@ export default function DashengjiRoomPage() {
           discardedCards={takeBottomSeat >= 0 && discardedCards.length > 0 ? discardedCards : undefined}
           bottomSeat={takeBottomSeat >= 0 ? takeBottomSeat : undefined}
           maxPlayers={GAME_CONFIG.maxPlayers}
+          speechBubbles={speechBubbles}
           waitingLayout="row"
           hideCardCount
         />
@@ -653,6 +700,17 @@ export default function DashengjiRoomPage() {
           </div>
         </div>
       )}
+
+      <AICharacterPicker
+        open={showAIPicker}
+        onClose={() => setShowAIPicker(false)}
+        onSelect={handleSelectAICharacter}
+        onSelectDefault={handleSelectDefaultAI}
+        disabledCharacterIds={players
+          .filter((p) => p.isBot && p.characterId)
+          .map((p) => Number(p.characterId))
+          .filter((id) => Number.isFinite(id))}
+      />
 
       <PasswordPrompt
         open={showPasswordPrompt}

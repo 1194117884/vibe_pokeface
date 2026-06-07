@@ -8,6 +8,8 @@ interface AICharacterPickerProps {
   open: boolean;
   onClose: () => void;
   onSelect: (characterId: number) => void;
+  onSelectDefault?: () => void;
+  disabledCharacterIds?: number[];
 }
 
 const playStyleLabels: Record<string, string> = {
@@ -24,9 +26,10 @@ const playStyleColors: Record<string, string> = {
   unpredictable: "bg-tertiary-container text-tertiary",
 };
 
-export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPickerProps) {
+export function AICharacterPicker({ open, onClose, onSelect, onSelectDefault, disabledCharacterIds = [] }: AICharacterPickerProps) {
   const [characters, setCharacters] = useState<AICharacterInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const disabledSet = new Set(disabledCharacterIds);
 
   useEffect(() => {
     listAICharacters().then((chars) => {
@@ -47,42 +50,68 @@ export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPicker
         {loading ? (
           <p className="text-on-surface-variant text-center py-8">加载中...</p>
         ) : characters.length === 0 ? (
-          <p className="text-on-surface-variant text-center py-8">
-            暂无可用AI角色，请先在管理后台创建
-          </p>
+          <div className="py-8 text-center">
+            <p className="text-on-surface-variant">
+              暂无可用AI角色，请先在管理后台创建
+            </p>
+            {onSelectDefault && (
+              <button
+                onClick={onSelectDefault}
+                className="mt-4 px-5 py-2.5 rounded-full emerald-button text-button-text font-button-text hover:brightness-110 active:scale-95 transition-all"
+              >
+                添加默认AI
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-2 overflow-y-auto flex-1">
-            {characters.map((char) => (
-              <button
-                key={char.id}
-                onClick={() => onSelect(char.id)}
-                className="w-full text-left p-4 rounded-xl border border-outline-variant hover:border-primary/50 hover:bg-surface-container transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary-container text-primary flex items-center justify-center font-bold text-sm shrink-0">
-                    {char.name.charAt(0)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-on-surface truncate">
-                      {char.name}
+            {characters.map((char) => {
+              const disabled = disabledSet.has(char.id);
+              return (
+                <button
+                  key={char.id}
+                  onClick={() => onSelect(char.id)}
+                  disabled={disabled}
+                  className={clsx(
+                    "w-full text-left p-4 rounded-xl border border-outline-variant transition-colors",
+                    disabled
+                      ? "cursor-not-allowed opacity-50"
+                      : "hover:border-primary/50 hover:bg-surface-container"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary-container text-primary flex items-center justify-center font-bold text-sm shrink-0">
+                      {char.name.charAt(0)}
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className={clsx(
-                        "text-xs px-2 py-0.5 rounded-full",
-                        playStyleColors[char.play_style] || "bg-surface-container text-on-surface-variant"
-                      )}>
-                        {playStyleLabels[char.play_style] || char.play_style}
-                      </span>
-                      {char.personality && (
-                        <span className="text-xs text-on-surface-variant truncate">
-                          {char.personality}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="font-semibold text-on-surface truncate">
+                          {char.name}
                         </span>
-                      )}
+                        {disabled && (
+                          <span className="shrink-0 rounded-full bg-surface-container-highest px-2 py-0.5 text-xs font-bold text-on-surface-variant">
+                            已在房间
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={clsx(
+                          "text-xs px-2 py-0.5 rounded-full",
+                          playStyleColors[char.play_style] || "bg-surface-container text-on-surface-variant"
+                        )}>
+                          {playStyleLabels[char.play_style] || char.play_style}
+                        </span>
+                        {char.personality && (
+                          <span className="text-xs text-on-surface-variant truncate">
+                            {char.personality}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -98,4 +127,3 @@ export function AICharacterPicker({ open, onClose, onSelect }: AICharacterPicker
     </div>
   );
 }
-

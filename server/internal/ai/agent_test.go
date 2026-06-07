@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,6 +104,7 @@ func TestAIAgent_Trigger(t *testing.T) {
 type mockToolProvider struct {
 	responses []*LLMResultWithTools
 	callCount int
+	requests  [][]ChatMessage
 }
 
 func (m *mockToolProvider) Complete(ctx context.Context, systemPrompt, userPrompt string) (*LLMResult, error) {
@@ -110,6 +112,9 @@ func (m *mockToolProvider) Complete(ctx context.Context, systemPrompt, userPromp
 }
 
 func (m *mockToolProvider) CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []ToolSchema) (*LLMResultWithTools, error) {
+	copied := make([]ChatMessage, len(messages))
+	copy(copied, messages)
+	m.requests = append(m.requests, copied)
 	if m.callCount >= len(m.responses) {
 		return &LLMResultWithTools{}, nil
 	}
@@ -210,5 +215,48 @@ func TestAgent_MultiTurnActionAndChat(t *testing.T) {
 	}
 	if exec.lastChat != "过" {
 		t.Errorf("expected chat '过', got '%s'", exec.lastChat)
+	}
+}
+
+func TestAgent_PersistentMemoryCarriesAcrossDecisions(t *testing.T) {
+	exec := &mockExecutor{}
+	provider := &mockToolProvider{
+		responses: []*LLMResultWithTools{
+			{ToolCalls: []AssistantToolCall{{ID: "call_1", Type: "function"}}},
+			{ToolCalls: []AssistantToolCall{{ID: "call_2", Type: "function"}}},
+		},
+	}
+	provider.responses[0].ToolCalls[0].Function.Name = "play_cards"
+	provider.responses[0].ToolCalls[0].Function.Arguments = `{"cards":[0],"chat":"先出小牌探路"}`
+	provider.responses[1].ToolCalls[0].Function.Name = "play_cards"
+	provider.responses[1].ToolCalls[0].Function.Arguments = `{"cards":[13],"chat":"延续刚才的节奏"}`
+
+	agent := NewAIAgent("ai:bot:1", 0, nil, provider, exec)
+	agent.HandCards = []int{0, 13, 26}
+	agent.stateJSON = `{"phase":4,"round_num":1,"current_seat":0,"landlord_seat":0,"multiplier":1,"players":[{"seat":0,"is_landlord":true,"hand":[{"id":0},{"id":13},{"id":26}]},{"seat":1,"is_landlord":false,"hand":[{"id":1}]},{"seat":2,"is_landlord":false,"hand":[{"id":2}]}],"play_history":[]}`
+	agent.makeDecisionWithTools()
+
+	agent.HandCards = []int{13, 26}
+	agent.stateJSON = `{"phase":4,"round_num":1,"current_seat":0,"landlord_seat":0,"multiplier":1,"players":[{"seat":0,"is_landlord":true,"hand":[{"id":13},{"id":26}]},{"seat":1,"is_landlord":false,"hand":[]},{"seat":2,"is_landlord":false,"hand":[{"id":2}]}],"play_history":[{"seat":0,"play":{"type":1,"main_rank":3,"length":1},"cards":[{"id":0}]},{"seat":1,"play":{"type":0},"cards":[]}]}`
+	agent.makeDecisionWithTools()
+
+	if provider.callCount != 2 {
+		t.Fatalf("expected 2 LLM calls, got %d", provider.callCount)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("expected 2 captured requests, got %d", len(provider.requests))
+	}
+
+	var second strings.Builder
+	for _, msg := range provider.requests[1] {
+		second.WriteString(msg.Content)
+		second.WriteString("\n")
+	}
+	got := second.String()
+	if !strings.Contains(got, "先出小牌探路") {
+		t.Fatalf("second request should include previous decision memory, got:\n%s", got)
+	}
+	if !strings.Contains(got, "座位1：过牌") {
+		t.Fatalf("second request should include new play history since last decision, got:\n%s", got)
 	}
 }

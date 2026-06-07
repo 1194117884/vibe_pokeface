@@ -24,16 +24,16 @@ type FuncDef struct {
 }
 
 type ParamSchema struct {
-	Type       string                    `json:"type"`
+	Type       string                   `json:"type"`
 	Properties map[string]ParamProperty `json:"properties,omitempty"`
-	Required   []string                  `json:"required,omitempty"`
+	Required   []string                 `json:"required,omitempty"`
 }
 
 type ParamProperty struct {
-	Type        string        `json:"type"`
-	Description string        `json:"description"`
-	Enum        []string      `json:"enum,omitempty"`
-	Items       *ItemsSchema  `json:"items,omitempty"`
+	Type        string       `json:"type"`
+	Description string       `json:"description"`
+	Enum        []string     `json:"enum,omitempty"`
+	Items       *ItemsSchema `json:"items,omitempty"`
 }
 
 // ItemsSchema is used for array-type properties in tool schemas
@@ -68,6 +68,11 @@ func ExtractToolCall(jsonStr string) (*ToolCall, error) {
 // GetToolSchemas returns tool definitions appropriate for the given game phase.
 // Info tools (check_my_hand, check_game_status) are always available.
 func GetToolSchemas(phase string) []ToolSchema {
+	return GetToolSchemasForGame("doudizhu", phase)
+}
+
+// GetToolSchemasForGame returns tool definitions for the requested game and phase.
+func GetToolSchemasForGame(gameType string, phase string) []ToolSchema {
 	infoTools := []ToolSchema{
 		{
 			Type: "function",
@@ -212,8 +217,11 @@ func GetToolSchemas(phase string) []ToolSchema {
 		},
 	}
 
-	base := infoTools
+	if gameType == "dashengji" {
+		return getDashengjiToolSchemas(infoTools, phase)
+	}
 
+	base := infoTools
 	switch phase {
 	case "calling", "snatching":
 		return append(base, biddingTools...)
@@ -223,5 +231,50 @@ func GetToolSchemas(phase string) []ToolSchema {
 		return append(base, doubleTools...)
 	default:
 		return append(base, playTool)
+	}
+}
+
+func getDashengjiToolSchemas(base []ToolSchema, phase string) []ToolSchema {
+	cardArgs := ParamSchema{
+		Type: "object",
+		Properties: map[string]ParamProperty{
+			"cards": {
+				Type:        "array",
+				Description: "要使用的牌ID数组",
+				Items:       &ItemsSchema{Type: "integer"},
+			},
+			"chat": {
+				Type:        "string",
+				Description: "可选聊天内容，不超过30字",
+			},
+		},
+		Required: []string{"cards"},
+	}
+	emptyArgs := ParamSchema{Type: "object", Properties: map[string]ParamProperty{}}
+
+	switch phase {
+	case "set_trump":
+		return append(base,
+			ToolSchema{Type: "function", Function: FuncDef{Name: "set_trump", Description: "定主，传入符合规则的亮主牌ID", Parameters: cardArgs}},
+			ToolSchema{Type: "function", Function: FuncDef{Name: "pass_trump", Description: "不定主", Parameters: emptyArgs}},
+		)
+	case "counter_trump":
+		return append(base,
+			ToolSchema{Type: "function", Function: FuncDef{Name: "counter_trump", Description: "反主，传入符合规则的反主牌ID", Parameters: cardArgs}},
+			ToolSchema{Type: "function", Function: FuncDef{Name: "pass_counter", Description: "不反主", Parameters: emptyArgs}},
+		)
+	case "take_bottom":
+		return append(base,
+			ToolSchema{Type: "function", Function: FuncDef{Name: "take_bottom", Description: "自己起底", Parameters: emptyArgs}},
+			ToolSchema{Type: "function", Function: FuncDef{Name: "pass_take_bottom", Description: "把起底交给队友", Parameters: emptyArgs}},
+		)
+	case "discard_bottom":
+		return append(base,
+			ToolSchema{Type: "function", Function: FuncDef{Name: "discard_bottom", Description: "扣底，必须传入6张牌ID", Parameters: cardArgs}},
+		)
+	default:
+		return append(base,
+			ToolSchema{Type: "function", Function: FuncDef{Name: "play_cards", Description: "大升级出牌，传入要出的牌ID数组", Parameters: cardArgs}},
+		)
 	}
 }
