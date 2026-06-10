@@ -45,13 +45,14 @@ type dashengjiPlayerHand struct {
 }
 
 func (a *AIAgent) detectDashengjiPhase() string {
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return "set_trump"
 	}
 	var state struct {
 		Phase int `json:"phase"`
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return "set_trump"
 	}
 	switch state.Phase {
@@ -87,11 +88,31 @@ func (a *AIAgent) buildDashengjiSystemPrompt(phase string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("你在进行一场四人大升级/双升比赛，你是「%s」。\n", name))
 	sb.WriteString(fmt.Sprintf("性格：%s。出牌风格：%s。\n", personality, playStyle))
-	sb.WriteString("必须调用当前阶段允许的工具，所有牌都必须使用整数ID。\n")
-	sb.WriteString("阶段：定主、反主、起底、扣底、出牌。出牌阶段必须出牌，不能过牌。\n")
-	sb.WriteString("出牌阶段调用play_cards时，必须附带chat字段，说一句符合你性格的简短台词（不超过30字）。\n")
-	sb.WriteString("跟牌必须尽量跟领出花色/主牌组和牌型；无法跟牌型时按规则垫牌或用主牌枪毙。\n")
-	sb.WriteString("如果不确定，选择保守合法动作。\n")
+	sb.WriteString("必须调用当前阶段允许的工具；所有牌都必须使用整数ID，并且只能使用当前手牌里的整数ID。\n\n")
+	sb.WriteString("## 全局规则\n")
+	sb.WriteString("- 这是河北定州四人大升级：3副牌，4人2v2，对座为队友（0-2、1-3）。\n")
+	sb.WriteString("- 庄家队目标是跑分并守庄/升级；闲家队目标是抢分，达到下庄或升级。\n")
+	sb.WriteString("- 分牌：5=5分，10/K=10分；闲家赢一轮才累计该轮分，庄家赢一轮则这些分被跑掉。\n")
+	sb.WriteString("- 主牌：大王、小王、所有2、所有级牌、主花色牌。副牌是非主牌。\n")
+	sb.WriteString("- 大小顺序：副牌 < 主花色牌 < 副2 < 本2 < 副级牌 < 本级牌 < 小王 < 大王。\n")
+	sb.WriteString("- 支持牌型：单张、对子、刻子、拖拉机；领出后，本轮所有人必须出相同张数。\n\n")
+	sb.WriteString("## 分阶段规则\n")
+	sb.WriteString("- 定主阶段：庄家队行动。只有王 + 同色2 + 同花色级牌才可set_trump；没有合法组合就pass_trump。带两张同花色级牌属于定死，通常更强。\n")
+	sb.WriteString("- 反主阶段：闲家队行动。只有王 + 同色2 + 两张同花色级牌才可counter_trump；不能合法反主就pass_counter，不要用单张级牌反主。\n")
+	sb.WriteString("- 起底阶段：轮到庄家队指定玩家时，通常take_bottom；只有明确要让队友起底时才pass_take_bottom。\n")
+	sb.WriteString("- 扣底阶段：discard_bottom必须正好6张，优先扣低价值副牌；保留主牌、分牌、对子/拖拉机结构和控牌。\n")
+	sb.WriteString("- 出牌阶段：必须play_cards，不能过牌，cards不能为空，并附带chat字段说一句不超过30字的台词。\n\n")
+	sb.WriteString("## 跟牌硬约束\n")
+	sb.WriteString("- 跟牌时必须先看领出的张数、牌型、花色和主副类别。\n")
+	sb.WriteString("- 如果手里有可跟的同花色/同主副类别牌，必须先跟同花色/同主副类别，不能垫其他花色，也不能随便出主。\n")
+	sb.WriteString("- 领出单张跟单张，领出对子跟对子，领出刻子跟刻子，领出拖拉机跟同长度拖拉机；无法保持牌型时仍要优先用同类牌补足张数。\n")
+	sb.WriteString("- 只有没有领出花色/类别可跟时，才可以垫牌；只有没有副牌可跟且要争夺本轮时，才用主牌枪毙。\n")
+	sb.WriteString("- 如果不确定，选择当前手牌中最保守、最可能合法的动作，不要编造不存在的牌ID。\n\n")
+	sb.WriteString("## 配合与赢面\n")
+	sb.WriteString("- 队友当前最大时优先送分或垫低价值牌，帮助队友收分/跑分。\n")
+	sb.WriteString("- 对手当前最大时少送分；除非能确定抢回本轮，否则避免扔5、10、K。\n")
+	sb.WriteString("- 闲家落后时更积极抢分和争领出；庄家队领先时稳守主牌和关键牌权。\n")
+	sb.WriteString("- 领出时优先选择能减少手牌负担、保护分牌和保留控制力的牌型。\n")
 	sb.WriteString(fmt.Sprintf("当前阶段：%s。\n", phase))
 	return sb.String()
 }
@@ -99,7 +120,13 @@ func (a *AIAgent) buildDashengjiSystemPrompt(phase string) string {
 func (a *AIAgent) buildDashengjiUserMessage(phase string) string {
 	status := a.buildDashengjiStatus()
 	records := a.buildDashengjiPlayingRecords()
-	return fmt.Sprintf("## 当前阶段：%s\n%s\n%s\n请根据当前阶段调用一个动作工具。", phase, status, records)
+	candidates := a.buildDashengjiCandidateHints(phase)
+	handCards := a.handCardsSnapshot()
+	hand := formatDashengjiCardsWithIDs(handCards)
+	if hand == "" {
+		hand = "（空）"
+	}
+	return fmt.Sprintf("## 当前阶段：%s\n你的当前手牌（%d张）：%s\n只能从上面的手牌ID中选择；不要使用已经出过、扣掉或不存在的ID。\n%s\n%s\n%s\n请根据当前阶段调用一个动作工具。", phase, len(handCards), hand, status, records, candidates)
 }
 
 func (a *AIAgent) buildDashengjiStatus() string {
@@ -124,6 +151,8 @@ func (a *AIAgent) buildDashengjiStatus() string {
 	if len(state.RoundPlays) > 0 {
 		led := state.RoundPlays[0]
 		sb.WriteString(fmt.Sprintf("本轮领出座位%d：%s\n", led.Seat, formatDashengjiCardsWithIDs(cardIDs(led.Cards))))
+		sb.WriteString(fmt.Sprintf("本轮需要跟出张数：%d\n", len(led.Cards)))
+		sb.WriteString(fmt.Sprintf("本轮领出牌型：%s\n", dashengjiPlayTypeName(led.Play.Type)))
 	}
 	return sb.String()
 }
@@ -155,27 +184,70 @@ func (a *AIAgent) executeDashengjiToolCall(call *ToolCall) {
 	}
 	switch call.Name {
 	case "set_trump", "counter_trump", "discard_bottom":
+		a.reportActionStatus(call.Name)
 		var args PlayCardsArgs
 		if err := json.Unmarshal(call.Args, &args); err != nil {
 			a.fallbackDashengjiAction(a.detectPhase())
 			return
 		}
-		a.Executor.ExecuteAction(a.UserID, call.Name, args.Cards)
+		if !a.executeDashengjiCandidateOrFallback(call.Name, args.Cards, args.Chat) {
+			return
+		}
 		if args.Chat != "" {
 			a.Executor.SendChat(a.UserID, args.Chat, "text")
 		}
+		a.Executor.ExecuteAction(a.UserID, call.Name, args.Cards)
 	case "play_cards":
+		a.reportActionStatus(call.Name)
 		var args PlayCardsArgs
 		if err := json.Unmarshal(call.Args, &args); err != nil || len(args.Cards) == 0 {
 			a.fallbackDashengjiAction(a.detectPhase())
 			return
 		}
-		a.Executor.ExecuteAction(a.UserID, "play", args.Cards)
+		if !a.executeDashengjiCandidateOrFallback(call.Name, args.Cards, args.Chat) {
+			return
+		}
 		if args.Chat != "" {
 			a.Executor.SendChat(a.UserID, args.Chat, "text")
 		}
+		a.Executor.ExecuteAction(a.UserID, "play", args.Cards)
 	case "pass_trump", "pass_counter", "take_bottom", "pass_take_bottom":
+		a.reportActionStatus(call.Name)
 		a.Executor.ExecuteAction(a.UserID, call.Name, nil)
+	default:
+		a.fallbackDashengjiAction(a.detectPhase())
+	}
+}
+
+func (a *AIAgent) executeDashengjiCandidateOrFallback(tool string, cards []int, chat string) bool {
+	if a.stateSnapshot() == "" {
+		return true
+	}
+	if a.isLegalDashengjiAction(tool, cards) {
+		return true
+	}
+	phase := a.detectPhase()
+	fallback, ok := a.dashengjiFallbackCandidate(phase)
+	if !ok {
+		a.fallbackDashengjiAction(phase)
+		return false
+	}
+	logDashengjiCandidateRejected(a.UserID, tool, cards, fallback)
+	a.executeDashengjiCandidate(fallback, "")
+	return false
+}
+
+func (a *AIAgent) executeDashengjiCandidate(candidate dashengjiCandidate, chat string) {
+	if chat != "" {
+		a.Executor.SendChat(a.UserID, chat, "text")
+	}
+	switch candidate.Tool {
+	case "play_cards":
+		a.Executor.ExecuteAction(a.UserID, "play", candidate.Cards)
+	case "set_trump", "counter_trump", "discard_bottom":
+		a.Executor.ExecuteAction(a.UserID, candidate.Tool, candidate.Cards)
+	case "pass_trump", "pass_counter", "take_bottom", "pass_take_bottom":
+		a.Executor.ExecuteAction(a.UserID, candidate.Tool, nil)
 	default:
 		a.fallbackDashengjiAction(a.detectPhase())
 	}
@@ -186,15 +258,16 @@ func (a *AIAgent) fallbackDashengjiAction(phase string) {
 		return
 	}
 	state, _ := a.parseDashengjiState()
+	hand := a.handCardsSnapshot()
 	switch phase {
 	case "set_trump":
-		if cards := findDashengjiTrumpCards(a.HandCards, state.LevelRank, false); len(cards) > 0 {
+		if cards := findDashengjiTrumpCards(hand, state.LevelRank, false); len(cards) > 0 {
 			a.Executor.ExecuteAction(a.UserID, "set_trump", cards)
 			return
 		}
 		a.Executor.ExecuteAction(a.UserID, "pass_trump", nil)
 	case "counter_trump":
-		if cards := findDashengjiTrumpCards(a.HandCards, state.LevelRank, true); len(cards) > 0 {
+		if cards := findDashengjiTrumpCards(hand, state.LevelRank, true); len(cards) > 0 {
 			a.Executor.ExecuteAction(a.UserID, "counter_trump", cards)
 			return
 		}
@@ -202,9 +275,9 @@ func (a *AIAgent) fallbackDashengjiAction(phase string) {
 	case "take_bottom":
 		a.Executor.ExecuteAction(a.UserID, "take_bottom", nil)
 	case "discard_bottom":
-		a.Executor.ExecuteAction(a.UserID, "discard_bottom", chooseDashengjiDiscard(a.HandCards, state.TrumpSuit, state.LevelRank))
+		a.Executor.ExecuteAction(a.UserID, "discard_bottom", chooseDashengjiDiscard(hand, state.TrumpSuit, state.LevelRank))
 	default:
-		a.Executor.ExecuteAction(a.UserID, "play", chooseDashengjiPlay(a.HandCards, state))
+		a.Executor.ExecuteAction(a.UserID, "play", chooseDashengjiPlay(hand, state))
 	}
 }
 
@@ -212,10 +285,11 @@ func (a *AIAgent) parseDashengjiState() (dashengjiState, bool) {
 	var state dashengjiState
 	state.TrumpSuit = -1
 	state.LevelRank = 3
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return state, false
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return state, false
 	}
 	if state.LevelRank == 0 {
@@ -541,5 +615,20 @@ func dashengjiSuitName(suit int) string {
 		return "♦"
 	default:
 		return "未定"
+	}
+}
+
+func dashengjiPlayTypeName(playType int) string {
+	switch playType {
+	case 1:
+		return "单张"
+	case 2:
+		return "对子"
+	case 3:
+		return "刻子"
+	case 4:
+		return "拖拉机"
+	default:
+		return "未知"
 	}
 }

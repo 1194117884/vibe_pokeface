@@ -1044,20 +1044,26 @@ func (r *GameRoom) HandleAction(userID string, action string, cards []int) {
 				}
 			}
 		}
-		if err := r.store.AddGameAction(context.Background(), &model.GameAction{
-			GameID:          r.currentGameID,
+		store := r.store
+		gameID := r.currentGameID
+		actionSeq := r.actionSeq
+		actionType := executedAction
+		recordStart := time.Now()
+		if err := store.AddGameAction(context.Background(), &model.GameAction{
+			GameID:          gameID,
 			RoundNum:        roundNum,
-			ActionSeq:       r.actionSeq,
+			ActionSeq:       actionSeq,
 			PlayerID:        playerDBID,
 			SeatIndex:       seatIdx,
 			IsBot:           isBot,
-			ActionType:      executedAction,
+			ActionType:      actionType,
 			Cards:           cardsJSON,
 			FullState:       &stateJSONStr,
 			ToolExecutionID: toolExecID,
 		}); err != nil {
 			log.Printf("failed to record game action: %v", err)
 		}
+		log.Printf("[DEBUG] AddGameAction duration=%s user=%s action=%s", time.Since(recordStart), userID, actionType)
 	}
 
 	// Check for 报单/报双 (cards left announcement)
@@ -1168,6 +1174,30 @@ func (r *GameRoom) SendChat(senderID string, content string, msgType string) {
 	r.BroadcastChat(senderID, content, msgType)
 }
 
+// ReportAIStatus broadcasts non-sensitive AI progress to room clients.
+func (r *GameRoom) ReportAIStatus(userID string, status string, message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	seat := -1
+	for _, p := range r.Players {
+		if p.UserID == userID {
+			seat = p.Seat
+			break
+		}
+	}
+	if seat < 0 {
+		return
+	}
+
+	r.broadcastMsg("ai_status", map[string]interface{}{
+		"user_id": userID,
+		"seat":    seat,
+		"status":  status,
+		"message": message,
+	})
+}
+
 // triggerAIAgent checks if the current player is a bot and triggers its AI agent.
 // Uses JSON marshaling to avoid circular import of the concrete game state type.
 // The caller must hold r.mu.
@@ -1223,66 +1253,68 @@ func (r *GameRoom) BroadcastChat(senderID string, content string, msgType string
 	defer r.mu.Unlock()
 
 	nickname := senderID
+	seatIdx := int8(-1)
+	isBot := false
+	var playerDBID *int64
 	for _, p := range r.Players {
 		if p.UserID == senderID {
 			nickname = p.Nickname
+			seatIdx = int8(p.Seat)
+			isBot = p.IsBot
+			uid := parsePlayerID(p.UserID, p.IsBot)
+			playerDBID = &uid
 			break
 		}
 	}
 
-	// Persist chat message to database
-	if r.store != nil {
-		r.store.SaveChatMessage(context.Background(), &model.ChatMessage{
-			RoomID:  r.ID,
+	store := r.store
+	roomID := r.ID
+	gameID := r.currentGameID
+	actionSeq := 0
+	var chatToolExecID *int64
+	if gameID > 0 {
+		r.actionSeq++
+		actionSeq = r.actionSeq
+		if isBot {
+			if agent, ok := r.agents[senderID]; ok {
+				id := agent.LastToolExecID()
+				if id > 0 {
+					chatToolExecID = &id
+				}
+			}
+		}
+	}
+	chatRoundNum := 1
+	if r.State != nil {
+		if stateJSON, err := json.Marshal(r.State); err == nil {
+			var sd struct {
+				RoundNum int `json:"round_num"`
+			}
+			if json.Unmarshal(stateJSON, &sd) == nil && sd.RoundNum > 0 {
+				chatRoundNum = sd.RoundNum
+			}
+		}
+	}
+
+	if store != nil {
+		if err := store.SaveChatMessage(context.Background(), &model.ChatMessage{
+			RoomID:  roomID,
 			UserID:  senderID,
 			Content: content,
 			MsgType: msgType,
-		})
-
-		// Also record as a game action for chronological timeline
-		if r.currentGameID > 0 {
-			r.actionSeq++
-			var seatIdx int8 = -1
-			isBot := false
-			var playerDBID *int64
-			for _, p := range r.Players {
-				if p.UserID == senderID {
-					seatIdx = int8(p.Seat)
-					isBot = p.IsBot
-					uid := parsePlayerID(p.UserID, p.IsBot)
-					playerDBID = &uid
-					break
-				}
-			}
+		}); err != nil {
+			log.Printf("failed to save chat message: %v", err)
+		}
+		if gameID > 0 {
 			chatJSON, _ := json.Marshal(map[string]string{
 				"content": content,
 				"type":    msgType,
 			})
 			chatJSONStr := string(chatJSON)
-			var chatToolExecID *int64
-			if isBot {
-				if agent, ok := r.agents[senderID]; ok {
-					id := agent.LastToolExecID()
-					if id > 0 {
-						chatToolExecID = &id
-					}
-				}
-			}
-			chatRoundNum := 1
-			if r.State != nil {
-				if stateJSON, err := json.Marshal(r.State); err == nil {
-					var sd struct {
-						RoundNum int `json:"round_num"`
-					}
-					if json.Unmarshal(stateJSON, &sd) == nil && sd.RoundNum > 0 {
-						chatRoundNum = sd.RoundNum
-					}
-				}
-			}
-			if err := r.store.AddGameAction(context.Background(), &model.GameAction{
-				GameID:          r.currentGameID,
+			if err := store.AddGameAction(context.Background(), &model.GameAction{
+				GameID:          gameID,
 				RoundNum:        chatRoundNum,
-				ActionSeq:       r.actionSeq,
+				ActionSeq:       actionSeq,
 				PlayerID:        playerDBID,
 				SeatIndex:       seatIdx,
 				IsBot:           isBot,

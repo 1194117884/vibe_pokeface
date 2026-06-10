@@ -127,6 +127,59 @@ func TestRoomAddPlayer(t *testing.T) {
 	}
 }
 
+func TestRoomReportAIStatusBroadcastsSeatStatus(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+	conn := make(chan []byte, 10)
+	if err := room.AddPlayer("ai:bot:1", "AI Player 1", "", conn); err != nil {
+		t.Fatalf("AddPlayer failed: %v", err)
+	}
+	wantSeat := room.Players[0].Seat
+	<-conn // player_joined
+
+	room.ReportAIStatus("ai:bot:1", "checking_hand", "正在看牌")
+
+	select {
+	case msg := <-conn:
+		var parsed struct {
+			Type string `json:"type"`
+			Data struct {
+				UserID  string `json:"user_id"`
+				Seat    int    `json:"seat"`
+				Status  string `json:"status"`
+				Message string `json:"message"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			t.Fatalf("failed to parse message: %v", err)
+		}
+		if parsed.Type != "ai_status" {
+			t.Fatalf("type = %s, want ai_status", parsed.Type)
+		}
+		if parsed.Data.UserID != "ai:bot:1" || parsed.Data.Seat != wantSeat || parsed.Data.Status != "checking_hand" || parsed.Data.Message != "正在看牌" {
+			t.Fatalf("payload = %#v", parsed.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ai_status")
+	}
+}
+
+func TestRoomReportAIStatusSkipsMissingPlayer(t *testing.T) {
+	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
+	conn := make(chan []byte, 10)
+	if err := room.AddPlayer("user-1", "", "", conn); err != nil {
+		t.Fatalf("AddPlayer failed: %v", err)
+	}
+	<-conn // player_joined
+
+	room.ReportAIStatus("ai:bot:missing", "thinking", "正在思考")
+
+	select {
+	case msg := <-conn:
+		t.Fatalf("unexpected broadcast: %s", string(msg))
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestRoomAddPlayerReconnect(t *testing.T) {
 	room := NewGameRoom("room-1", "doudizhu", &mockEngine{}, nil)
 	conn1 := make(chan []byte, 10)

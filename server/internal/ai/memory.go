@@ -78,8 +78,9 @@ func (a *AIAgent) appendCurrentContextToMemory(phase string) {
 		state.RoundNum = 1
 	}
 
+	gameType := a.gameTypeSnapshot()
 	shouldReset := !a.memoryStarted ||
-		a.memoryGameType != a.GameType ||
+		a.memoryGameType != gameType ||
 		state.RoundNum < a.memoryRoundNum ||
 		len(state.PlayHistory) < a.memoryPlayLen ||
 		len(state.BidHistory) < a.memoryBidLen ||
@@ -88,10 +89,11 @@ func (a *AIAgent) appendCurrentContextToMemory(phase string) {
 	if shouldReset {
 		a.resetMemory()
 		a.memoryStarted = true
-		a.memoryGameType = a.GameType
+		a.memoryGameType = gameType
 	}
 
-	key := fmt.Sprintf("%s:%d:%d:%d:%d:%d:%d", a.GameType, state.RoundNum, state.Phase, state.CurrentSeat, len(state.PlayHistory), len(state.BidHistory), len(a.HandCards))
+	hand := a.handCardsSnapshot()
+	key := fmt.Sprintf("%s:%d:%d:%d:%d:%d:%d", gameType, state.RoundNum, state.Phase, state.CurrentSeat, len(state.PlayHistory), len(state.BidHistory), len(hand))
 	if key == a.memoryKey {
 		return
 	}
@@ -118,10 +120,11 @@ func (a *AIAgent) resetMemory() {
 
 func (a *AIAgent) parseMemoryState() (memoryState, bool) {
 	var state memoryState
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return state, false
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return state, false
 	}
 	return state, true
@@ -136,7 +139,8 @@ func (a *AIAgent) buildMemoryContextMessage(phase string, state memoryState, isN
 	}
 
 	sb.WriteString(fmt.Sprintf("当前阶段：%s；轮到座位%d行动；你的座位：%d。\n", phase, state.CurrentSeat, a.Seat))
-	sb.WriteString(fmt.Sprintf("你的当前手牌（%d张）：%s\n", len(a.HandCards), a.formatCardsWithIDs(a.HandCards)))
+	hand := a.handCardsSnapshot()
+	sb.WriteString(fmt.Sprintf("你的当前手牌（%d张）：%s\n", len(hand), a.formatCardsWithIDs(hand)))
 	a.writeMemoryIdentity(&sb, state)
 	a.writeMemoryPlayerCounts(&sb, state)
 	a.writeMemoryNewBids(&sb, state)
@@ -152,7 +156,7 @@ func (a *AIAgent) buildMemoryContextMessage(phase string, state memoryState, isN
 }
 
 func (a *AIAgent) writeMemoryIdentity(sb *strings.Builder, state memoryState) {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		level := state.LevelRank
 		if level == 0 {
 			level = state.CurrentLevel
@@ -181,7 +185,7 @@ func (a *AIAgent) writeMemoryPlayerCounts(sb *strings.Builder, state memoryState
 			sb.WriteString("；")
 		}
 		role := ""
-		if a.GameType == "dashengji" {
+		if a.gameTypeSnapshot() == "dashengji" {
 			if p.Seat == state.DealerSeats[0] || p.Seat == state.DealerSeats[1] {
 				role = "庄"
 			} else {

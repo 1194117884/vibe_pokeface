@@ -196,6 +196,34 @@ describe("WebSocket Game Client", () => {
     );
   });
 
+  it("dispatches ai_status messages to registered handlers", () => {
+    const client = new WSGameClient(7, "token", "ROOM123", "doudizhu");
+    const handler = vi.fn();
+    client.on("ai_status", handler);
+    client.connect();
+    mockWsInstances[0]._open();
+
+    mockWsInstances[0]._receive({
+      type: "ai_status",
+      data: {
+        user_id: "ai:bot:1",
+        seat: 1,
+        status: "checking_hand",
+        message: "正在看牌",
+      },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      type: "ai_status",
+      data: {
+        user_id: "ai:bot:1",
+        seat: 1,
+        status: "checking_hand",
+        message: "正在看牌",
+      },
+    });
+  });
+
   describe("rejoinRoom", () => {
     it("sends a join_room message with the correct room_id and password", () => {
       const client = new WSGameClient(1, "token", "ROOM456", "doudizhu");

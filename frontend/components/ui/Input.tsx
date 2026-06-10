@@ -1,15 +1,16 @@
 "use client";
 
-import { InputHTMLAttributes, forwardRef, useState } from "react";
+import { InputHTMLAttributes, ReactNode, forwardRef, useState } from "react";
 import clsx from "clsx";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: string;
+  rightElement?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  function Input({ label, error, className = "", value, onChange, ...props }, ref) {
+  function Input({ label, error, className = "", value, onChange, rightElement, ...props }, ref) {
     const [focused, setFocused] = useState(false);
     const hasValue = value !== undefined && value !== "";
 
@@ -43,13 +44,21 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           </label>
           <input
             ref={ref}
-            className="w-full bg-transparent outline-none text-lg text-text-black"
+            className={clsx(
+              "w-full bg-transparent outline-none text-lg text-text-black",
+              rightElement && "pr-10"
+            )}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             value={value}
             onChange={onChange}
             {...props}
           />
+          {rightElement && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              {rightElement}
+            </div>
+          )}
         </div>
         {error && (
           <p className="mt-1 text-base font-bold text-red-error">{error}</p>

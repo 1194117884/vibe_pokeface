@@ -7,6 +7,8 @@ import (
 	"log"
 	"math/rand"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yongkl/vibe-pokeface/internal/model"
@@ -22,6 +24,7 @@ type ToolResult struct {
 type ActionExecutor interface {
 	ExecuteAction(userID string, action string, cards []int)
 	SendChat(senderID string, content string, msgType string)
+	ReportAIStatus(userID string, status string, message string)
 }
 
 // AIAgent runs as a goroutine per bot, making LLM-driven decisions
@@ -34,10 +37,11 @@ type AIAgent struct {
 	Provider  LLMProvider
 	Executor  ActionExecutor
 	stateJSON string
+	mu        sync.RWMutex
 
 	triggerChan chan struct{}
 	stopChan    chan struct{}
-	stopped     bool
+	stopOnce    sync.Once
 
 	// Override for testing
 	MakeDecisionFunc func(agent *AIAgent, phase string, handCards []int, stateJSON string) string
@@ -45,7 +49,7 @@ type AIAgent struct {
 	aiStore *model.AIStore // for LLM call logging
 	roomID  string         // room context for audit logging
 
-	lastToolExecID int64 // most recent action-tool execution ID for game_actions link
+	lastToolExecID atomic.Int64 // most recent action-tool execution ID for game_actions link
 
 	lastError  *GameError // last action error for retry context
 	retryCount int        // number of retries after errors
@@ -76,18 +80,31 @@ func (e *GameError) Error() string {
 // the LLM can retry with context. After 2 retries the agent gives up and
 // falls back to a rule-based default.
 func (a *AIAgent) ReportError(err *GameError) {
+	if a.isStopped() {
+		return
+	}
+	a.mu.Lock()
 	if a.retryCount >= 2 {
+		a.mu.Unlock()
 		log.Printf("[AI:%s] retry limit exceeded, falling back to rule-based action", a.UserID)
-		go a.ruleBasedAction(a.detectPhase())
+		go func() {
+			if a.isStopped() {
+				return
+			}
+			a.ruleBasedAction(a.detectPhase())
+		}()
 		return
 	}
 	a.lastError = err
 	a.retryCount++
+	a.mu.Unlock()
 	a.Trigger()
 }
 
 // ResetError clears the error state (called on successful action or new turn).
 func (a *AIAgent) ResetError() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.lastError = nil
 	a.retryCount = 0
 }
@@ -111,6 +128,8 @@ func (a *AIAgent) SetGameType(gameType string) {
 	if gameType == "" {
 		gameType = "doudizhu"
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.GameType = gameType
 }
 
@@ -126,7 +145,7 @@ func (a *AIAgent) SetRoomID(roomID string) {
 
 // LastToolExecID returns the most recent action-tool execution ID, or 0 if none.
 func (a *AIAgent) LastToolExecID() int64 {
-	return a.lastToolExecID
+	return a.lastToolExecID.Load()
 }
 
 // Start launches the agent's goroutine
@@ -136,18 +155,19 @@ func (a *AIAgent) Start() {
 
 // Stop signals the agent to shut down
 func (a *AIAgent) Stop() {
-	if !a.stopped {
-		a.stopped = true
+	a.stopOnce.Do(func() {
 		close(a.stopChan)
-	}
+	})
 }
 
 // Trigger tells the agent it's its turn to act.
 // If this is a fresh turn (no pending error), reset the retry counter.
 func (a *AIAgent) Trigger() {
+	a.mu.Lock()
 	if a.lastError == nil {
 		a.retryCount = 0
 	}
+	a.mu.Unlock()
 	select {
 	case a.triggerChan <- struct{}{}:
 	default:
@@ -156,13 +176,70 @@ func (a *AIAgent) Trigger() {
 
 // UpdateHand synchronizes the agent's known hand from a state update
 func (a *AIAgent) UpdateHand(cards []int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.HandCards = make([]int, len(cards))
 	copy(a.HandCards, cards)
 }
 
 // UpdateState stores the latest game state JSON for tool use
 func (a *AIAgent) UpdateState(stateJSON string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.stateJSON = stateJSON
+}
+
+func (a *AIAgent) handCardsSnapshot() []int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	cards := make([]int, len(a.HandCards))
+	copy(cards, a.HandCards)
+	return cards
+}
+
+func (a *AIAgent) stateSnapshot() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.stateJSON
+}
+
+func (a *AIAgent) gameTypeSnapshot() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.GameType
+}
+
+func (a *AIAgent) consumeLastError() *GameError {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	err := a.lastError
+	a.lastError = nil
+	return err
+}
+
+func (a *AIAgent) decisionContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	stopCtx, stopCancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-a.stopChan:
+			stopCancel()
+		case <-ctx.Done():
+		}
+	}()
+	return stopCtx, func() {
+		cancel()
+		stopCancel()
+	}
+}
+
+func (a *AIAgent) isStopped() bool {
+	select {
+	case <-a.stopChan:
+		return true
+	default:
+		return false
+	}
 }
 
 // run is the main agent loop
@@ -186,14 +263,16 @@ func (a *AIAgent) makeDecision() {
 	case <-time.After(800 * time.Millisecond):
 	}
 
+	a.reportStatus("thinking", "正在思考")
+
 	if a.MakeDecisionFunc != nil {
-		result := a.MakeDecisionFunc(a, "playing", a.HandCards, a.stateJSON)
+		result := a.MakeDecisionFunc(a, "playing", a.handCardsSnapshot(), a.stateSnapshot())
 		a.executeToolCall(result)
 		return
 	}
 
 	phase := a.detectPhase()
-	log.Printf("[AI:%s seat=%d] phase=%s hand=%d cards", a.UserID, a.Seat, phase, len(a.HandCards))
+	log.Printf("[AI:%s seat=%d] phase=%s hand=%d cards", a.UserID, a.Seat, phase, len(a.handCardsSnapshot()))
 
 	if a.Provider != nil {
 		log.Printf("[AI:%s] calling LLM with tools (phase=%s)", a.UserID, phase)
@@ -208,35 +287,56 @@ func (a *AIAgent) makeDecision() {
 // The agent can call info tools (check_my_hand, check_game_status)
 // over up to 10 turns before committing to an action tool.
 func (a *AIAgent) makeDecisionWithTools() {
+	decisionStart := time.Now()
 	phase := a.detectPhase()
+	buildStart := time.Now()
 	messages := a.buildDecisionMessages(phase)
+	log.Printf("[AI:%s] timing build_decision_messages_ms=%d phase=%s", a.UserID, time.Since(buildStart).Milliseconds(), phase)
 
 	// Inject error context from previous failed action so the LLM can correct itself.
-	if a.lastError != nil {
-		retryMsg := fmt.Sprintf("你上一次操作失败了，错误码：%s", a.lastError.Code)
-		if a.lastError.Phase != "" {
-			retryMsg += fmt.Sprintf("，当前阶段是：%s", a.lastError.Phase)
+	if lastError := a.consumeLastError(); lastError != nil {
+		a.reportStatus("retrying", "正在重新判断")
+		retryMsg := fmt.Sprintf("你上一次操作失败了，错误码：%s", lastError.Code)
+		if lastError.Phase != "" {
+			retryMsg += fmt.Sprintf("，当前阶段是：%s", lastError.Phase)
 		}
-		if a.lastError.Action != "" {
-			retryMsg += fmt.Sprintf("，你尝试的动作是：%s", a.lastError.Action)
+		if lastError.Action != "" {
+			retryMsg += fmt.Sprintf("，你尝试的动作是：%s", lastError.Action)
 		}
 		retryMsg += "。请根据当前阶段选择正确的操作工具。"
+		if a.gameTypeSnapshot() == "dashengji" {
+			retryMsg += "不要重复上一次非法cards；只能从当前手牌ID中重新选择合法组合，跟牌时先满足领出花色/主副类别、牌型和张数。"
+		}
 		messages = append(messages, ChatMessage{Role: "user", Content: retryMsg})
-		a.lastError = nil // consumed
 	}
 
-	tools := GetToolSchemasForGame(a.GameType, phase)
+	tools := GetToolSchemasForGame(a.gameTypeSnapshot(), phase)
 
 	for turn := 0; turn < 10; turn++ {
-		// Capture request payload BEFORE the LLM call
-		requestJSON := captureRequestJSON(messages, tools)
+		if a.isStopped() {
+			return
+		}
+		a.reportStatus("analyzing", "正在分析局势")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// Capture request payload BEFORE the LLM call
+		captureStart := time.Now()
+		requestJSON := captureRequestJSON(messages, tools)
+		log.Printf("[AI:%s] timing capture_request_ms=%d phase=%s turn=%d", a.UserID, time.Since(captureStart).Milliseconds(), phase, turn)
+
+		ctx, cancel := a.decisionContext(60 * time.Second)
+		llmStart := time.Now()
 		result, err := a.Provider.CompleteWithTools(ctx, messages, tools)
+		llmDuration := time.Since(llmStart)
 		cancel()
+		log.Printf("[AI:%s] timing llm_call_ms=%d phase=%s turn=%d err=%t", a.UserID, llmDuration.Milliseconds(), phase, turn, err != nil)
+		if a.isStopped() {
+			return
+		}
 
 		// Capture response payload AFTER the LLM call
+		responseCaptureStart := time.Now()
 		responseJSON := captureResponseJSON(result, err)
+		log.Printf("[AI:%s] timing capture_response_ms=%d phase=%s turn=%d", a.UserID, time.Since(responseCaptureStart).Milliseconds(), phase, turn)
 
 		// Log LLM call to database with full payloads
 		var callLogID int64
@@ -263,7 +363,9 @@ func (a *AIAgent) makeDecisionWithTools() {
 				llmCall.ErrorMessage = &errMsg
 			}
 			var logErr error
+			logStart := time.Now()
 			callLogID, logErr = a.aiStore.LogLLMCall(context.Background(), llmCall)
+			log.Printf("[AI:%s] timing log_llm_call_ms=%d phase=%s turn=%d", a.UserID, time.Since(logStart).Milliseconds(), phase, turn)
 			if logErr != nil {
 				log.Printf("[AI:%s] failed to log LLM call: %v", a.UserID, logErr)
 			}
@@ -276,11 +378,12 @@ func (a *AIAgent) makeDecisionWithTools() {
 
 		if len(result.ToolCalls) == 0 {
 			if result.Content != "" {
-				if call, parseErr := ExtractToolCall(result.Content); parseErr == nil && a.isActionTool(call.Name) {
+				if call, parseErr := ExtractToolCallFlexible(result.Content); parseErr == nil && a.isActionTool(call.Name) {
 					log.Printf("[AI:%s] extracted tool call from text content: %s", a.UserID, call.Name)
 					a.logToolExecution(callLogID, call.Name, "action", string(call.Args), "")
 					a.rememberActionDecision(call.Name, string(call.Args))
-					a.executeToolCall(result.Content)
+					log.Printf("[AI:%s] timing before_execute_tool_ms=%d phase=%s turn=%d", a.UserID, time.Since(decisionStart).Milliseconds(), phase, turn)
+					a.executeToolCall(toolCallJSON(call))
 					return
 				}
 			}
@@ -303,6 +406,7 @@ func (a *AIAgent) makeDecisionWithTools() {
 			}
 
 			if a.isInfoTool(tc.Function.Name) {
+				a.reportToolStatus(tc.Function.Name)
 				infoResult := a.executeInfoTool(tc.Function.Name)
 				messages = append(messages, ChatMessage{
 					Role:       "tool",
@@ -315,6 +419,7 @@ func (a *AIAgent) makeDecisionWithTools() {
 				a.logToolExecution(callLogID, tc.Function.Name, "action", tc.Function.Arguments, "")
 				a.rememberActionDecision(tc.Function.Name, tc.Function.Arguments)
 				raw := toolCallToJSON(tc)
+				log.Printf("[AI:%s] timing before_execute_tool_ms=%d phase=%s turn=%d", a.UserID, time.Since(decisionStart).Milliseconds(), phase, turn)
 				a.executeToolCall(raw)
 			}
 		}
@@ -325,7 +430,70 @@ func (a *AIAgent) makeDecisionWithTools() {
 	}
 
 	log.Printf("[AI:%s] multi-turn loop exhausted or failed, using rule-based fallback", a.UserID)
+	if a.isStopped() {
+		return
+	}
 	a.ruleBasedAction(phase)
+}
+
+func (a *AIAgent) reportStatus(status string, message string) {
+	if a.Executor == nil {
+		return
+	}
+	a.Executor.ReportAIStatus(a.UserID, status, message)
+}
+
+func (a *AIAgent) reportToolStatus(toolName string) {
+	switch toolName {
+	case "check_my_hand":
+		a.reportStatus("checking_hand", "正在看牌")
+	case "check_game_status":
+		a.reportStatus("checking_status", "正在判断局势")
+	case "check_playing_records":
+		a.reportStatus("checking_records", "正在分析出牌记录")
+	}
+}
+
+func (a *AIAgent) reportActionStatus(toolName string) {
+	a.reportStatus("acting", a.actionStatusMessage(toolName))
+}
+
+func (a *AIAgent) actionStatusMessage(toolName string) string {
+	phase := a.detectPhase()
+	if a.gameTypeSnapshot() == "dashengji" {
+		switch phase {
+		case "set_trump":
+			return "正在考虑定主"
+		case "counter_trump":
+			return "正在考虑反主"
+		case "take_bottom":
+			return "正在选择起底"
+		case "discard_bottom":
+			return "正在扣底"
+		case "playing":
+			return "正在思考出牌"
+		default:
+			return "正在思考"
+		}
+	}
+
+	switch phase {
+	case "calling":
+		return "正在考虑是否叫地主"
+	case "snatching":
+		return "正在考虑是否抢地主"
+	case "revealing":
+		return "正在考虑是否明牌"
+	case "doubling":
+		return "正在考虑是否加倍"
+	case "playing":
+		return "正在思考出牌"
+	default:
+		if toolName == "play_cards" {
+			return "正在思考出牌"
+		}
+		return "正在思考"
+	}
 }
 
 // captureRequestJSON serializes the full LLM request (messages + tools) for audit logging.
@@ -363,6 +531,7 @@ func (a *AIAgent) logToolExecution(callLogID int64, toolName, toolType, argsJSON
 	if a.aiStore == nil || callLogID == 0 {
 		return
 	}
+	start := time.Now()
 	exec := &model.AiToolExecution{
 		CallLogID:  callLogID,
 		ToolName:   toolName,
@@ -371,12 +540,13 @@ func (a *AIAgent) logToolExecution(callLogID int64, toolName, toolType, argsJSON
 		ResultJSON: jsonPtr(resultJSON),
 	}
 	id, err := a.aiStore.LogToolExecution(context.Background(), exec)
+	log.Printf("[AI:%s] timing log_tool_execution_ms=%d tool=%s type=%s", a.UserID, time.Since(start).Milliseconds(), toolName, toolType)
 	if err != nil {
 		log.Printf("[AI:%s] failed to log tool execution: %v", a.UserID, err)
 		return
 	}
 	if toolType == "action" {
-		a.lastToolExecID = id
+		a.lastToolExecID.Store(id)
 	}
 }
 
@@ -387,12 +557,14 @@ func (a *AIAgent) isInfoTool(name string) bool {
 func (a *AIAgent) executeInfoTool(name string) string {
 	switch name {
 	case "check_my_hand":
-		return fmt.Sprintf("你的手牌（%d张）：%s", len(a.HandCards), a.formatCardsWithIDs(a.HandCards))
+		hand := a.handCardsSnapshot()
+		return fmt.Sprintf("你的手牌（%d张）：%s", len(hand), a.formatCardsWithIDs(hand))
 	case "check_game_status":
-		if a.GameType == "dashengji" {
+		if a.gameTypeSnapshot() == "dashengji" {
 			return a.buildDashengjiStatus()
 		}
-		if a.stateJSON == "" {
+		stateJSON := a.stateSnapshot()
+		if stateJSON == "" {
 			return "游戏状态不可用"
 		}
 		var state struct {
@@ -418,7 +590,7 @@ func (a *AIAgent) executeInfoTool(name string) string {
 				} `json:"hand"`
 			} `json:"players"`
 		}
-		if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 			return "无法解析游戏状态"
 		}
 		var sb strings.Builder
@@ -450,10 +622,11 @@ func (a *AIAgent) executeInfoTool(name string) string {
 }
 
 func (a *AIAgent) buildPlayingRecords() string {
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return "游戏状态不可用"
 	}
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		return a.buildDashengjiPlayingRecords()
 	}
 	var state struct {
@@ -480,7 +653,7 @@ func (a *AIAgent) buildPlayingRecords() string {
 			} `json:"cards"`
 		} `json:"last_play"`
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return "无法解析游戏状态"
 	}
 
@@ -539,8 +712,16 @@ func toolCallToJSON(tc AssistantToolCall) string {
 	return string(data)
 }
 
+func toolCallJSON(call *ToolCall) string {
+	data, _ := json.Marshal(map[string]interface{}{
+		"tool": call.Name,
+		"args": json.RawMessage(call.Args),
+	})
+	return string(data)
+}
+
 func (a *AIAgent) buildSystemPrompt(phase string) string {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		return a.buildDashengjiSystemPrompt(phase)
 	}
 
@@ -608,16 +789,17 @@ func (a *AIAgent) buildSystemPrompt(phase string) string {
 }
 
 func (a *AIAgent) detectPhase() string {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		return a.detectDashengjiPhase()
 	}
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return "calling"
 	}
 	var state struct {
 		Phase int `json:"phase"`
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return "calling"
 	}
 	switch state.Phase {
@@ -635,7 +817,7 @@ func (a *AIAgent) detectPhase() string {
 }
 
 func (a *AIAgent) buildUserMessage(phase string) string {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		return a.buildDashengjiUserMessage(phase)
 	}
 
@@ -655,7 +837,8 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 	}
 
 	// Show game state context
-	if a.stateJSON != "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON != "" {
 		var state struct {
 			Phase         int `json:"phase"`
 			CurrentSeat   int `json:"current_seat"`
@@ -687,7 +870,7 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 				Called bool `json:"called"`
 			} `json:"bid_history"`
 		}
-		if json.Unmarshal([]byte(a.stateJSON), &state) == nil {
+		if json.Unmarshal([]byte(stateJSON), &state) == nil {
 			// Extract card IDs from struct format for display
 			landlordCardIDs := make([]int, len(state.LandlordCards))
 			for i, c := range state.LandlordCards {
@@ -764,7 +947,7 @@ func (a *AIAgent) buildUserMessage(phase string) string {
 }
 
 func (a *AIAgent) isActionTool(name string) bool {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		switch name {
 		case "set_trump", "pass_trump", "counter_trump", "pass_counter",
 			"take_bottom", "pass_take_bottom", "discard_bottom", "play_cards":
@@ -789,13 +972,14 @@ func (a *AIAgent) executeToolCall(raw string) {
 	}
 
 	log.Printf("[AI:%s] executeToolCall: tool=%s", a.UserID, call.Name)
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		a.executeDashengjiToolCall(call)
 		return
 	}
 
 	switch call.Name {
 	case "play_cards":
+		a.reportActionStatus(call.Name)
 		var args PlayCardsArgs
 		if json.Unmarshal(call.Args, &args) == nil {
 			action := "play"
@@ -803,11 +987,11 @@ func (a *AIAgent) executeToolCall(raw string) {
 				action = "pass"
 			}
 			log.Printf("[AI:%s] play_cards: action=%s cards=%v", a.UserID, action, args.Cards)
-			if a.Executor != nil {
-				a.Executor.ExecuteAction(a.UserID, action, args.Cards)
-			}
 			if args.Chat != "" && a.Executor != nil {
 				a.Executor.SendChat(a.UserID, args.Chat, "text")
+			}
+			if a.Executor != nil {
+				a.Executor.ExecuteAction(a.UserID, action, args.Cards)
 			}
 		} else {
 			log.Printf("[AI:%s] play_cards: unmarshal args FAILED, args=%s, falling back", a.UserID, string(call.Args))
@@ -815,39 +999,45 @@ func (a *AIAgent) executeToolCall(raw string) {
 		}
 
 	case "bid_landlord":
+		a.reportActionStatus(call.Name)
+		var args BidArgs
+		if json.Unmarshal(call.Args, &args) == nil && args.Chat != "" && a.Executor != nil {
+			a.Executor.SendChat(a.UserID, args.Chat, "text")
+		}
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "bid_call", nil)
 		}
+
+	case "pass_bid":
+		a.reportActionStatus(call.Name)
 		var args BidArgs
 		if json.Unmarshal(call.Args, &args) == nil && args.Chat != "" && a.Executor != nil {
 			a.Executor.SendChat(a.UserID, args.Chat, "text")
 		}
-
-	case "pass_bid":
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "bid_pass", nil)
 		}
-		var args BidArgs
-		if json.Unmarshal(call.Args, &args) == nil && args.Chat != "" && a.Executor != nil {
-			a.Executor.SendChat(a.UserID, args.Chat, "text")
-		}
 
 	case "reveal_cards":
+		a.reportActionStatus(call.Name)
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "reveal_all", nil)
 		}
 
 	case "pass_reveal":
+		a.reportActionStatus(call.Name)
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "pass", nil)
 		}
 
 	case "choose_double":
+		a.reportActionStatus(call.Name)
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "double", nil)
 		}
 
 	case "choose_no_double":
+		a.reportActionStatus(call.Name)
 		if a.Executor != nil {
 			a.Executor.ExecuteAction(a.UserID, "no_double", nil)
 		}
@@ -859,7 +1049,7 @@ func (a *AIAgent) fallbackAction(phase string) {
 	if a.Executor == nil {
 		return
 	}
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		a.fallbackDashengjiAction(phase)
 		return
 	}
@@ -877,7 +1067,8 @@ func (a *AIAgent) fallbackAction(phase string) {
 
 // isFreePlay checks whether the AI is first to act (no last play to follow).
 func (a *AIAgent) isFreePlay() bool {
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return true
 	}
 	var state struct {
@@ -886,7 +1077,7 @@ func (a *AIAgent) isFreePlay() bool {
 			Cards []int `json:"cards"`
 		} `json:"last_play"`
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return true
 	}
 	if state.LastPlay != nil && len(state.LastPlay.Cards) > 0 {
@@ -901,7 +1092,7 @@ func (a *AIAgent) ruleBasedAction(phase string) {
 		log.Printf("[AI:%s] ruleBasedAction: no executor, cannot act", a.UserID)
 		return
 	}
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		a.fallbackDashengjiAction(phase)
 		return
 	}
@@ -930,7 +1121,8 @@ func (a *AIAgent) ruleBasedAction(phase string) {
 }
 
 func (a *AIAgent) ruleBasedBid() string {
-	if hasBomb(a.HandCards) || countHighCards(a.HandCards) >= 3 {
+	hand := a.handCardsSnapshot()
+	if hasBomb(hand) || countHighCards(hand) >= 3 {
 		return "bid_call"
 	}
 	style := "balanced"
@@ -950,7 +1142,7 @@ func (a *AIAgent) ruleBasedBid() string {
 }
 
 func (a *AIAgent) ruleBasedPlay(isFreePlay bool) []int {
-	if len(a.HandCards) == 0 {
+	if len(a.handCardsSnapshot()) == 0 {
 		return nil
 	}
 	// Free play: lead with lowest single
@@ -962,8 +1154,9 @@ func (a *AIAgent) ruleBasedPlay(isFreePlay bool) []int {
 }
 
 func (a *AIAgent) lowestSingle() []int {
+	hand := a.handCardsSnapshot()
 	rankFreq := make(map[int]int)
-	for _, id := range a.HandCards {
+	for _, id := range hand {
 		if id >= 52 {
 			continue
 		}
@@ -971,15 +1164,15 @@ func (a *AIAgent) lowestSingle() []int {
 	}
 	for rank := 0; rank < 13; rank++ {
 		if rankFreq[rank] == 1 {
-			for _, id := range a.HandCards {
+			for _, id := range hand {
 				if id < 52 && id%13 == rank {
 					return []int{id}
 				}
 			}
 		}
 	}
-	if len(a.HandCards) > 0 {
-		return []int{a.HandCards[0]}
+	if len(hand) > 0 {
+		return []int{hand[0]}
 	}
 	return nil
 }
@@ -996,10 +1189,11 @@ func (a *AIAgent) tryBeatLastPlay() []int {
 			} `json:"play"`
 		} `json:"last_play"`
 	}
-	if a.stateJSON == "" {
+	stateJSON := a.stateSnapshot()
+	if stateJSON == "" {
 		return nil
 	}
-	if err := json.Unmarshal([]byte(a.stateJSON), &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return nil
 	}
 	if state.LastPlay == nil || state.LastPlay.Play == nil {
@@ -1017,7 +1211,8 @@ func (a *AIAgent) tryBeatLastPlay() []int {
 }
 
 func (a *AIAgent) higherSingle(minRank int) []int {
-	for _, id := range a.HandCards {
+	hand := a.handCardsSnapshot()
+	for _, id := range hand {
 		if id >= 52 {
 			continue
 		}
@@ -1027,7 +1222,7 @@ func (a *AIAgent) higherSingle(minRank int) []int {
 		}
 	}
 	// Try jokers
-	for _, id := range a.HandCards {
+	for _, id := range hand {
 		if id == 52 || id == 53 {
 			return []int{id}
 		}
@@ -1036,8 +1231,9 @@ func (a *AIAgent) higherSingle(minRank int) []int {
 }
 
 func (a *AIAgent) higherPair(minRank int) []int {
+	hand := a.handCardsSnapshot()
 	rankFreq := make(map[int][]int)
-	for _, id := range a.HandCards {
+	for _, id := range hand {
 		if id >= 52 {
 			continue
 		}
@@ -1055,7 +1251,7 @@ func (a *AIAgent) higherPair(minRank int) []int {
 // formatCardsWithIDs formats Dou Dizhu cards as "ID(display)" for LLM consumption,
 // e.g. "27(♣4) 12(♠2)" so the LLM knows to use integer IDs.
 func (a *AIAgent) formatCardsWithIDs(cards []int) string {
-	if a.GameType == "dashengji" {
+	if a.gameTypeSnapshot() == "dashengji" {
 		return formatDashengjiCardsWithIDs(cards)
 	}
 	suits := []string{"♠", "♥", "♣", "♦"}

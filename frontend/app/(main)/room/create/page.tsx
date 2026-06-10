@@ -6,6 +6,28 @@ import { createRoom } from "@/lib/api-rooms";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
+const generateRoomPassword = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+function DiceIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <circle cx="8.5" cy="8.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="8.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="15.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export default function CreateRoomPage() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -19,6 +41,19 @@ export default function CreateRoomPage() {
   const chooseGameType = (nextGameType: string) => {
     setGameType(nextGameType);
     setMaxPlayers(nextGameType === "dashengji" ? 4 : 3);
+  };
+
+  const closeRoomWithPassword = () => {
+    setIsOpen(false);
+    setPassword((currentPassword) => currentPassword.trim() || generateRoomPassword());
+  };
+
+  const toggleOpenRoom = () => {
+    if (isOpen) {
+      closeRoomWithPassword();
+      return;
+    }
+    setIsOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -114,7 +149,7 @@ export default function CreateRoomPage() {
             <label className="text-base font-bold text-text-black-soft">开放房间</label>
             <button
               type="button"
-              onClick={() => setIsOpen(!isOpen)}
+              onClick={toggleOpenRoom}
               className={`relative h-8 w-14 rounded-full transition-colors ${
                 isOpen ? "bg-green-accent" : "bg-gray-300"
               }`}
@@ -133,6 +168,19 @@ export default function CreateRoomPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setPassword(generateRoomPassword())}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-text-black-soft transition-colors hover:bg-cream hover:text-green-accent active:scale-95"
+                  aria-label="随机生成 6 位密码"
+                  title="随机生成 6 位密码"
+                >
+                  <DiceIcon />
+                </button>
+              }
             />
           )}
 

@@ -70,6 +70,8 @@ interface ServerData {
   type?: string;
   timestamp?: number;
   error?: string;
+  status?: string;
+  message?: string;
   theme?: string;
   game_type?: string;
   max_players?: number;
@@ -530,6 +532,13 @@ export default function RoomPage() {
       }
     });
 
+    client.on("ai_status", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.seat !== undefined && data?.message) {
+        showSpeechBubble(data.seat, data.message);
+      }
+    });
+
     client.on("error", (msg) => {
       // Handle structured error data from server
       const data = msg.data;
@@ -598,6 +607,7 @@ export default function RoomPage() {
   const allReady = players.length >= 2 && players.every((p) => p.isReady);
   const canStart = players.length >= gameConfig.maxPlayers && allReady;
   const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
+  const canInvite = phase === "waiting";
   const myCumulativeScore = roomScores[String(mySeat ?? -1)] ?? 0;
   const displayPlayers = players.map((p) => ({
     ...p,
@@ -775,13 +785,15 @@ export default function RoomPage() {
                   <span className="text-base">💬</span>
                   聊天
                 </button>
-                <button
-                  onClick={() => { void handleCopyInvite(); }}
-                  className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-base font-bold transition-colors w-full text-left"
-                >
-                  <span className="text-base">🔗</span>
-                  {inviteCopied ? "已复制" : "邀请链接"}
-                </button>
+                {canInvite && (
+                  <button
+                    onClick={() => { void handleCopyInvite(); }}
+                    className="flex min-h-12 items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-container text-on-surface text-base font-bold transition-colors w-full text-left"
+                  >
+                    <span className="text-base">🔗</span>
+                    {inviteCopied ? "已复制" : "邀请链接"}
+                  </button>
+                )}
                 <hr className="border-outline-variant my-0.5" />
                 <button
                   onClick={() => router.push("/lobby")}

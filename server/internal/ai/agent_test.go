@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -49,6 +50,46 @@ func TestExtractToolCall_WithCodeFences(t *testing.T) {
 	}
 	if call.Name != "play_cards" {
 		t.Errorf("name = %s, want play_cards", call.Name)
+	}
+}
+
+func TestExtractToolCallFlexible_FromDecisionText(t *testing.T) {
+	call, err := ExtractToolCallFlexible(`【我的决策】调用play_cards，参数：{"cards": [41, 95], "chat": "出个方片5对子探探路"}。`)
+	if err != nil {
+		t.Fatalf("extract flexible error: %v", err)
+	}
+	if call.Name != "play_cards" {
+		t.Fatalf("name = %s, want play_cards", call.Name)
+	}
+	var args PlayCardsArgs
+	if err := json.Unmarshal(call.Args, &args); err != nil {
+		t.Fatalf("args unmarshal: %v", err)
+	}
+	if len(args.Cards) != 2 || args.Cards[0] != 41 || args.Cards[1] != 95 {
+		t.Fatalf("cards = %v, want [41 95]", args.Cards)
+	}
+	if args.Chat != "出个方片5对子探探路" {
+		t.Fatalf("chat = %q", args.Chat)
+	}
+}
+
+func TestExtractToolCallFlexible_ChoosesLastToolToken(t *testing.T) {
+	call, err := ExtractToolCallFlexible(`我考虑了pass_trump，但最终决定调用play_cards，参数：{"cards":[1],"chat":"先出一张"}`)
+	if err != nil {
+		t.Fatalf("extract flexible error: %v", err)
+	}
+	if call.Name != "play_cards" {
+		t.Fatalf("name = %s, want play_cards", call.Name)
+	}
+}
+
+func TestExtractToolCallFlexible_DoesNotMatchToolSubstring(t *testing.T) {
+	call, err := ExtractToolCallFlexible(`调用pass_take_bottom，参数：{}`)
+	if err != nil {
+		t.Fatalf("extract flexible error: %v", err)
+	}
+	if call.Name != "pass_take_bottom" {
+		t.Fatalf("name = %s, want pass_take_bottom", call.Name)
 	}
 }
 
@@ -160,6 +201,53 @@ func TestAgent_MultiTurnInfoThenAction(t *testing.T) {
 	}
 	if provider.callCount != 2 {
 		t.Errorf("expected 2 LLM calls, got %d", provider.callCount)
+	}
+}
+
+func TestAgent_MultiTurnReportsInfoToolStatuses(t *testing.T) {
+	exec := &mockExecutor{}
+	provider := &mockToolProvider{
+		responses: []*LLMResultWithTools{
+			{ToolCalls: []AssistantToolCall{{ID: "call_1", Type: "function"}}},
+			{ToolCalls: []AssistantToolCall{{ID: "call_2", Type: "function"}}},
+			{ToolCalls: []AssistantToolCall{{ID: "call_3", Type: "function"}}},
+			{ToolCalls: []AssistantToolCall{{ID: "call_4", Type: "function"}}},
+		},
+	}
+	provider.responses[0].ToolCalls[0].Function.Name = "check_my_hand"
+	provider.responses[0].ToolCalls[0].Function.Arguments = "{}"
+	provider.responses[1].ToolCalls[0].Function.Name = "check_game_status"
+	provider.responses[1].ToolCalls[0].Function.Arguments = "{}"
+	provider.responses[2].ToolCalls[0].Function.Name = "check_playing_records"
+	provider.responses[2].ToolCalls[0].Function.Arguments = "{}"
+	provider.responses[3].ToolCalls[0].Function.Name = "play_cards"
+	provider.responses[3].ToolCalls[0].Function.Arguments = `{"cards":[]}`
+
+	agent := NewAIAgent("ai:bot:1", 0, nil, provider, exec)
+	agent.HandCards = []int{0, 13}
+	agent.stateJSON = `{"phase":4,"current_seat":0,"landlord_seat":0,"players":[{"seat":0,"is_landlord":true,"hand":[{"id":0},{"id":13}]}]}`
+	agent.makeDecisionWithTools()
+
+	want := []struct {
+		status  string
+		message string
+	}{
+		{"analyzing", "正在分析局势"},
+		{"checking_hand", "正在看牌"},
+		{"analyzing", "正在分析局势"},
+		{"checking_status", "正在判断局势"},
+		{"analyzing", "正在分析局势"},
+		{"checking_records", "正在分析出牌记录"},
+		{"analyzing", "正在分析局势"},
+		{"acting", "正在思考出牌"},
+	}
+	if len(exec.statuses) != len(want) {
+		t.Fatalf("statuses = %#v, want %#v", exec.statuses, want)
+	}
+	for i := range want {
+		if exec.statuses[i] != want[i] {
+			t.Fatalf("status[%d] = %#v, want %#v", i, exec.statuses[i], want[i])
+		}
 	}
 }
 

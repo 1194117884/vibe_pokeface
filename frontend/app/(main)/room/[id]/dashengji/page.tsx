@@ -77,6 +77,8 @@ interface ServerData {
   user_id?: number | string;
   phase?: number;
   current_seat?: number;
+  status?: string;
+  message?: string;
   trump_suit?: number;
   is_dead_trump?: boolean;
   current_level?: number;
@@ -450,6 +452,13 @@ export default function DashengjiRoomPage() {
       }
     });
 
+    client.on("ai_status", (msg) => {
+      const data = msg.data as ServerData;
+      if (data?.seat !== undefined && data?.message) {
+        showSpeechBubble(data.seat, data.message);
+      }
+    });
+
     client.on("error", (msg) => {
       const data = msg.data;
       if (typeof data === "object" && data !== null && "code" in data) {
@@ -542,6 +551,7 @@ export default function DashengjiRoomPage() {
   const isMyTurn = currentSeat !== undefined && mySeat !== null && mySeat === currentSeat;
   const isDealerTeam = mySeat !== null && dealerSeats.includes(mySeat);
   const showPhaseActions = phase !== "waiting" && phase !== "ended";
+  const canInvite = phase === "waiting";
   const sortedHand = useMemo(() => sortDashengjiHand(hand, trumpSuit, currentLevel), [hand, trumpSuit, currentLevel]);
   const teamNames = useMemo<[string, string]>(() => {
     const bySeat = (seat: number) => players.find((p) => p.seat === seat)?.nickname ?? `玩家${seat + 1}`;
@@ -573,15 +583,6 @@ export default function DashengjiRoomPage() {
 
   return (
     <div className="mobile-game-shell relative bg-gradient-to-b from-green-900 via-green-800 to-green-950">
-      <div className="fixed right-3 top-[max(12px,var(--safe-area-top))] z-50">
-        <button
-          type="button"
-          onClick={() => { void handleCopyInvite(); }}
-          className="min-h-10 rounded-full bg-black/40 px-3 text-sm font-black text-white backdrop-blur border border-white/15"
-        >
-          {inviteCopied ? "已复制" : "邀请"}
-        </button>
-      </div>
       <div className="flex h-full flex-col pt-4">
         <RoomTable
           players={players}
@@ -647,6 +648,17 @@ export default function DashengjiRoomPage() {
 
       {phase === "waiting" && (
         <div className="mobile-bottom-controls fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/80 to-transparent pt-4">
+          {canInvite && (
+            <div className="px-3">
+              <button
+                type="button"
+                onClick={() => { void handleCopyInvite(); }}
+                className="min-h-12 w-full rounded-full border border-white/15 bg-black/40 px-4 py-3 text-base font-black text-white backdrop-blur-md active:scale-95 transition-all"
+              >
+                {inviteCopied ? "已复制" : "邀请"}
+              </button>
+            </div>
+          )}
           <ReadyBar
             amIOwner={amIOwner}
             isReady={amIReady}

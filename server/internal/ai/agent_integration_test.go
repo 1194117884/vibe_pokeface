@@ -10,17 +10,37 @@ type mockExecutor struct {
 	lastAction string
 	lastCards  []int
 	lastChat   string
-	actions    []struct{ action string; cards []int }
+	events     []string
+	actions    []struct {
+		action string
+		cards  []int
+	}
+	statuses []struct {
+		status  string
+		message string
+	}
 }
 
 func (m *mockExecutor) ExecuteAction(userID string, action string, cards []int) {
 	m.lastAction = action
 	m.lastCards = cards
-	m.actions = append(m.actions, struct{ action string; cards []int }{action, cards})
+	m.events = append(m.events, "action:"+action)
+	m.actions = append(m.actions, struct {
+		action string
+		cards  []int
+	}{action, cards})
 }
 
 func (m *mockExecutor) SendChat(senderID string, content string, msgType string) {
 	m.lastChat = content
+	m.events = append(m.events, "chat:"+content)
+}
+
+func (m *mockExecutor) ReportAIStatus(userID string, status string, message string) {
+	m.statuses = append(m.statuses, struct {
+		status  string
+		message string
+	}{status, message})
 }
 
 func TestAgent_ExecutePlayAction(t *testing.T) {
@@ -74,6 +94,10 @@ func TestAgent_ExecuteChatTool(t *testing.T) {
 	if exec.lastChat != "看我的！" {
 		t.Errorf("expected chat '看我的！', got '%s'", exec.lastChat)
 	}
+	wantEvents := []string{"chat:看我的！", "action:play"}
+	if strings.Join(exec.events, "|") != strings.Join(wantEvents, "|") {
+		t.Fatalf("events = %v, want %v", exec.events, wantEvents)
+	}
 }
 
 func TestAgent_ExecutePlayCards(t *testing.T) {
@@ -87,6 +111,38 @@ func TestAgent_ExecutePlayCards(t *testing.T) {
 	}
 	if len(exec.lastCards) != 3 || exec.lastCards[0] != 0 {
 		t.Errorf("unexpected cards: %v", exec.lastCards)
+	}
+}
+
+func TestDashengjiAgent_PlayCardsSendsChatBeforeAction(t *testing.T) {
+	exec := &mockExecutor{}
+	agent := NewAIAgent("ai:bot:1", 0, nil, nil, exec)
+	agent.GameType = "dashengji"
+
+	agent.executeDashengjiToolCall(&ToolCall{
+		Name: "play_cards",
+		Args: []byte(`{"cards":[15,69],"chat":"先压一手"}`),
+	})
+
+	wantEvents := []string{"chat:先压一手", "action:play"}
+	if strings.Join(exec.events, "|") != strings.Join(wantEvents, "|") {
+		t.Fatalf("events = %v, want %v", exec.events, wantEvents)
+	}
+}
+
+func TestAgent_ExecuteToolCallReportsActionStatus(t *testing.T) {
+	exec := &mockExecutor{}
+	agent := NewAIAgent("ai:bot:1", 0, nil, nil, exec)
+	agent.stateJSON = `{"phase":4}`
+
+	agent.executeToolCall(`{"tool": "play_cards", "args": {"cards": [0]}}`)
+
+	if len(exec.statuses) == 0 {
+		t.Fatal("expected an AI status before action execution")
+	}
+	got := exec.statuses[len(exec.statuses)-1]
+	if got.status != "acting" || got.message != "正在思考出牌" {
+		t.Fatalf("status = %#v, want acting/正在思考出牌", got)
 	}
 }
 
