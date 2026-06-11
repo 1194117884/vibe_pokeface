@@ -333,3 +333,149 @@ func TestDashengjiAgent_PrevalidationAllowsPaddingWithoutBreakingPairForTriple(t
 		t.Fatalf("cards = %v, want original legal padding [22 75 17]", exec.lastCards)
 	}
 }
+
+func TestDashengjiAgent_FollowCandidatesFeedPointsToWinningTeammate(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 1, nil, nil, nil)
+	agent.SetGameType("dashengji")
+	agent.HandCards = []int{27, 28, 33}
+	agent.stateJSON = `{
+		"phase":4,
+		"current_seat":1,
+		"dealer_seats":[0,2],
+		"level_rank":6,
+		"trump_suit":1,
+		"round_plays":[
+			{"seat":3,"play":{"type":1,"main_rank":14,"length":1},"cards":[{"id":37}]},
+			{"seat":0,"play":{"type":1,"main_rank":4,"length":1},"cards":[{"id":27}]}
+		],
+		"players":[{"seat":1,"hand":[{"id":27},{"id":28},{"id":33}]}]
+	}`
+
+	candidates := agent.dashengjiCandidatesForPhase("playing")
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates")
+	}
+	if got := candidates[0].Cards; len(got) != 1 || got[0] != 33 {
+		t.Fatalf("first candidate = %v, want point card [33] for teammate", got)
+	}
+	if !strings.Contains(candidates[0].Reason, "队友当前最大") {
+		t.Fatalf("reason = %q, want teammate-winning explanation", candidates[0].Reason)
+	}
+}
+
+func TestDashengjiAgent_FollowCandidatesAvoidPointsWhenOpponentWinning(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 1, nil, nil, nil)
+	agent.SetGameType("dashengji")
+	agent.HandCards = []int{27, 33}
+	agent.stateJSON = `{
+		"phase":4,
+		"current_seat":1,
+		"dealer_seats":[0,2],
+		"level_rank":6,
+		"trump_suit":1,
+		"round_plays":[{"seat":0,"play":{"type":1,"main_rank":14,"length":1},"cards":[{"id":37}]}],
+		"players":[{"seat":1,"hand":[{"id":27},{"id":33}]}]
+	}`
+
+	candidates := agent.dashengjiCandidatesForPhase("playing")
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates")
+	}
+	if got := candidates[0].Cards; len(got) != 1 || got[0] != 27 {
+		t.Fatalf("first candidate = %v, want low non-point [27]", got)
+	}
+	if !strings.Contains(candidates[0].Reason, "对手当前最大") {
+		t.Fatalf("reason = %q, want opponent-winning explanation", candidates[0].Reason)
+	}
+}
+
+func TestDashengjiAgent_FollowCandidatesTrumpPairToCapturePoints(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 1, nil, nil, nil)
+	agent.SetGameType("dashengji")
+	agent.HandCards = []int{72, 74, 128, 21, 75}
+	agent.stateJSON = `{
+		"phase":4,
+		"current_seat":1,
+		"dealer_seats":[0,2],
+		"round_points":80,
+		"level_rank":3,
+		"trump_suit":1,
+		"round_plays":[
+			{"seat":3,"play":{"type":2,"main_rank":10,"length":1},"cards":[{"id":61},{"id":115}]},
+			{"seat":0,"play":{"type":2,"main_rank":105,"length":1},"cards":[{"id":15},{"id":123}]}
+		],
+		"players":[{"seat":1,"hand":[{"id":72},{"id":74},{"id":128},{"id":21},{"id":75}]}]
+	}`
+
+	candidates := agent.dashengjiCandidatesForPhase("playing")
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates")
+	}
+	if got := candidates[0].Cards; len(got) != 2 || got[0] != 74 || got[1] != 128 {
+		t.Fatalf("first candidate = %v, want trumping heart 10 pair [74 128]", got)
+	}
+	if !strings.Contains(candidates[0].Reason, "抢回本轮") {
+		t.Fatalf("reason = %q, want capture-points explanation", candidates[0].Reason)
+	}
+}
+
+func TestDashengjiAgent_LeadCandidatesDowngradePairKWhenPairAUnseen(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 1, nil, nil, nil)
+	agent.SetGameType("dashengji")
+	agent.HandCards = []int{27, 36, 90}
+	agent.stateJSON = `{
+		"phase":4,
+		"current_seat":1,
+		"dealer_seats":[0,2],
+		"level_rank":6,
+		"trump_suit":1,
+		"players":[{"seat":1,"hand":[{"id":27},{"id":36},{"id":90}]}],
+		"play_history":[]
+	}`
+
+	hints := agent.buildDashengjiCandidateHints("playing")
+	if !strings.Contains(hints, "对A未出") {
+		t.Fatalf("candidate hints should mention unseen pair A risk:\n%s", hints)
+	}
+	candidates := agent.dashengjiCandidatesForPhase("playing")
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates")
+	}
+	if len(candidates[0].Cards) == 2 {
+		t.Fatalf("risky pair K should not be first candidate: %#v", candidates)
+	}
+}
+
+func TestDashengjiAgent_UserMessageIncludesTrickAndKeyCardSummaries(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 1, nil, nil, nil)
+	agent.SetGameType("dashengji")
+	agent.HandCards = []int{27, 33}
+	agent.stateJSON = `{
+		"phase":4,
+		"current_seat":1,
+		"dealer_seats":[0,2],
+		"level_rank":6,
+		"trump_suit":1,
+		"round_plays":[{"seat":0,"play":{"type":1,"main_rank":14,"length":1},"cards":[{"id":37}]}],
+		"players":[{"seat":1,"hand":[{"id":27},{"id":33}]}]
+	}`
+
+	got := agent.buildDashengjiUserMessage("playing")
+	for _, want := range []string{"本轮局势摘要", "桌面已有", "关键牌摘要", "对A未完全打出"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("user message missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDashengjiAgent_SystemPromptIncludesDecisionOrder(t *testing.T) {
+	agent := NewAIAgent("ai:bot:1", 0, nil, nil, nil)
+	agent.SetGameType("dashengji")
+
+	got := agent.buildDashengjiSystemPrompt("playing")
+	for _, want := range []string{"出牌决策顺序", "所有级牌和所有2都是主牌", "对A未出时不要贸然领出对K"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("system prompt missing %q:\n%s", want, got)
+		}
+	}
+}

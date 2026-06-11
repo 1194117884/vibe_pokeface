@@ -14,6 +14,12 @@ type dashengjiCandidate struct {
 	Reason string
 }
 
+type dashengjiTrickView struct {
+	WinnerSeat int
+	Points     int
+	OK         bool
+}
+
 func (a *AIAgent) dashengjiCandidatesForPhase(phase string) []dashengjiCandidate {
 	state, _ := a.parseDashengjiState()
 	switch phase {
@@ -409,7 +415,11 @@ func dashengjiLeadCandidates(hand []int, state dashengjiState) []dashengjiCandid
 		Reason: "先出低价值牌探路",
 	})
 	for _, group := range firstDashengjiGroups(hand, 2, state.TrumpSuit, state.LevelRank) {
-		candidates = append(candidates, dashengjiCandidate{Tool: "play_cards", Cards: group, Label: "对子领出", Reason: "利用对子结构施压"})
+		reason := "利用对子结构施压"
+		if risk := dashengjiLeadRisk(group, state); risk != "" {
+			reason = risk
+		}
+		candidates = append(candidates, dashengjiCandidate{Tool: "play_cards", Cards: group, Label: "对子领出", Reason: reason})
 		if len(candidates) >= 4 {
 			break
 		}
@@ -420,7 +430,9 @@ func dashengjiLeadCandidates(hand []int, state dashengjiState) []dashengjiCandid
 			break
 		}
 	}
-	return uniqueDashengjiCandidates(candidates)
+	candidates = uniqueDashengjiCandidates(candidates)
+	sortDashengjiLeadCandidates(candidates, state)
+	return candidates
 }
 
 func dashengjiFollowCandidates(hand []int, state dashengjiState) []dashengjiCandidate {
@@ -432,6 +444,7 @@ func dashengjiFollowCandidates(hand []int, state dashengjiState) []dashengjiCand
 
 	matching, others := splitDashengjiMatching(hand, ledCards[0], state.TrumpSuit, state.LevelRank)
 	need := len(ledCards)
+	view := dashengjiCurrentTrickView(state)
 	if len(matching) >= need {
 		if plays := dashengjiSameTypeCandidates(matching, led.Play, state.TrumpSuit, state.LevelRank); len(plays) > 0 {
 			candidates := make([]dashengjiCandidate, 0, len(plays))
@@ -440,14 +453,34 @@ func dashengjiFollowCandidates(hand []int, state dashengjiState) []dashengjiCand
 					Tool:   "play_cards",
 					Cards:  play,
 					Label:  "严格跟牌",
-					Reason: "满足领出花色/主副类别、牌型和张数",
+					Reason: dashengjiFollowReason(play, state, view),
 				})
 			}
-			return uniqueDashengjiCandidates(candidates)
+			candidates = uniqueDashengjiCandidates(candidates)
+			sortDashengjiFollowCandidates(candidates, state, view)
+			return candidates
 		}
 	}
 
 	// Cannot follow exact type: still satisfy the engine's required matching count.
+	candidates := make([]dashengjiCandidate, 0, 4)
+	if len(matching) == 0 {
+		for _, play := range dashengjiTrumpingCandidates(others, led.Play, state.TrumpSuit, state.LevelRank) {
+			if len(play) != need {
+				continue
+			}
+			candidates = append(candidates, dashengjiCandidate{
+				Tool:   "play_cards",
+				Cards:  play,
+				Label:  "主牌枪毙",
+				Reason: dashengjiFollowReason(play, state, view),
+			})
+			if len(candidates) >= 3 {
+				break
+			}
+		}
+	}
+
 	cards := make([]int, 0, need)
 	takeMatching := len(matching)
 	if takeMatching > need {
@@ -461,12 +494,15 @@ func dashengjiFollowCandidates(hand []int, state dashengjiState) []dashengjiCand
 		cards = append(cards, id)
 	}
 	if len(cards) == need {
-		return []dashengjiCandidate{{
+		candidates = append(candidates, dashengjiCandidate{
 			Tool:   "play_cards",
 			Cards:  cards,
 			Label:  "合法垫牌",
-			Reason: "无法跟出同牌型，按规则先补足可跟同类牌再垫牌",
-		}}
+			Reason: dashengjiFollowReason(cards, state, view),
+		})
+		candidates = uniqueDashengjiCandidates(candidates)
+		sortDashengjiFollowCandidates(candidates, state, view)
+		return candidates
 	}
 	return nil
 }
@@ -477,7 +513,11 @@ func dashengjiSameTypeCandidates(cards []int, led dashengjiPlay, trumpSuit int, 
 		if len(cards) == 0 {
 			return nil
 		}
-		return [][]int{{cards[0]}}
+		plays := make([][]int, 0, len(cards))
+		for _, id := range cards {
+			plays = append(plays, []int{id})
+		}
+		return plays
 	case 2:
 		return firstDashengjiGroups(cards, 2, trumpSuit, levelRank)
 	case 3:
@@ -490,6 +530,267 @@ func dashengjiSameTypeCandidates(cards []int, led dashengjiPlay, trumpSuit int, 
 	default:
 		return nil
 	}
+}
+
+func dashengjiTrumpingCandidates(cards []int, led dashengjiPlay, trumpSuit int, levelRank int) [][]int {
+	main := make([]int, 0, len(cards))
+	for _, id := range cards {
+		if dashengjiIsMainCategory(dashengjiCategory(id%54, trumpSuit, levelRank)) {
+			main = append(main, id)
+		}
+	}
+	return dashengjiSameTypeCandidates(main, led, trumpSuit, levelRank)
+}
+
+func sortDashengjiLeadCandidates(candidates []dashengjiCandidate, state dashengjiState) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		si := dashengjiLeadScore(candidates[i], state)
+		sj := dashengjiLeadScore(candidates[j], state)
+		if si != sj {
+			return si > sj
+		}
+		return dashengjiCardsTotalRank(candidates[i].Cards, state.TrumpSuit, state.LevelRank) < dashengjiCardsTotalRank(candidates[j].Cards, state.TrumpSuit, state.LevelRank)
+	})
+}
+
+func dashengjiLeadScore(candidate dashengjiCandidate, state dashengjiState) int {
+	score := 100 - dashengjiCardsTotalRank(candidate.Cards, state.TrumpSuit, state.LevelRank)/10
+	points := dashengjiCardsPoints(candidate.Cards)
+	score -= points * 8
+	if strings.Contains(candidate.Reason, "对A未出") {
+		score -= 90
+	}
+	play := dashengjiParsePlay(candidate.Cards, state.TrumpSuit, state.LevelRank)
+	if play.Type == 2 || play.Type == 3 {
+		score += 20
+	}
+	if dashengjiIsMainCategory(dashengjiCategory(candidate.Cards[0]%54, state.TrumpSuit, state.LevelRank)) {
+		score -= 20
+	}
+	return score
+}
+
+func sortDashengjiFollowCandidates(candidates []dashengjiCandidate, state dashengjiState, view dashengjiTrickView) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		si := dashengjiFollowScore(candidates[i], state, view)
+		sj := dashengjiFollowScore(candidates[j], state, view)
+		if si != sj {
+			return si > sj
+		}
+		return dashengjiCardsTotalRank(candidates[i].Cards, state.TrumpSuit, state.LevelRank) < dashengjiCardsTotalRank(candidates[j].Cards, state.TrumpSuit, state.LevelRank)
+	})
+}
+
+func dashengjiFollowScore(candidate dashengjiCandidate, state dashengjiState, view dashengjiTrickView) int {
+	score := 100
+	cardPoints := dashengjiCardsPoints(candidate.Cards)
+	canWin := dashengjiCandidateWins(candidate.Cards, state)
+	if view.OK && dashengjiSameTeam(state.CurrentSeat, view.WinnerSeat) {
+		score += cardPoints * 30
+		if canWin && view.WinnerSeat != state.CurrentSeat {
+			score -= 60
+		}
+	} else {
+		if canWin {
+			score += (view.Points + cardPoints) * 40
+			if !dashengjiIsDealer(state.CurrentSeat, state) && state.RoundPoints < 120 {
+				score += 60
+			}
+		} else {
+			score -= cardPoints * 30
+		}
+	}
+	score -= dashengjiCardsTotalRank(candidate.Cards, state.TrumpSuit, state.LevelRank) / 15
+	if strings.Contains(candidate.Label, "主牌枪毙") && (view.Points+cardPoints) == 0 {
+		score -= 80
+	}
+	return score
+}
+
+func dashengjiFollowReason(cards []int, state dashengjiState, view dashengjiTrickView) string {
+	cardPoints := dashengjiCardsPoints(cards)
+	totalPoints := view.Points + cardPoints
+	canWin := dashengjiCandidateWins(cards, state)
+	if view.OK && dashengjiSameTeam(state.CurrentSeat, view.WinnerSeat) {
+		if cardPoints > 0 {
+			return fmt.Sprintf("队友当前最大，送%d分给队友收", cardPoints)
+		}
+		return "队友当前最大，垫低价值牌保留控制力"
+	}
+	if canWin && totalPoints > 0 {
+		return fmt.Sprintf("能抢回本轮%d分，优先抢分", totalPoints)
+	}
+	if canWin {
+		return "可拿回牌权，但本轮无分，避免过度消耗"
+	}
+	if cardPoints > 0 {
+		return "对手当前最大且抢不回，避免继续送分"
+	}
+	return "对手当前最大，垫低价值牌避分"
+}
+
+func dashengjiLeadRisk(cards []int, state dashengjiState) string {
+	if len(cards) < 2 {
+		return ""
+	}
+	face := cards[0] % 54
+	base := dashengjiBaseRank(face)
+	if base != 13 || dashengjiIsMainCategory(dashengjiCategory(face, state.TrumpSuit, state.LevelRank)) {
+		return ""
+	}
+	suit := dashengjiSuit(cards[0])
+	aceFace := suit*13 + (14 - 3)
+	if dashengjiVisibleFaceCount(state, aceFace) < 2 {
+		return fmt.Sprintf("%s对K有风险：对A未出，不能贸然强攻", dashengjiSuitName(suit))
+	}
+	return ""
+}
+
+func dashengjiVisibleFaceCount(state dashengjiState, face int) int {
+	count := 0
+	for _, record := range state.PlayHistory {
+		for _, card := range record.Cards {
+			if card.ID%54 == face {
+				count++
+			}
+		}
+	}
+	for _, record := range state.RoundPlays {
+		for _, card := range record.Cards {
+			if card.ID%54 == face {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func dashengjiCurrentTrickView(state dashengjiState) dashengjiTrickView {
+	view := dashengjiTrickView{WinnerSeat: -1}
+	if len(state.RoundPlays) == 0 {
+		return view
+	}
+	winner, ok := dashengjiWinnerForPlays(state.RoundPlays, state.TrumpSuit, state.LevelRank)
+	if !ok {
+		return view
+	}
+	view.WinnerSeat = winner
+	view.Points = dashengjiRoundPlayPoints(state.RoundPlays)
+	view.OK = true
+	return view
+}
+
+func dashengjiCandidateWins(cards []int, state dashengjiState) bool {
+	if len(state.RoundPlays) == 0 {
+		return true
+	}
+	play := dashengjiParsePlay(cards, state.TrumpSuit, state.LevelRank)
+	if play.Type == 0 {
+		return false
+	}
+	plays := append([]dashengjiPlayRecord(nil), state.RoundPlays...)
+	plays = append(plays, dashengjiPlayRecord{
+		Seat:  state.CurrentSeat,
+		Play:  play,
+		Cards: dashengjiCardsFromIDs(cards),
+	})
+	winner, ok := dashengjiWinnerForPlays(plays, state.TrumpSuit, state.LevelRank)
+	return ok && winner == state.CurrentSeat
+}
+
+func dashengjiWinnerForPlays(plays []dashengjiPlayRecord, trumpSuit int, levelRank int) (int, bool) {
+	if len(plays) == 0 || len(plays[0].Cards) == 0 {
+		return -1, false
+	}
+	winner := plays[0].Seat
+	bestPlay := plays[0].Play
+	bestIsTrump := false
+	bestIsPadding := true
+	ledID := plays[0].Cards[0].ID
+	ledSuit := dashengjiSuit(ledID)
+	ledCat := dashengjiCategory(ledID%54, trumpSuit, levelRank)
+	ledIsMain := dashengjiIsMainCategory(ledCat)
+
+	for _, r := range plays {
+		if len(r.Cards) == 0 {
+			continue
+		}
+		id := r.Cards[0].ID
+		playCat := dashengjiCategory(id%54, trumpSuit, levelRank)
+		isFollowing := dashengjiFollowGroupMatch(id, ledSuit, ledCat, trumpSuit, levelRank)
+		isTrump := !isFollowing && !ledIsMain && dashengjiIsMainCategory(playCat)
+		isPadding := !isFollowing && !isTrump
+		if isPadding {
+			continue
+		}
+		if bestIsPadding {
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = isTrump
+			bestIsPadding = false
+			continue
+		}
+		if isTrump && !bestIsTrump {
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = true
+			continue
+		}
+		if !isTrump && bestIsTrump {
+			continue
+		}
+		if r.Play.MainRank > bestPlay.MainRank {
+			winner = r.Seat
+			bestPlay = r.Play
+			bestIsTrump = isTrump
+		}
+	}
+	return winner, true
+}
+
+func dashengjiCardsFromIDs(ids []int) []dashengjiCard {
+	cards := make([]dashengjiCard, len(ids))
+	for i, id := range ids {
+		cards[i] = dashengjiCard{ID: id}
+	}
+	return cards
+}
+
+func dashengjiRoundPlayPoints(plays []dashengjiPlayRecord) int {
+	points := 0
+	for _, record := range plays {
+		points += dashengjiCardsPoints(cardIDs(record.Cards))
+	}
+	return points
+}
+
+func dashengjiCardsPoints(cards []int) int {
+	points := 0
+	for _, id := range cards {
+		switch dashengjiBaseRank(id % 54) {
+		case 5:
+			points += 5
+		case 10, 13:
+			points += 10
+		}
+	}
+	return points
+}
+
+func dashengjiCardsTotalRank(cards []int, trumpSuit int, levelRank int) int {
+	total := 0
+	for _, id := range cards {
+		total += dashengjiCompareRank(id, trumpSuit, levelRank)
+	}
+	return total
+}
+
+func dashengjiSameTeam(a int, b int) bool {
+	return a >= 0 && b >= 0 && a%2 == b%2
+}
+
+func dashengjiIsDealer(seat int, state dashengjiState) bool {
+	return seat == state.DealerSeats[0] || seat == state.DealerSeats[1]
 }
 
 func firstDashengjiGroups(cards []int, n int, trumpSuit int, levelRank int) [][]int {

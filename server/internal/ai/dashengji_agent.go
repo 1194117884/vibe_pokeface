@@ -86,16 +86,22 @@ func (a *AIAgent) buildDashengjiSystemPrompt(phase string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("你在进行一场四人大升级/双升比赛，你是「%s」。\n", name))
+	sb.WriteString(fmt.Sprintf("你在进行一场四人打升级/双升比赛，你是「%s」。\n", name))
 	sb.WriteString(fmt.Sprintf("性格：%s。出牌风格：%s。\n", personality, playStyle))
 	sb.WriteString("必须调用当前阶段允许的工具；所有牌都必须使用整数ID，并且只能使用当前手牌里的整数ID。\n\n")
 	sb.WriteString("## 全局规则\n")
-	sb.WriteString("- 这是河北定州四人大升级：3副牌，4人2v2，对座为队友（0-2、1-3）。\n")
+	sb.WriteString("- 这是河北定州四人打升级：3副牌，4人2v2，对座为队友（0-2、1-3）。\n")
 	sb.WriteString("- 庄家队目标是跑分并守庄/升级；闲家队目标是抢分，达到下庄或升级。\n")
 	sb.WriteString("- 分牌：5=5分，10/K=10分；闲家赢一轮才累计该轮分，庄家赢一轮则这些分被跑掉。\n")
 	sb.WriteString("- 主牌：大王、小王、所有2、所有级牌、主花色牌。副牌是非主牌。\n")
 	sb.WriteString("- 大小顺序：副牌 < 主花色牌 < 副2 < 本2 < 副级牌 < 本级牌 < 小王 < 大王。\n")
 	sb.WriteString("- 支持牌型：单张、对子、刻子、拖拉机；领出后，本轮所有人必须出相同张数。\n\n")
+	sb.WriteString("## 出牌决策顺序\n")
+	sb.WriteString("- 先判主副：所有级牌和所有2都是主牌，不能再当原花色副牌跟出。\n")
+	sb.WriteString("- 再判跟牌：先满足领出花色/主副类别、牌型和张数，不能为了抢分破坏硬约束。\n")
+	sb.WriteString("- 再判本轮谁最大：队友最大就送分或垫低牌；对手最大才考虑抢回或避分。\n")
+	sb.WriteString("- 再判本轮分数：有分且能确定抢回时积极抢；抢不回时避免扔5、10、K。\n")
+	sb.WriteString("- 领出对子/高分牌前先看关键大牌是否已出；同花色对A未出时不要贸然领出对K。\n\n")
 	sb.WriteString("## 分阶段规则\n")
 	sb.WriteString("- 定主阶段：庄家队行动。只有王 + 同色2 + 同花色级牌才可set_trump；没有合法组合就pass_trump。带两张同花色级牌属于定死，通常更强。\n")
 	sb.WriteString("- 反主阶段：闲家队行动。只有王 + 同色2 + 两张同花色级牌才可counter_trump；不能合法反主就pass_counter，不要用单张级牌反主。\n")
@@ -153,8 +159,64 @@ func (a *AIAgent) buildDashengjiStatus() string {
 		sb.WriteString(fmt.Sprintf("本轮领出座位%d：%s\n", led.Seat, formatDashengjiCardsWithIDs(cardIDs(led.Cards))))
 		sb.WriteString(fmt.Sprintf("本轮需要跟出张数：%d\n", len(led.Cards)))
 		sb.WriteString(fmt.Sprintf("本轮领出牌型：%s\n", dashengjiPlayTypeName(led.Play.Type)))
+		sb.WriteString(a.buildDashengjiTrickSummary(state))
+	}
+	if summary := buildDashengjiKeyCardSummary(state); summary != "" {
+		sb.WriteString(summary)
 	}
 	return sb.String()
+}
+
+func (a *AIAgent) buildDashengjiTrickSummary(state dashengjiState) string {
+	view := dashengjiCurrentTrickView(state)
+	if !view.OK {
+		return ""
+	}
+	owner := "对手"
+	if dashengjiSameTeam(a.Seat, view.WinnerSeat) {
+		owner = "队友"
+	}
+	advice := "避分"
+	if owner == "队友" {
+		advice = "送分/垫低牌"
+	} else if dashengjiCanCurrentSeatWinAnyCandidate(state) {
+		advice = "能抢则抢分"
+	}
+	return fmt.Sprintf("本轮局势摘要：当前最大座位%d（%s），桌面已有%d分，建议：%s。\n", view.WinnerSeat, owner, view.Points, advice)
+}
+
+func buildDashengjiKeyCardSummary(state dashengjiState) string {
+	if state.TrumpSuit < 0 {
+		return ""
+	}
+	var risks []string
+	for suit := 0; suit < 4; suit++ {
+		if suit == state.TrumpSuit {
+			continue
+		}
+		aceFace := suit*13 + (14 - 3)
+		if dashengjiVisibleFaceCount(state, aceFace) < 2 {
+			risks = append(risks, fmt.Sprintf("%s对A未完全打出", dashengjiSuitName(suit)))
+		}
+	}
+	if len(risks) == 0 {
+		return ""
+	}
+	return "关键牌摘要：" + strings.Join(risks, "；") + "，领出同花色对K要谨慎。\n"
+}
+
+func dashengjiCanCurrentSeatWinAnyCandidate(state dashengjiState) bool {
+	hand := stateCurrentHandIDs(state)
+	if len(hand) == 0 || len(state.RoundPlays) == 0 {
+		return false
+	}
+	candidates := dashengjiFollowCandidates(append([]int(nil), hand...), state)
+	for _, candidate := range candidates {
+		if dashengjiCandidateWins(candidate.Cards, state) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *AIAgent) buildDashengjiPlayingRecords() string {

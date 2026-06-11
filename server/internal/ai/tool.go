@@ -366,7 +366,7 @@ func getDashengjiToolSchemas(base []ToolSchema, phase string) []ToolSchema {
 		)
 	default:
 		return append(base,
-			ToolSchema{Type: "function", Function: FuncDef{Name: "play_cards", Description: "大升级出牌，cards必须非空且全部来自当前手牌；跟牌必须先满足领出张数、牌型、花色和主副类别。", Parameters: cardArgs}},
+			ToolSchema{Type: "function", Function: FuncDef{Name: "play_cards", Description: "打升级出牌，cards必须非空且全部来自当前手牌；跟牌必须先满足领出张数、牌型、花色和主副类别。", Parameters: cardArgs}},
 		)
 	}
 }
