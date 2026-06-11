@@ -11,6 +11,8 @@ type Handler struct {
 	Rooms             *AdminRoomHandler
 	AIChars           *AICharacterHandler
 	LLMConfig         *LLMConfigHandler
+	AIRuns            *AIRunHandler
+	AITemplates       *AITemplateHandler
 	Scores            *ScoreHandler
 	RegistrationCodes *RegistrationCodesHandler
 }
@@ -22,6 +24,8 @@ func NewHandler(userStore *model.UserDB, gameStore *model.GameStore, aiStore *mo
 		Rooms:             NewAdminRoomHandler(gameStore),
 		AIChars:           NewAICharacterHandler(aiStore),
 		LLMConfig:         NewLLMConfigHandler(aiStore, aiStore),
+		AIRuns:            NewAIRunHandler(aiStore),
+		AITemplates:       NewAITemplateHandler(aiStore),
 		Scores:            NewScoreHandler(gameStore),
 		RegistrationCodes: NewRegistrationCodesHandler(regCodeStore),
 	}

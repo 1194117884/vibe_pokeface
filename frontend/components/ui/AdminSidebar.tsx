@@ -13,6 +13,8 @@ const navItems = [
   { href: "/admin/ai-characters", label: "AI Characters", icon: "🧑" },
   { href: "/admin/llm-config", label: "LLM Config", icon: "🤖" },
   { href: "/admin/stats", label: "LLM Stats", icon: "📈" },
+  { href: "/admin/ai-runs", label: "AI Runs", icon: "🧾" },
+  { href: "/admin/ai-templates", label: "AI Templates", icon: "🧩" },
 ];
 
 export function AdminSidebar() {

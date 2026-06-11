@@ -310,7 +310,7 @@ func (a *AIAgent) makeDecisionWithTools() {
 		messages = append(messages, ChatMessage{Role: "user", Content: retryMsg})
 	}
 
-	tools := GetToolSchemasForGame(a.gameTypeSnapshot(), phase)
+	tools := a.toolSchemasForPhase(phase)
 
 	for turn := 0; turn < 10; turn++ {
 		if a.isStopped() {
@@ -721,6 +721,11 @@ func toolCallJSON(call *ToolCall) string {
 }
 
 func (a *AIAgent) buildSystemPrompt(phase string) string {
+	defaultPrompt := a.buildDefaultSystemPrompt(phase)
+	return a.renderPublishedPrompt(phase, "system", defaultPrompt)
+}
+
+func (a *AIAgent) buildDefaultSystemPrompt(phase string) string {
 	if a.gameTypeSnapshot() == "dashengji" {
 		return a.buildDashengjiSystemPrompt(phase)
 	}
@@ -817,6 +822,11 @@ func (a *AIAgent) detectPhase() string {
 }
 
 func (a *AIAgent) buildUserMessage(phase string) string {
+	defaultMessage := a.buildDefaultUserMessage(phase)
+	return a.renderPublishedPrompt(phase, "user", defaultMessage)
+}
+
+func (a *AIAgent) buildDefaultUserMessage(phase string) string {
 	if a.gameTypeSnapshot() == "dashengji" {
 		return a.buildDashengjiUserMessage(phase)
 	}
