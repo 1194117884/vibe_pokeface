@@ -24,20 +24,23 @@ const (
 )
 
 type LLMResult struct {
-	Content          string
-	PromptTokens     int
-	CompletionTokens int
-	DurationMs       int
+	Content               string
+	PromptTokens          int
+	CompletionTokens      int
+	PromptCacheHitTokens  int
+	PromptCacheMissTokens int
+	DurationMs            int
+	RawResponseJSON       string
 }
 
 // ChatMessage represents a message in a tool-use conversation
 type ChatMessage struct {
-	Role       string              `json:"role"`
+	Role             string              `json:"role"`
 	Content          string              `json:"content,omitempty"`
 	ReasoningContent string              `json:"reasoning_content,omitempty"`
 	ToolCalls        []AssistantToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
-	Name       string              `json:"name,omitempty"`
+	ToolCallID       string              `json:"tool_call_id,omitempty"`
+	Name             string              `json:"name,omitempty"`
 }
 
 // AssistantToolCall represents a tool call from the LLM
@@ -161,8 +164,10 @@ func (p *OpenAIProvider) Complete(ctx context.Context, systemPrompt, userPrompt 
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens          int `json:"prompt_tokens"`
+			CompletionTokens      int `json:"completion_tokens"`
+			PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+			PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 		} `json:"usage"`
 	}
 
@@ -177,10 +182,13 @@ func (p *OpenAIProvider) Complete(ctx context.Context, systemPrompt, userPrompt 
 	}
 
 	return &LLMResult{
-		Content:          result.Choices[0].Message.Content,
-		PromptTokens:     result.Usage.PromptTokens,
-		CompletionTokens: result.Usage.CompletionTokens,
-		DurationMs:       duration,
+		Content:               result.Choices[0].Message.Content,
+		PromptTokens:          result.Usage.PromptTokens,
+		CompletionTokens:      result.Usage.CompletionTokens,
+		PromptCacheHitTokens:  result.Usage.PromptCacheHitTokens,
+		PromptCacheMissTokens: result.Usage.PromptCacheMissTokens,
+		DurationMs:            duration,
+		RawResponseJSON:       string(respBytes),
 	}, nil
 }
 
@@ -255,8 +263,10 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens          int `json:"prompt_tokens"`
+			CompletionTokens      int `json:"completion_tokens"`
+			PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+			PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 		} `json:"usage"`
 	}
 
@@ -272,14 +282,17 @@ func (p *OpenAIProvider) CompleteWithTools(ctx context.Context, messages []ChatM
 
 	return &LLMResultWithTools{
 		LLMResult: LLMResult{
-			Content:          result.Choices[0].Message.Content,
-			PromptTokens:     result.Usage.PromptTokens,
-			CompletionTokens: result.Usage.CompletionTokens,
-			DurationMs:       duration,
+			Content:               result.Choices[0].Message.Content,
+			PromptTokens:          result.Usage.PromptTokens,
+			CompletionTokens:      result.Usage.CompletionTokens,
+			PromptCacheHitTokens:  result.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: result.Usage.PromptCacheMissTokens,
+			DurationMs:            duration,
+			RawResponseJSON:       string(respBytes),
 		},
 		ReasoningContent: result.Choices[0].Message.ReasoningContent,
-			ToolCalls:        result.Choices[0].Message.ToolCalls,
-		}, nil
+		ToolCalls:        result.Choices[0].Message.ToolCalls,
+	}, nil
 }
 
 type AnthropicProvider struct {

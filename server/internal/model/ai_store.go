@@ -45,23 +45,27 @@ type ChatMessage struct {
 }
 
 type LLMCallLog struct {
-	ID               int64     `db:"id" json:"id"`
-	Provider         string    `db:"provider" json:"provider"`
-	Model            string    `db:"model" json:"model"`
-	PromptTokens     int       `db:"prompt_tokens" json:"prompt_tokens"`
-	CompletionTokens int       `db:"completion_tokens" json:"completion_tokens"`
-	DurationMs       int       `db:"duration_ms" json:"duration_ms"`
-	Success          bool      `db:"success" json:"success"`
-	ErrorMessage     *string   `db:"error_message" json:"error_message,omitempty"`
-	CallType         string    `db:"call_type" json:"call_type"`
-	RoomID           string    `db:"room_id" json:"room_id,omitempty"`
-	UserID           string    `db:"user_id" json:"user_id,omitempty"`
-	Seat             int       `db:"seat" json:"seat,omitempty"`
-	Phase            string    `db:"phase" json:"phase,omitempty"`
-	TurnNumber       int       `db:"turn_number" json:"turn_number,omitempty"`
-	RequestJSON      *string   `db:"request_json" json:"request_json,omitempty"`
-	ResponseJSON     *string   `db:"response_json" json:"response_json,omitempty"`
-	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	ID                    int64     `db:"id" json:"id"`
+	Provider              string    `db:"provider" json:"provider"`
+	Model                 string    `db:"model" json:"model"`
+	PromptTokens          int       `db:"prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens      int       `db:"completion_tokens" json:"completion_tokens"`
+	PromptCacheHitTokens  int       `db:"prompt_cache_hit_tokens" json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int       `db:"prompt_cache_miss_tokens" json:"prompt_cache_miss_tokens"`
+	DurationMs            int       `db:"duration_ms" json:"duration_ms"`
+	Success               bool      `db:"success" json:"success"`
+	ErrorMessage          *string   `db:"error_message" json:"error_message,omitempty"`
+	CallType              string    `db:"call_type" json:"call_type"`
+	RoomID                string    `db:"room_id" json:"room_id,omitempty"`
+	UserID                string    `db:"user_id" json:"user_id,omitempty"`
+	Seat                  int       `db:"seat" json:"seat"`
+	Phase                 string    `db:"phase" json:"phase,omitempty"`
+	TurnNumber            int       `db:"turn_number" json:"turn_number"`
+	RequestHash           *string   `db:"request_hash" json:"request_hash,omitempty"`
+	RequestJSON           *string   `db:"request_json" json:"request_json,omitempty"`
+	ResponseJSON          *string   `db:"response_json" json:"response_json,omitempty"`
+	RawResponseJSON       *string   `db:"raw_response_json" json:"raw_response_json,omitempty"`
+	CreatedAt             time.Time `db:"created_at" json:"created_at"`
 }
 
 type AiToolExecution struct {
@@ -75,23 +79,26 @@ type AiToolExecution struct {
 }
 
 type AIRunListItem struct {
-	ID               int64     `db:"id" json:"id"`
-	Provider         string    `db:"provider" json:"provider"`
-	Model            string    `db:"model" json:"model"`
-	PromptTokens     int       `db:"prompt_tokens" json:"prompt_tokens"`
-	CompletionTokens int       `db:"completion_tokens" json:"completion_tokens"`
-	DurationMs       int       `db:"duration_ms" json:"duration_ms"`
-	Success          bool      `db:"success" json:"success"`
-	ErrorMessage     *string   `db:"error_message" json:"error_message,omitempty"`
-	CallType         string    `db:"call_type" json:"call_type"`
-	RoomID           string    `db:"room_id" json:"room_id,omitempty"`
-	UserID           string    `db:"user_id" json:"user_id,omitempty"`
-	Seat             int       `db:"seat" json:"seat"`
-	Phase            string    `db:"phase" json:"phase,omitempty"`
-	TurnNumber       int       `db:"turn_number" json:"turn_number"`
-	ToolCount        int       `db:"tool_count" json:"tool_count"`
-	ActionCount      int       `db:"action_count" json:"action_count"`
-	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	ID                    int64     `db:"id" json:"id"`
+	Provider              string    `db:"provider" json:"provider"`
+	Model                 string    `db:"model" json:"model"`
+	PromptTokens          int       `db:"prompt_tokens" json:"prompt_tokens"`
+	CompletionTokens      int       `db:"completion_tokens" json:"completion_tokens"`
+	PromptCacheHitTokens  int       `db:"prompt_cache_hit_tokens" json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int       `db:"prompt_cache_miss_tokens" json:"prompt_cache_miss_tokens"`
+	DurationMs            int       `db:"duration_ms" json:"duration_ms"`
+	Success               bool      `db:"success" json:"success"`
+	ErrorMessage          *string   `db:"error_message" json:"error_message,omitempty"`
+	CallType              string    `db:"call_type" json:"call_type"`
+	RoomID                string    `db:"room_id" json:"room_id,omitempty"`
+	UserID                string    `db:"user_id" json:"user_id,omitempty"`
+	Seat                  int       `db:"seat" json:"seat"`
+	Phase                 string    `db:"phase" json:"phase,omitempty"`
+	TurnNumber            int       `db:"turn_number" json:"turn_number"`
+	RequestHash           *string   `db:"request_hash" json:"request_hash,omitempty"`
+	ToolCount             int       `db:"tool_count" json:"tool_count"`
+	ActionCount           int       `db:"action_count" json:"action_count"`
+	CreatedAt             time.Time `db:"created_at" json:"created_at"`
 }
 
 type AIRunDetail struct {
@@ -266,14 +273,16 @@ func (s *AIStore) GetChatHistory(ctx context.Context, roomID string, limit int) 
 func (s *AIStore) LogLLMCall(ctx context.Context, log *LLMCallLog) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO llm_call_logs
-		 (provider, model, prompt_tokens, completion_tokens, duration_ms, success,
-		  error_message, call_type, room_id, user_id, seat, phase, turn_number,
-		  request_json, response_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (provider, model, prompt_tokens, completion_tokens, prompt_cache_hit_tokens,
+		  prompt_cache_miss_tokens, duration_ms, success, error_message, call_type,
+		  room_id, user_id, seat, phase, turn_number, request_hash, request_json,
+		  response_json, raw_response_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		log.Provider, log.Model, log.PromptTokens, log.CompletionTokens,
-		log.DurationMs, log.Success, log.ErrorMessage, log.CallType,
+		log.PromptCacheHitTokens, log.PromptCacheMissTokens, log.DurationMs,
+		log.Success, log.ErrorMessage, log.CallType,
 		log.RoomID, log.UserID, log.Seat, log.Phase, log.TurnNumber,
-		log.RequestJSON, log.ResponseJSON)
+		log.RequestHash, log.RequestJSON, log.ResponseJSON, log.RawResponseJSON)
 	if err != nil {
 		return 0, err
 	}
@@ -325,8 +334,9 @@ func (s *AIStore) ListAIRuns(ctx context.Context, filter AIRunFilter) ([]AIRunLi
 	var runs []AIRunListItem
 	query := `
 		SELECT l.id, l.provider, l.model, l.prompt_tokens, l.completion_tokens,
+		       l.prompt_cache_hit_tokens, l.prompt_cache_miss_tokens,
 		       l.duration_ms, l.success, l.error_message, l.call_type, l.room_id,
-		       l.user_id, l.seat, l.phase, l.turn_number, l.created_at,
+		       l.user_id, l.seat, l.phase, l.turn_number, l.request_hash, l.created_at,
 		       COUNT(DISTINCT t.id) AS tool_count,
 		       COUNT(DISTINCT ga.id) AS action_count
 		  FROM llm_call_logs l

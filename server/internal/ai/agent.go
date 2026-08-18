@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -321,6 +323,7 @@ func (a *AIAgent) makeDecisionWithTools() {
 		// Capture request payload BEFORE the LLM call
 		captureStart := time.Now()
 		requestJSON := captureRequestJSON(messages, tools)
+		requestHash := hashString(requestJSON)
 		log.Printf("[AI:%s] timing capture_request_ms=%d phase=%s turn=%d", a.UserID, time.Since(captureStart).Milliseconds(), phase, turn)
 
 		ctx, cancel := a.decisionContext(60 * time.Second)
@@ -351,13 +354,17 @@ func (a *AIAgent) makeDecisionWithTools() {
 				Seat:         a.Seat,
 				Phase:        phase,
 				TurnNumber:   turn,
+				RequestHash:  jsonPtr(requestHash),
 				RequestJSON:  jsonPtr(requestJSON),
 				ResponseJSON: jsonPtr(responseJSON),
 			}
 			if err == nil {
 				llmCall.PromptTokens = result.PromptTokens
 				llmCall.CompletionTokens = result.CompletionTokens
+				llmCall.PromptCacheHitTokens = result.PromptCacheHitTokens
+				llmCall.PromptCacheMissTokens = result.PromptCacheMissTokens
 				llmCall.DurationMs = int(result.DurationMs)
+				llmCall.RawResponseJSON = jsonPtr(result.RawResponseJSON)
 			} else {
 				errMsg := err.Error()
 				llmCall.ErrorMessage = &errMsg
@@ -513,11 +520,25 @@ func captureResponseJSON(result *LLMResultWithTools, err error) string {
 	if err != nil || result == nil {
 		return ""
 	}
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(map[string]interface{}{
+		"content":                  result.Content,
+		"reasoning_content":        result.ReasoningContent,
+		"tool_calls":               result.ToolCalls,
+		"prompt_tokens":            result.PromptTokens,
+		"completion_tokens":        result.CompletionTokens,
+		"prompt_cache_hit_tokens":  result.PromptCacheHitTokens,
+		"prompt_cache_miss_tokens": result.PromptCacheMissTokens,
+		"duration_ms":              result.DurationMs,
+	})
 	if err != nil {
 		return ""
 	}
 	return string(data)
+}
+
+func hashString(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func jsonPtr(s string) *string {

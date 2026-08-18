@@ -11,6 +11,8 @@ interface AIRun {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
   duration_ms: number;
   success: boolean;
   error_message?: string;
@@ -20,6 +22,7 @@ interface AIRun {
   seat: number;
   phase?: string;
   turn_number: number;
+  request_hash?: string;
   tool_count: number;
   action_count: number;
   created_at: string;
@@ -46,6 +49,7 @@ interface GameAction {
 interface AIRunDetail extends AIRun {
   request_json?: string;
   response_json?: string;
+  raw_response_json?: string;
   tools?: ToolExecution[];
   game_actions?: GameAction[];
 }
@@ -61,10 +65,27 @@ function pretty(raw?: string) {
 
 function CodeBlock({ value }: { value?: string }) {
   return (
-    <pre className="max-h-[420px] overflow-auto rounded-[4px] bg-black/90 p-4 text-xs leading-relaxed text-white">
-      {pretty(value) || "Empty"}
-    </pre>
+    <div className="max-w-full overflow-x-auto">
+      <pre className="max-h-[420px] min-w-max overflow-y-auto rounded-[4px] bg-black/90 p-4 text-xs leading-relaxed text-white">
+        {pretty(value) || "Empty"}
+      </pre>
+    </div>
   );
+}
+
+function formatDuration(ms: number) {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
+function cacheTotal(run: Pick<AIRun, "prompt_cache_hit_tokens" | "prompt_cache_miss_tokens">) {
+  return (run.prompt_cache_hit_tokens || 0) + (run.prompt_cache_miss_tokens || 0);
+}
+
+function formatCacheRatio(run: Pick<AIRun, "prompt_cache_hit_tokens" | "prompt_cache_miss_tokens">) {
+  const total = cacheTotal(run);
+  if (total === 0) return "---";
+  return `${Math.round(((run.prompt_cache_hit_tokens || 0) / total) * 100)}%`;
 }
 
 export default function AIRunsPage() {
@@ -103,7 +124,7 @@ export default function AIRunsPage() {
   }, [query]);
 
   return (
-    <div>
+    <div className="max-w-full overflow-hidden">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-starbucks tracking-tight">AI Runs</h1>
         <p className="text-sm text-text-black-soft mt-0.5">Inspect LLM context, tool calls, and recorded actions.</p>
@@ -123,31 +144,37 @@ export default function AIRunsPage() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(420px,0.9fr)_1.4fr]">
-        <Card padding="md" className="overflow-hidden">
+      <div className="grid max-w-full grid-cols-1 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
+        <Card padding="md" className="min-w-0 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-cream text-left">
                   <th className="p-3">Time</th>
+                  <th className="p-3">Room ID</th>
                   <th className="p-3">Bot</th>
                   <th className="p-3">Phase</th>
                   <th className="p-3">Model</th>
+                  <th className="p-3">Duration</th>
+                  <th className="p-3">Cache</th>
                   <th className="p-3">Tools</th>
                   <th className="p-3">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td className="p-4 text-text-black-soft" colSpan={6}>Loading...</td></tr>
+                  <tr><td className="p-4 text-text-black-soft" colSpan={9}>Loading...</td></tr>
                 ) : runs.length === 0 ? (
-                  <tr><td className="p-4 text-text-black-soft" colSpan={6}>No AI runs found.</td></tr>
+                  <tr><td className="p-4 text-text-black-soft" colSpan={9}>No AI runs found.</td></tr>
                 ) : runs.map((run) => (
                   <tr key={run.id} onClick={() => loadDetail(run.id)} className="cursor-pointer border-b border-cream last:border-b-0 hover:bg-cream/50">
                     <td className="p-3 whitespace-nowrap">{new Date(run.created_at).toLocaleString()}</td>
+                    <td className="p-3 font-mono text-xs">{run.room_id || "---"}</td>
                     <td className="p-3 font-mono text-xs">{run.user_id || "---"} / seat {run.seat}</td>
                     <td className="p-3">{run.phase || "---"}</td>
                     <td className="p-3">{run.provider}:{run.model}</td>
+                    <td className="p-3 whitespace-nowrap font-mono text-xs">{formatDuration(run.duration_ms)}</td>
+                    <td className="p-3 whitespace-nowrap font-mono text-xs">{formatCacheRatio(run)}</td>
                     <td className="p-3">{run.tool_count}</td>
                     <td className="p-3">
                       <span className={`rounded-[4px] px-2 py-1 text-xs font-semibold ${run.success ? "bg-green-light text-starbucks" : "bg-red-error/10 text-red-error"}`}>
@@ -161,16 +188,18 @@ export default function AIRunsPage() {
           </div>
         </Card>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           {!selected ? (
             <Card padding="lg"><p className="text-text-black-soft">Select a run to inspect full context.</p></Card>
           ) : (
             <>
-              <Card padding="md">
+              <Card padding="md" className="min-w-0 overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-bold text-text-black">Run #{selected.id}</h2>
                     <p className="text-sm text-text-black-soft">{selected.provider}:{selected.model} · {selected.duration_ms}ms · {(selected.prompt_tokens + selected.completion_tokens).toLocaleString()} tokens</p>
+                    <p className="mt-1 font-mono text-xs text-text-black-soft">room {selected.room_id || "---"} · {selected.user_id || "---"} · seat {selected.seat} · phase {selected.phase || "---"}</p>
+                    <p className="mt-1 font-mono text-xs text-text-black-soft">request {selected.request_hash ? selected.request_hash.slice(0, 16) : "---"} · cache {formatCacheRatio(selected)}</p>
                   </div>
                   <span className={`rounded-[4px] px-3 py-1 text-sm font-semibold ${selected.success ? "bg-green-light text-starbucks" : "bg-red-error/10 text-red-error"}`}>
                     {selected.success ? "Success" : "Failed"}
@@ -179,21 +208,48 @@ export default function AIRunsPage() {
                 {selected.error_message && <p className="mt-3 text-sm text-red-error">{selected.error_message}</p>}
               </Card>
 
-              <Card padding="md">
+              <Card padding="md" className="min-w-0 overflow-hidden">
+                <h3 className="mb-3 font-semibold text-text-black">Cache Usage</h3>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="rounded-[4px] border border-cream p-3">
+                    <p className="text-xs uppercase text-text-black-soft">Hit Tokens</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text-black">{(selected.prompt_cache_hit_tokens || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-[4px] border border-cream p-3">
+                    <p className="text-xs uppercase text-text-black-soft">Miss Tokens</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text-black">{(selected.prompt_cache_miss_tokens || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-[4px] border border-cream p-3">
+                    <p className="text-xs uppercase text-text-black-soft">Hit Ratio</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text-black">{formatCacheRatio(selected)}</p>
+                  </div>
+                  <div className="rounded-[4px] border border-cream p-3">
+                    <p className="text-xs uppercase text-text-black-soft">Request Hash</p>
+                    <p className="mt-1 truncate font-mono text-sm font-semibold text-text-black" title={selected.request_hash || ""}>{selected.request_hash || "---"}</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card padding="md" className="min-w-0 overflow-hidden">
                 <h3 className="mb-3 font-semibold text-text-black">Request Context</h3>
                 <CodeBlock value={selected.request_json} />
               </Card>
 
-              <Card padding="md">
+              <Card padding="md" className="min-w-0 overflow-hidden">
                 <h3 className="mb-3 font-semibold text-text-black">Model Response</h3>
                 <CodeBlock value={selected.response_json} />
               </Card>
 
-              <Card padding="md">
+              <Card padding="md" className="min-w-0 overflow-hidden">
+                <h3 className="mb-3 font-semibold text-text-black">Raw Provider Response</h3>
+                <CodeBlock value={selected.raw_response_json} />
+              </Card>
+
+              <Card padding="md" className="min-w-0 overflow-hidden">
                 <h3 className="mb-3 font-semibold text-text-black">Tool Executions</h3>
                 <div className="space-y-4">
                   {(selected.tools || []).map((tool) => (
-                    <div key={tool.id} className="rounded-[4px] border border-cream p-3">
+                    <div key={tool.id} className="min-w-0 rounded-[4px] border border-cream p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="font-semibold text-text-black">{tool.tool_name}</p>
                         <p className="text-xs text-text-black-soft">{tool.tool_type}</p>
@@ -208,7 +264,7 @@ export default function AIRunsPage() {
                 </div>
               </Card>
 
-              <Card padding="md">
+              <Card padding="md" className="min-w-0 overflow-hidden">
                 <h3 className="mb-3 font-semibold text-text-black">Game Actions</h3>
                 <CodeBlock value={JSON.stringify(selected.game_actions || [])} />
               </Card>
